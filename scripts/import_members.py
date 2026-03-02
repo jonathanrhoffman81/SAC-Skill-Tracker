@@ -23,7 +23,7 @@ ORG_ID = os.getenv("ORG_ID")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 print(
-    supabase.table("members")
+    supabase.table("member")
     .select("*")
     .limit(1)
     .execute()
@@ -56,8 +56,8 @@ for index, row in df.iterrows():
                 "%m/%d/%Y"
             ).strftime("%Y-%m-%d")
 
-        response = supabase.table("members").insert({
-            "org_id": ORG_ID,
+        response = supabase.table("member").insert({
+            "organization_id": ORG_ID,
             "first_name": first_name,
             "last_name": last_name,
             "gender": gender,
