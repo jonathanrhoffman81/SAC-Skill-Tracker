@@ -1,11 +1,11 @@
-INSERT INTO skill_definitions (org_id, name)
+INSERT INTO skill (organization_id, name)
 VALUES
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Submerging'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Rhythmic Breathing'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Front float'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Front Glide'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Back Float'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Back Glide'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Roll from back float to front'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Roll from front float to back'),
-('37066922-8a50-4cab-baaf-7fd05fa06999', 'Kicking');
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Submerging'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Rhythmic Breathing'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Front float'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Front Glide'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Back Float'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Back Glide'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Roll from back float to front'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Roll from front float to back'),
+('055d5124-d442-43c9-a0ea-96fdeb04ef4a', 'Kicking');
