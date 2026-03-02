@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import InstructorClassView from './instructorClassView';
 
 interface InstructorClass {
   id: string;
@@ -54,6 +55,7 @@ function formatPct(mastered: number, total: number) {
 export default function InstructorDashboard() {
   const router = useRouter();
   const [userName, setUserName] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
@@ -136,6 +138,17 @@ export default function InstructorDashboard() {
     []
   );
 
+  // If a class is selected, show the class view
+  if (selectedClassId) {
+    return (
+      <InstructorClassView
+        classId={selectedClassId}
+        onBack={() => setSelectedClassId(null)}
+        onSwimmerClick={(swimmerId) => router.push(`/instructor/swimmers/${swimmerId}`)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -180,8 +193,7 @@ export default function InstructorDashboard() {
                 <button
                   key={cls.id}
                   className="w-full text-left px-6 py-4 hover:bg-gray-50 transition"
-                  // TODO: route to attendance/class page, e.g. /instructor/class/[id]
-                  onClick={() => console.log('open class', cls.id)}
+                  onClick={() => setSelectedClassId(cls.id)}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
@@ -277,8 +289,7 @@ export default function InstructorDashboard() {
                 <button
                   key={swimmer.id}
                   className="text-left bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:border-gray-300 transition"
-                  // TODO: route to swimmer detail, e.g. /instructor/swimmer/[id]
-                  onClick={() => console.log('open swimmer', swimmer.id)}
+                  onClick={() => router.push(`/instructor/swimmers/${swimmer.id}`)}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
