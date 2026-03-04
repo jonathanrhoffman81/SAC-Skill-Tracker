@@ -55,14 +55,24 @@ export default function Signup() {
         },
       });
 
+      // If email confirmation is enabled
       if (error) throw error;
 
-      // If email confirmation is enabled
-      if (!data.session) {
-        alert(
-          "Signup successful! Please check your email to confirm your account.",
+      if (data.user && data.user.identities?.length === 0) {
+        setError(
+          "An account with this email already exists. Please login instead.",
         );
+        return;
       }
+
+      alert(
+        "Signup successful! Please check your email to confirm your account.",
+      );
+      router.push("/login");
+
+      alert(
+        "Signup successful! Please check your email to confirm your account.",
+      );
 
       router.push("/login");
     } catch (err: any) {
