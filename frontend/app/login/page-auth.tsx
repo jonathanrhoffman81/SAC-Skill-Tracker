@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function Login() {
   const router = useRouter();
@@ -14,58 +15,65 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // const handleSSOLogin = () => {
-  //     setIsLoading(true);
+  const [password, setPassword] = useState("");
 
-  //     const clientId = process.env.NEXT_PUBLIC_SPORTSENGINE_CLIENT_ID;
-  //     const redirectUri = `${window.location.origin}/api/auth/callback`;
-
-  //     const authUrl = `https://user.sportsengine.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
-
-  //     window.location.href = authUrl;
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!fullName.trim()) {
-      setError("Please enter your name");
-      return;
-    }
+    try {
+      if (!email.trim()) throw new Error("Enter email");
+      if (!password.trim()) throw new Error("Enter password");
 
-    if (!email.trim()) {
-      setError("Please enter your email");
-      return;
-    }
+      setLoading(true);
 
-    if (!role) {
-      setError("Please select a role");
-      return;
-    }
+      // Authenticate user
+      // const { data, error } = await supabase.auth.signInWithPassword({
+      //   email,
+      //   password,
+      // });
 
-    // Store user info in localStorage
-    localStorage.setItem(
-      "user",
-      JSON.stringify({ name: fullName, email, role }),
-    );
+      localStorage.setItem("user", JSON.stringify({ email })); // Store email for dashboard data fetching
+      // console.log("Login Response:", { data, error });
+      if (error) throw error;
 
-    // TODO: query person by email to get person_id
-    // go from there to determine role and redirect to appropriate dashboard
-    // For now, just redirect based on selected role
+      // await supabase.auth.refreshSession();
 
-    // Redirect based on role
-    if (role === "instructor") {
-      router.push("/instructor/dashboard");
-    } else if (role === "account") {
-      router.push("/account/dashboard");
-    } else if (role === "admin") {
-      router.push("/admin/dashboard");
-    } else if (role === "superadmin") {
-      router.push("/super-admin/dashboard");
+      // const { data: person, error: personError } = await supabase
+      //   .from("person")
+      //   .select("*")
+      //   .eq("auth_user_id", data.user.id)
+      //   .maybeSingle();
+
+      // if (personError) throw personError;
+      // if (!person) throw new Error("User profile not found");
+
+      // Redirect based on role
+      switch (role) {
+        case "admin":
+          router.push("/admin/dashboard");
+          break;
+
+        case "superadmin":
+          router.push("/super-admin/dashboard");
+          break;
+
+        case "human":
+          router.push("/account/dashboard");
+          break;
+
+        default:
+          router.push("/");
+      }
+    } catch (err: any) {
+      console.error("Login Error:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
@@ -133,6 +141,22 @@ export default function Login() {
               className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Password
+            </label>
+            {/* Password Input */}
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter password"
+              className="w-full px-4 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
 
           {/* Role Selector */}
           <div>
@@ -169,6 +193,15 @@ export default function Login() {
             Continue
           </button>
         </form>
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Don't have an account?{" "}
+          <button
+            onClick={() => router.push("/signup")}
+            className="text-blue-600 hover:underline"
+          >
+            Sign Up
+          </button>
+        </p>
       </div>
     </div>
   );

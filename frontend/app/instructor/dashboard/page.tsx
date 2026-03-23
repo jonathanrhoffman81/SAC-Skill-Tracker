@@ -1,41 +1,41 @@
 /**
  * SAC/Instructor dashboard page
- * Purpose: overview dashboard focused on instructor roster, progress, schedule, and recent notes.
+ * Purpose: overview dashboard focused on instructor roster and skill evaluation.
  */
 
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import InstructorClassView from './instructorClassView';
+import EvaluationForm from '@/components/EvaluationForm';
 
-interface InstructorClass {
-  id: string;
-  time: string;
-  level: string;
-  swimmers: number;
-  location: string;
-}
-
-interface RosterSwimmerCard {
+interface DashboardClass {
   id: string;
   name: string;
-  level: string;
-  nextSession: string;
+  schedule: string;
 }
 
-interface NoteItem {
-  id: string;
-  swimmerName: string;
-  note: string;
-  date: string;
-}
-
-interface SkillItem {
+interface DashboardSkill {
   id: string;
   name: string;
-  mastered: boolean; // true if date_acquired is not null in member_skill
+  progress: 0 | 25 | 50 | 75 | 100;
+  mastered: boolean;
   dateAcquired?: string;
+}
+
+interface DashboardSwimmer {
+  id: string;
+  name: string;
+  level: string;
+  classes: DashboardClass[];
+  skills: DashboardSkill[];
+}
+
+interface DashboardPayload {
+  userName: string;
+  organizationName?: string;
+  swimmers: DashboardSwimmer[];
+  error?: string;
 }
 
 function getInitials(name: string) {
@@ -54,335 +54,249 @@ function formatPct(mastered: number, total: number) {
 
 export default function InstructorDashboard() {
   const router = useRouter();
-  const [userName, setUserName] = useState('');
-  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [userName, setUserName] = useState('Guest User');
+  const [userEmail, setUserEmail] = useState('');
+  const [organizationName, setOrganizationName] = useState('SAC Skill Tracker');
+  const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  async function loadDashboardData(emailOverride?: string) {
+    const email = emailOverride || userEmail;
+    if (!email) return;
+
+    try {
+      setIsLoading(true);
+      setError('');
+
+      const response = await fetch(`/api/instructor/dashboard?email=${encodeURIComponent(email)}`);
+      const payload = (await response.json()) as DashboardPayload;
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to load instructor dashboard data.');
+      }
+
+      setUserName((prev) => payload.userName || prev);
+      setOrganizationName(payload.organizationName || 'SAC Skill Tracker');
+      setSwimmers(payload.swimmers ?? []);
+    } catch (fetchError) {
+      const message =
+        fetchError instanceof Error ? fetchError.message : 'Unexpected error loading dashboard.';
+
+      setError(message);
+      setSwimmers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
-    if (stored) {
-      const userData = JSON.parse(stored);
-      setUserName(userData.name || '');
+    if (!stored) {
+      setError('Missing local user session. Please log in again.');
+      setIsLoading(false);
+      return;
     }
 
-    // TODO: using person_id from user data, query instructor assignments
-    // e.g., instructor_class + enrollment -> members for roster
+    const userData = JSON.parse(stored);
+    const localName = userData.name || 'Guest User';
+    const email = userData.email || '';
+
+    setUserName(localName);
+    setUserEmail(email);
+
+    if (!email) {
+      setError('Missing user email from login session.');
+      setIsLoading(false);
+      return;
+    }
+
+    loadDashboardData(email);
   }, []);
 
-  // TODO: query instructor_class for today's schedule,
-  // join class_entity for time/location/level,
-  // join enrollment for swimmer counts
+  const visibleSwimmers = useMemo(() => {
+    if (!searchQuery) {
+      return swimmers;
+    }
 
-  const todayClasses: InstructorClass[] = useMemo(
-    () => [
-      { id: 'c1', time: '4:00 PM', level: 'Level 1', swimmers: 8, location: 'Pool A' },
-      { id: 'c2', time: '5:00 PM', level: 'Level 2', swimmers: 12, location: 'Pool A' },
-      { id: 'c3', time: '6:00 PM', level: 'Level 3', swimmers: 10, location: 'Pool B' },
-    ],
-    []
-  );
+    const query = searchQuery.toLowerCase();
+    return swimmers.filter((swimmer) => swimmer.name.toLowerCase().includes(query));
+  }, [swimmers, searchQuery]);
 
-  // TODO: roster should come from instructor roster (all members assigned to instructor)
-  // join member -> person for swimmer names, join enrollment/class_entity for nextSession
-  // for now we can hardcode a few swimmers and their next session times
-
-  const swimmers: RosterSwimmerCard[] = useMemo(
-    () => [
-      { id: 'swimmer-1', name: 'Emma Johnson', level: 'Level 2', nextSession: 'Feb 12, 2026 at 5:00 PM' },
-      { id: 'swimmer-2', name: 'Liam Smith', level: 'Level 3', nextSession: 'Feb 12, 2026 at 6:00 PM' },
-      { id: 'swimmer-3', name: 'Olivia Brown', level: 'Level 2', nextSession: 'Feb 12, 2026 at 5:00 PM' },
-      { id: 'swimmer-4', name: 'Noah Davis', level: 'Level 1', nextSession: 'Feb 12, 2026 at 4:00 PM' },
-    ],
-    []
-  );
-
-  // TODO: query member_skill joined with skill by member_id
-  // to get individual skill names, progress, and date_acquired
-  // for now we can hardcode some skills for each swimmer, with a mix of mastered/unmastered and dates
-
-  const skillsBySwimmer: Record<string, SkillItem[]> = useMemo(
-    () => ({
-      'swimmer-1': [
-        { id: 's1', name: 'Freestyle breathing', mastered: true, dateAcquired: 'Feb 10, 2026' },
-        { id: 's2', name: 'Backstroke arms', mastered: true, dateAcquired: 'Jan 28, 2026' },
-        { id: 's3', name: 'Flip turn', mastered: false },
-        { id: 's4', name: 'Butterfly kick', mastered: false },
-      ],
-      'swimmer-2': [
-        { id: 's5', name: 'Streamline push-off', mastered: true, dateAcquired: 'Feb 6, 2026' },
-        { id: 's6', name: 'Breaststroke timing', mastered: false },
-        { id: 's7', name: 'Underwater dolphin', mastered: false },
-      ],
-      'swimmer-3': [
-        { id: 's8', name: 'Water comfort', mastered: true, dateAcquired: 'Feb 8, 2026' },
-        { id: 's9', name: 'Freestyle arms', mastered: true, dateAcquired: 'Feb 1, 2026' },
-        { id: 's10', name: 'Backstroke kick', mastered: false },
-      ],
-      'swimmer-4': [
-        { id: 's11', name: 'Bubbles & breath control', mastered: false },
-        { id: 's12', name: 'Front float', mastered: true, dateAcquired: 'Feb 9, 2026' },
-        { id: 's13', name: 'Back float', mastered: false },
-      ],
-    }),
-    []
-  );
-
-  // TODO: query evaluation/notes by instructor_id (or by members assigned),
-  // order by date desc
-
-  const notes: NoteItem[] = useMemo(
-    () => [
-      { id: 'n1', swimmerName: 'Emma Johnson', note: 'Breathing timing improved; needs tighter streamline.', date: 'Feb 10, 2026' },
-      { id: 'n2', swimmerName: 'Noah Davis', note: 'Great effort today. Still hesitant to put face in water.', date: 'Feb 9, 2026' },
-      { id: 'n3', swimmerName: 'Liam Smith', note: 'Strong kick set; work on breaststroke coordination next.', date: 'Feb 8, 2026' },
-    ],
-    []
-  );
-
-  // If a class is selected, show the class view
-  if (selectedClassId) {
-    return (
-      <InstructorClassView
-        classId={selectedClassId}
-        onBack={() => setSelectedClassId(null)}
-        onSwimmerClick={(swimmerId) => router.push(`/instructor/swimmers/${swimmerId}`)}
-      />
-    );
-  }
+  const handleSwimmerClick = (swimmerId: string) => {
+    setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">SAC Skill Tracker</h1>
-            <p className="text-sm text-gray-500">Instructor Dashboard</p>
+      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 sm:h-9 sm:w-9 sm:rounded-xl">
+              <svg className="h-4 w-4 text-white sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">{organizationName}</p>
+              <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">Instructor Dashboard</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="text-right">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden text-right md:block">
               <p className="text-sm font-medium text-gray-900">{userName || 'Guest User'}</p>
-              <span className="inline-flex items-center px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded-full">
-                Instructor
-              </span>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Instructor</span>
+            </div>
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
+              {getInitials(userName)}
             </div>
             <button
               onClick={() => {
                 localStorage.removeItem('user');
                 router.push('/login');
               }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
             >
-              Sign Out
+              <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        {/* Top row: Today’s schedule + quick stats */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Today’s classes - embed the date next to todays classes */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900">Today's Classes <time className="text-xs text-gray-500">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</time></h2> 
-              <p className="text-xs text-gray-500">Tap a class to take attendance or review roster.</p>
-            </div>
-
-            <div className="divide-y divide-gray-100">
-              {todayClasses.map((cls) => (
-                <button
-                  key={cls.id}
-                  className="w-full text-left px-6 py-4 hover:bg-gray-50 transition"
-                  onClick={() => setSelectedClassId(cls.id)}
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="px-3 py-2 rounded-lg bg-gray-100">
-                        <p className="text-sm font-semibold text-gray-900">{cls.time}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{cls.level}</p>
-                        <p className="text-xs text-gray-500">{cls.location}</p>
-                      </div>
-                    </div>
-                    <span className="inline-flex items-center px-3 py-1 text-xs font-semibold bg-gray-900 text-white rounded-full">
-                      {cls.swimmers} swimmers
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
+      <main className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
+        {isLoading && (
+          <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 sm:gap-3 sm:p-4">
+            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600 sm:h-5 sm:w-5" />
+            <p className="text-xs text-blue-800 sm:text-sm">Loading instructor dashboard...</p>
           </div>
+        )}
 
-          {/* Quick stats */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-            {(() => {
-              const totalSwimmers = swimmers.length;
-              const totalSkills = swimmers.reduce((acc, s) => acc + (skillsBySwimmer[s.id]?.length ?? 0), 0);
-              const masteredSkills = swimmers.reduce(
-                (acc, s) => acc + (skillsBySwimmer[s.id]?.filter((x) => x.mastered).length ?? 0),
-                0
-              );
-              const pct = formatPct(masteredSkills, totalSkills);
-
-              return (
-                <>
-                  <p className="text-xs font-medium text-gray-500">Overview</p>
-                  <p className="mt-1 text-lg font-semibold text-gray-900">My Roster</p>
-
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Swimmers</span>
-                      <span className="text-sm font-semibold text-gray-900">{totalSwimmers}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Skills Mastered</span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {masteredSkills}/{totalSkills}
-                      </span>
-                    </div>
-
-                    <div className="pt-2">
-                      <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                        <span>Overall mastery</span>
-                        <span>{pct}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-gray-900" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </section>
-
-        {/* Swimmer roster cards */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <span className="inline-flex items-center px-3 py-1 text-xs font-semibold bg-white border border-gray-200 rounded-full">
-              My Swimmers
-            </span>
-
-            {/* Optional lightweight search input (pure UI for now) */}
-            <div className="hidden md:flex items-center gap-2">
-              <input
-                className="h-9 w-64 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-gray-200"
-                placeholder="Search swimmers..."
-                // TODO: wire to state filter
-              />
-              <button className="h-9 px-3 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
-                Filter
+        {!isLoading && error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 sm:p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-3">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-red-800 sm:text-sm">Failed to load dashboard</p>
+                  <p className="mt-0.5 break-words text-[10px] text-red-700 sm:mt-1 sm:text-xs">{error}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => loadDashboardData()}
+                className="whitespace-nowrap rounded-md bg-red-100 px-2 py-1 text-[10px] text-red-800 transition-colors hover:bg-red-200 sm:px-3 sm:py-1.5 sm:text-xs"
+              >
+                Retry
               </button>
             </div>
           </div>
+        )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {swimmers.map((swimmer) => {
-              const skills = skillsBySwimmer[swimmer.id] || [];
-              const mastered = skills.filter((s) => s.mastered).length;
-              const pct = formatPct(mastered, skills.length);
+        <section>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold">
+              My Swimmers
+            </span>
+            <div className="w-full max-w-xs">
+              <input
+                type="text"
+                placeholder="Search swimmers..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {visibleSwimmers.map((swimmer) => {
+              const mastered = swimmer.skills.filter((skill) => skill.mastered).length;
+              const pct = formatPct(mastered, swimmer.skills.length);
+              const isOpen = openSwimmerId === swimmer.id;
 
               return (
-                <button
-                  key={swimmer.id}
-                  className="text-left bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:border-gray-300 transition"
-                  onClick={() => router.push(`/instructor/swimmers/${swimmer.id}`)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center text-sm font-semibold text-gray-700">
-                        {getInitials(swimmer.name)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
-                        <p className="text-xs text-gray-500">{swimmer.level}</p>
-                        <p className="text-xs text-gray-400 mt-1">Next: {swimmer.nextSession}</p>
-                      </div>
-                    </div>
-
-                    <span className="inline-flex items-center px-3 py-1 text-xs font-semibold bg-gray-900 text-white rounded-full">
-                      {pct}%
-                    </span>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                      <span>
-                        Overall Progress ({mastered}/{skills.length} skills)
-                      </span>
-                      <span>{pct}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-gray-900" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <p className="text-xs font-medium text-gray-500 mb-2">Skills</p>
-                    <div className="space-y-1">
-                      {skills.slice(0, 4).map((skill) => (
-                        <div key={skill.id} className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`h-4 w-4 rounded-full flex items-center justify-center text-xs ${
-                                skill.mastered ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'
-                              }`}
-                            >
-                              {skill.mastered ? '✓' : '○'}
-                            </span>
-                            <span className="text-xs text-gray-700">{skill.name}</span>
-                          </div>
-                          {skill.mastered && skill.dateAcquired && (
-                            <span className="text-xs text-gray-400">{skill.dateAcquired}</span>
-                          )}
+                <div key={swimmer.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                  <button
+                    className="w-full p-5 text-left transition hover:bg-gray-50 sm:p-6"
+                    onClick={() => handleSwimmerClick(swimmer.id)}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700">
+                          {getInitials(swimmer.name)}
                         </div>
-                      ))}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                              {swimmer.level}
+                            </span>
+                            <button
+                              type="button"
+                              className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                router.push(`/instructor/swimmers/${swimmer.id}`);
+                              }}
+                            >
+                              View full profile
+                            </button>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            <span>{mastered}/{swimmer.skills.length} skills acquired</span>
+                            <span>{pct}% complete</span>
+                            {swimmer.classes.map((classItem) => (
+                              <span
+                                key={classItem.id}
+                                className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600"
+                              >
+                                {classItem.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
 
-                      {skills.length > 4 && (
-                        <p className="text-xs text-gray-400 pt-1">+ {skills.length - 4} more…</p>
-                      )}
+                      <svg
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
+                          isOpen ? 'rotate-180' : ''
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
-                  </div>
-                </button>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-gray-100 p-5 sm:p-6">
+                      <EvaluationForm
+                        swimmerId={swimmer.id}
+                        userEmail={userEmail}
+                        skills={swimmer.skills}
+                        classes={swimmer.classes}
+                        onSubmissionComplete={() => loadDashboardData()}
+                      />
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
-        </section>
 
-        {/* Recent notes */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <span className="inline-flex items-center px-3 py-1 text-xs font-semibold bg-white border border-gray-200 rounded-full">
-              Recent Notes
-            </span>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900">Instructor Notes</h2>
-              <p className="text-xs text-gray-500">Recent feedback you’ve logged across swimmers.</p>
+          {!isLoading && !error && visibleSwimmers.length === 0 && (
+            <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
+              No swimmers assigned to you yet.
             </div>
-
-            <div className="divide-y divide-gray-100">
-              {notes.map((note) => (
-                <div key={note.id} className="px-6 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="h-7 w-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-700">
-                        {getInitials(note.swimmerName)}
-                      </span>
-                      <p className="text-sm font-semibold text-gray-900">{note.swimmerName}</p>
-                    </div>
-                    <span className="text-xs text-gray-400">{note.date}</span>
-                  </div>
-                  <p className="text-sm text-gray-600 mt-2">{note.note}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
         </section>
       </main>
     </div>
