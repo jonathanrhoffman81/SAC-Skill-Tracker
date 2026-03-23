@@ -312,23 +312,24 @@ function EntityEditor({
   const [searchFilter, setSearchFilter] = useState("");
 
   // Deduplicate swimmers by name to handle database duplicates
-  const deduplicatedList = type === "swimmers"
-    ? Array.from(
-      new Map(
-        state.list.map((item) => {
-          const displayName = config.displayName(item);
-          return [displayName.toLowerCase(), item];
-        })
-      ).values()
-    )
-    : state.list;
+  const deduplicatedList =
+    type === "swimmers"
+      ? Array.from(
+          new Map(
+            state.list.map((item) => {
+              const displayName = config.displayName(item);
+              return [displayName.toLowerCase(), item];
+            }),
+          ).values(),
+        )
+      : state.list;
 
   // Filter list by name if searching
   const filteredList = searchFilter.trim()
     ? deduplicatedList.filter((item) => {
-      const displayName = config.displayName(item).toLowerCase();
-      return displayName.includes(searchFilter.toLowerCase());
-    })
+        const displayName = config.displayName(item).toLowerCase();
+        return displayName.includes(searchFilter.toLowerCase());
+      })
     : deduplicatedList;
 
   return (
@@ -385,7 +386,10 @@ function EntityEditor({
       ) : (
         <div className="space-y-3">
           {filteredList.map((item) => (
-            <div key={item.id} className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 group">
+            <div
+              key={item.id}
+              className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 group"
+            >
               <div className="flex items-center gap-2 py-1">
                 {state.editingId === item.id ? (
                   <>
@@ -483,23 +487,35 @@ function EntityEditor({
               </div>
 
               {/* Show children for parents */}
-              {type === "parents" && (item as any).children && (item as any).children.length > 0 && (
-                <div className="mt-2 ml-3 pl-3 border-l-2 border-gray-300">
-                  <p className="text-xs text-gray-600 font-semibold mb-1">Children:</p>
-                  <div className="space-y-1">
-                    {(item as any).children.map((child: any) => (
-                      <div key={child.member_id} className="text-xs text-gray-700">
-                        {`${child.first_name || ''} ${child.last_name || ''}`.trim() || 'Unnamed'}
-                      </div>
-                    ))}
+              {type === "parents" &&
+                (item as any).children &&
+                (item as any).children.length > 0 && (
+                  <div className="mt-2 ml-3 pl-3 border-l-2 border-gray-300">
+                    <p className="text-xs text-gray-600 font-semibold mb-1">
+                      Children:
+                    </p>
+                    <div className="space-y-1">
+                      {(item as any).children.map((child: any) => (
+                        <div
+                          key={child.member_id}
+                          className="text-xs text-gray-700"
+                        >
+                          {`${child.first_name || ""} ${child.last_name || ""}`.trim() ||
+                            "Unnamed"}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-              {type === "parents" && (!((item as any).children) || (item as any).children.length === 0) && (
-                <div className="mt-2 ml-3 pl-3 border-l-2 border-gray-300">
-                  <p className="text-xs text-gray-500 italic">No children linked</p>
-                </div>
-              )}
+                )}
+              {type === "parents" &&
+                (!(item as any).children ||
+                  (item as any).children.length === 0) && (
+                  <div className="mt-2 ml-3 pl-3 border-l-2 border-gray-300">
+                    <p className="text-xs text-gray-500 italic">
+                      No children linked
+                    </p>
+                  </div>
+                )}
             </div>
           ))}
         </div>
@@ -879,7 +895,10 @@ export default function AdminDashboard() {
       showToast(`${ENTITY_CONFIG[type].singularLabel} updated`, "success");
     } catch (err) {
       console.error(`Error updating ${type}:`, err);
-      showToast(`Failed to update ${ENTITY_CONFIG[type].singularLabel}`, "error");
+      showToast(
+        `Failed to update ${ENTITY_CONFIG[type].singularLabel}`,
+        "error",
+      );
     }
   };
 
@@ -921,7 +940,10 @@ export default function AdminDashboard() {
       showToast(`${ENTITY_CONFIG[type].singularLabel} deleted`, "success");
     } catch (err) {
       console.error(`Error deleting ${type}:`, err);
-      showToast(`Failed to delete ${ENTITY_CONFIG[type].singularLabel}`, "error");
+      showToast(
+        `Failed to delete ${ENTITY_CONFIG[type].singularLabel}`,
+        "error",
+      );
     }
   };
 
@@ -1066,10 +1088,11 @@ export default function AdminDashboard() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${activeTab === tab.id
-                ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:from-blue-600 hover:to-blue-700 transform hover:-translate-y-0.5"
-                : "bg-white text-gray-700 border border-gray-200 hover:border-blue-300 hover:shadow-md hover:bg-blue-50 shadow-sm"
-                }`}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:from-blue-600 hover:to-blue-700 transform hover:-translate-y-0.5"
+                  : "bg-white text-gray-700 border border-gray-200 hover:border-blue-300 hover:shadow-md hover:bg-blue-50 shadow-sm"
+              }`}
             >
               <span className="[&>svg]:w-3.5 [&>svg]:h-3.5 sm:[&>svg]:w-4 sm:[&>svg]:h-4">
                 {tab.icon}
@@ -1089,7 +1112,10 @@ export default function AdminDashboard() {
               </h2>
             </div>
 
-            <ImportRoster organizationId={stats?.organizationId} />
+            <ImportRoster
+              organizationId={stats?.organizationId}
+              onImportComplete={() => fetchStats()}
+            />
           </div>
         )}
 
@@ -1180,10 +1206,15 @@ export default function AdminDashboard() {
             {/* Right-side demote confirmation */}
             {demoteConfirmDialog.show && (
               <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
-                <p className="text-sm font-semibold text-gray-900">Demote Admin</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  Demote Admin
+                </p>
                 <p className="mt-1 text-xs sm:text-sm text-gray-600">
-                  Demote <span className="font-medium">{demoteConfirmDialog.personName}</span>?
-                  They will keep instructor permissions but lose admin access.
+                  Demote{" "}
+                  <span className="font-medium">
+                    {demoteConfirmDialog.personName}
+                  </span>
+                  ? They will keep instructor permissions but lose admin access.
                 </p>
                 <div className="mt-3 flex justify-end gap-2">
                   <button
@@ -1234,9 +1265,7 @@ export default function AdminDashboard() {
 
         {/* Instructor Assignments Tab - kept mounted for instant tab switching */}
         <div className={activeTab === "assignments" ? "" : "hidden"}>
-          <InstructorAssignmentManager
-            userEmail={userEmail}
-          />
+          <InstructorAssignmentManager userEmail={userEmail} />
         </div>
 
         {/* All other entity tabs use the generic EntityEditor component */}
@@ -1250,7 +1279,9 @@ export default function AdminDashboard() {
               state={entities[activeTab as EntityType]}
               onAdd={() => handleAdd(activeTab as EntityType)}
               onUpdate={(id) => handleUpdate(activeTab as EntityType, id)}
-              onDelete={(id) => requestDeleteEntity(activeTab as EntityType, id)}
+              onDelete={(id) =>
+                requestDeleteEntity(activeTab as EntityType, id)
+              }
               onStartEdit={(item) =>
                 setEntities((prev) => ({
                   ...prev,
@@ -1298,10 +1329,11 @@ export default function AdminDashboard() {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${toast.type === "success"
-                ? "bg-green-50 border-green-200 text-green-800"
-                : "bg-red-50 border-red-200 text-red-800"
-                }`}
+              className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
+                toast.type === "success"
+                  ? "bg-green-50 border-green-200 text-green-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}
             >
               {toast.message}
             </div>
@@ -1311,9 +1343,15 @@ export default function AdminDashboard() {
         {/* Right-side delete confirmation */}
         {entityDeleteDialog.show && (
           <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
-            <p className="text-sm font-semibold text-gray-900">Confirm Delete</p>
+            <p className="text-sm font-semibold text-gray-900">
+              Confirm Delete
+            </p>
             <p className="mt-1 text-xs sm:text-sm text-gray-600 break-words">
-              Delete <span className="font-medium">{entityDeleteDialog.entityLabel}</span>?
+              Delete{" "}
+              <span className="font-medium">
+                {entityDeleteDialog.entityLabel}
+              </span>
+              ?
             </p>
             <div className="mt-3 flex justify-end gap-2">
               <button

@@ -3,8 +3,10 @@ import Papa from "papaparse";
 
 export default function ImportRoster({
   organizationId,
+  onImportComplete,
 }: {
   organizationId?: string;
+  onImportComplete?: () => void;
 }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -151,6 +153,7 @@ export default function ImportRoster({
         setImportedInstructorCount(data.importedInstructors);
 
         setSelectedFile(null); // reset file after success
+        onImportComplete?.();
       } else {
         setErrors([data.error || "Import failed"]);
       }
