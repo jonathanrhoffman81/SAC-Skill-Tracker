@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { normalizeEmail } from "@/lib/authRoles";
 
-export default function Signup() {
+function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
@@ -254,5 +254,21 @@ export default function Signup() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function Signup() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center text-gray-600">
+            Loading signup...
+          </div>
+        </div>
+      }
+    >
+      <SignupForm />
+    </Suspense>
   );
 }
