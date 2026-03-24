@@ -2,29 +2,33 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { useSearchParams } from "next/navigation";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { normalizeEmail } from "@/lib/authRoles";
 
 export default function Signup() {
   const router = useRouter();
-  const [fullName, setFullName] = useState("");
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const prefilledEmail = normalizeEmail(String(searchParams.get("email") || ""));
+  const effectiveEmail = email || prefilledEmail;
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
     setLoading(true);
 
     try {
-      if (!fullName.trim()) {
-        throw new Error("Please enter your name");
-      }
+      const normalizedEmail = normalizeEmail(effectiveEmail);
 
-      if (!email.trim()) {
+      if (!normalizedEmail) {
         throw new Error("Please enter your email");
       }
 
@@ -36,45 +40,106 @@ export default function Signup() {
         throw new Error("Passwords do not match");
       }
 
-      if (!role) {
-        throw new Error("Please select a role");
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error(
+          "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your frontend .env.local file.",
+        );
       }
 
-      const nameParts = fullName.trim().split(" ");
+      const checkEmailResponse = await fetch(
+        `/api/auth/check-email?email=${encodeURIComponent(normalizedEmail)}`,
+      );
 
-      // ONLY create auth user
+      if (!checkEmailResponse.ok) {
+        const checkEmailError = await checkEmailResponse
+          .json()
+          .catch(() => ({ error: "Failed to verify email." }));
+        throw new Error(checkEmailError.error || "Failed to verify email.");
+      }
+
+      const checkEmailPayload = await checkEmailResponse.json();
+
+      if (!checkEmailPayload.existsInRoster) {
+        throw new Error(
+          "This email is not in the SAC roster. Use the same email as TeamEngine or contact an admin.",
+        );
+      }
+
+      if (!checkEmailPayload.hasActiveOrganization) {
+        throw new Error(
+          "This email is on file but is not active in an organization. Please contact an admin.",
+        );
+      }
+
+      const firstName = String(checkEmailPayload.firstName || "").trim();
+      const lastName = String(checkEmailPayload.lastName || "").trim();
+      const role = String(checkEmailPayload.role || "account").trim();
+      const dbRole = String(checkEmailPayload.dbRole || role || "account").trim();
+      const personId = String(checkEmailPayload.personId || "").trim();
+      const fullName = `${firstName || "Member"} ${lastName || ""}`.trim();
+
+      // Create auth user only. Person linkage is handled by DB trigger using person_id/email metadata.
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
         options: {
           data: {
-            first_name: nameParts[0],
-            last_name: nameParts.slice(1).join(" ") || null,
-            role: role,
+            person_id: personId || null,
+            full_name: fullName,
+            first_name: firstName || "Member",
+            last_name: lastName || "",
+            email: normalizedEmail,
+            role,
+            user_role: role,
+            db_role: dbRole,
           },
         },
       });
 
-      // If email confirmation is enabled
-      if (error) throw error;
+      if (error) {
+        const message = String(error.message || "");
+        const normalizedMessage = message.toLowerCase();
+
+        if (
+          normalizedMessage.includes("email address") &&
+          normalizedMessage.includes("invalid")
+        ) {
+          throw new Error(
+            "Email format was rejected by Auth. Re-type email manually (no quotes/spaces) and try again.",
+          );
+        }
+
+        if (
+          normalizedMessage.includes("rate limit") ||
+          normalizedMessage.includes("over_email_send_rate_limit")
+        ) {
+          throw new Error(
+            "Too many signup attempts in a short time. Please wait a minute and try again.",
+          );
+        }
+
+        if (
+          normalizedMessage.includes("database error saving new user")
+        ) {
+          throw new Error(
+            "Could not create auth account due to a database trigger/config issue. Ask admin to check Supabase Auth triggers for required metadata.",
+          );
+        }
+        throw error;
+      }
 
       if (data.user && data.user.identities?.length === 0) {
         setError(
-          "An account with this email already exists. Please login instead.",
+          "An account with this email already exists. Please login or use Forgot Password.",
         );
         return;
       }
 
-      alert(
-        "Signup successful! Please check your email to confirm your account.",
+      setSuccess(
+        `Welcome to SAC Skill Tracker! We sent a confirmation link to ${normalizedEmail}. After confirming, come back and sign in.`,
       );
-      router.push("/login");
-
-      alert(
-        "Signup successful! Please check your email to confirm your account.",
-      );
-
-      router.push("/login");
+      setPassword("");
+      setConfirmPassword("");
     } catch (err: any) {
       console.error("Signup Error:", err);
       setError(err.message);
@@ -115,20 +180,23 @@ export default function Signup() {
 
         <form onSubmit={handleSignup} className="space-y-4">
           <input
-            type="text"
-            placeholder="Full Name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md"
-          />
-
-          <input
             type="email"
             placeholder="Email"
-            value={email}
+            value={effectiveEmail}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full px-4 py-2 border border-gray-300 rounded-md"
           />
+
+          {prefilledEmail && (
+            <p className="text-xs text-gray-600">
+              We prefilled your email from login. Set your password here if this
+              is your first time signing in.
+            </p>
+          )}
+
+          <p className="text-xs text-gray-600">
+            Use the same email as your TeamEngine account.
+          </p>
 
           <input
             type="password"
@@ -146,20 +214,14 @@ export default function Signup() {
             className="w-full px-4 py-2 border border-gray-300 rounded-md"
           />
 
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md"
-          >
-            <option value="">Select your role</option>
-            <option value="instructor">Instructor</option>
-            <option value="account">Parent/Swimmer</option>
-            <option value="admin">Admin</option>
-            <option value="superadmin">Super Admin</option>
-          </select>
-
           {error && (
             <div className="text-red-600 text-sm text-center">{error}</div>
+          )}
+
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-md px-4 py-3">
+              {success}
+            </div>
           )}
 
           <button
@@ -169,6 +231,16 @@ export default function Signup() {
           >
             {loading ? "Creating Account..." : "Sign Up"}
           </button>
+
+          {success && (
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              className="w-full border border-blue-600 text-blue-600 py-3 rounded-md"
+            >
+              Go to Login
+            </button>
+          )}
         </form>
 
         <p className="text-center text-sm text-gray-600 mt-6">
