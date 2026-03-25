@@ -11,6 +11,7 @@ import InstructorManager from "@/components/InstructorManager";
 import ClassManager from "@/components/ClassManager";
 import InstructorAssignmentManager from "@/components/InstructorAssignmentManager";
 import ImportRoster from "@/components/ImportRoster";
+import LogoManage from "@/components/LogoManage";
 
 // Dashboard statistics from admin API
 interface AdminStats {
@@ -39,7 +40,7 @@ interface EntityState {
 }
 
 type EntityType = "skills" | "instructors" | "swimmers" | "parents" | "classes";
-type Tab = EntityType | "roster" | "admins" | "assignments";
+type Tab = EntityType | "roster" | "admins" | "assignments" | "settings";
 
 interface OrgPerson {
   person_id: string;
@@ -254,6 +255,25 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   {
     id: "roster",
     label: "Roster Management",
+    icon: (
+      <svg
+        className="w-4 h-4"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: "settings",
+    label: "Settings",
     icon: (
       <svg
         className="w-4 h-4"
@@ -539,6 +559,7 @@ export default function AdminDashboard() {
   const [promotingAdmin, setPromotingAdmin] = useState(false);
   const [demotingAdmin, setDemotingAdmin] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [demoteConfirmDialog, setDemoteConfirmDialog] = useState<{
     show: boolean;
     personId: string | null;
@@ -559,6 +580,36 @@ export default function AdminDashboard() {
     }, 3500);
   };
 
+  useEffect(() => {
+    const fetchLogo = async () => {
+      if (!userEmail) return;
+
+      try {
+        const res = await fetch(
+          `/api/admin/get-logo?email=${encodeURIComponent(userEmail)}`,
+        );
+        const data = await res.json();
+
+        if (data.publicUrl) {
+          setLogoUrl(data.publicUrl);
+        } else {
+          setLogoUrl(null);
+        }
+      } catch (err) {
+        console.error("Error fetching logo from API:", err);
+        setLogoUrl(null);
+      }
+    };
+
+    fetchLogo();
+  }, [userEmail]);
+
+  const getInitials = (name: string) =>
+    name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase();
   // Single generic state object manages all 5 entity types
   // Structure: { skills: {...}, instructors: {...}, swimmers: {...}, parents: {...}, classes: {...} }
   const [entities, setEntities] = useState<Record<EntityType, EntityState>>({
@@ -953,9 +1004,35 @@ export default function AdminDashboard() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0">
+            {/* Logo or fallback icon */}
+            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="Organization Logo"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display =
+                      "none";
+                  }}
+                />
+              ) : (
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5 text-white absolute"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+              )}
               <svg
-                className="w-4 h-4 sm:w-5 sm:h-5 text-white"
+                className="w-4 h-4 sm:w-5 sm:h-5 text-white absolute"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -968,6 +1045,7 @@ export default function AdminDashboard() {
                 />
               </svg>
             </div>
+
             <div className="min-w-0">
               <p className="text-xs sm:text-sm font-bold text-gray-900 truncate">
                 {stats?.organizationName || "SAC Skill Tracker"}
@@ -977,6 +1055,7 @@ export default function AdminDashboard() {
               </p>
             </div>
           </div>
+
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="text-right hidden md:block">
               <p className="text-sm font-medium text-gray-900">{userName}</p>
@@ -1115,6 +1194,16 @@ export default function AdminDashboard() {
             <ImportRoster
               organizationId={stats?.organizationId}
               onImportComplete={() => fetchStats()}
+            />
+          </div>
+        )}
+        {activeTab === "settings" && stats?.organizationId && (
+          <div className="bg-white p-6 rounded-xl border">
+            <h2 className="font-semibold mb-4">Organization Settings</h2>
+
+            <LogoManage
+              organizationId={stats.organizationId}
+              userEmail={userEmail}
             />
           </div>
         )}
@@ -1273,7 +1362,8 @@ export default function AdminDashboard() {
           activeTab !== "admins" &&
           activeTab !== "instructors" &&
           activeTab !== "classes" &&
-          activeTab !== "assignments" && (
+          activeTab !== "assignments" &&
+          activeTab !== "settings" && (
             <EntityEditor
               type={activeTab as EntityType}
               state={entities[activeTab as EntityType]}
