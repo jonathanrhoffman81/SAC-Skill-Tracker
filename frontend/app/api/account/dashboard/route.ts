@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
-type SkillProgress = 0 | 25 | 50 | 75 | 100;
+type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
 interface DashboardPayload {
   userName: string;
@@ -23,7 +23,7 @@ interface DashboardPayload {
     Array<{
       id: string;
       name: string;
-      progress?: 0 | 25 | 50 | 75 | 100;
+      progress?: 0 | 1 | 2 | 3 | 4;
       mastered: boolean;
       dateAcquired?: string | null;
       notes?: Array<{
@@ -36,12 +36,7 @@ interface DashboardPayload {
   >;
 }
 
-function normalizeProgress(value?: number | null, mastered?: boolean): SkillProgress {
-  if (value === 0 || value === 25 || value === 50 || value === 75 || value === 100) {
-    return value;
-  }
-  return mastered ? 100 : 0;
-}
+
 
 function formatDate(value?: string | null): string | null {
   if (!value) return null;
@@ -112,7 +107,7 @@ export async function GET(request: NextRequest) {
       (memberSkillRows ?? []).forEach((row) => {
         const key = `${row.member_id}:${row.skill_id}`;
         progressByMemberSkill.set(key, {
-          progress: normalizeProgress(row.progress, Boolean(row.date_acquired)),
+          progress: row.progress,
           dateAcquired: formatDate(row.date_acquired),
         });
       });
@@ -126,14 +121,14 @@ export async function GET(request: NextRequest) {
             if (!memberSkill) {
               return {
                 ...skill,
-                progress: normalizeProgress(skill.progress, skill.mastered),
+                progress: skill.progress,
               };
             }
 
             return {
               ...skill,
               progress: memberSkill.progress,
-              mastered: memberSkill.progress === 100,
+              mastered: memberSkill.progress === 4,
               dateAcquired: memberSkill.dateAcquired ?? skill.dateAcquired ?? null,
             };
           }),

@@ -61,19 +61,18 @@ function getInitials(name: string) {
 }
 
 function getProgressBadgeClass(progress: number) {
-    if (progress >= 100) return 'bg-emerald-100 text-emerald-700';
-    if (progress >= 75) return 'bg-blue-100 text-blue-700';
-    if (progress >= 50) return 'bg-amber-100 text-amber-700';
-    if (progress >= 25) return 'bg-orange-100 text-orange-700';
+    if (progress === 4) return 'bg-emerald-100 text-emerald-700';
+    if (progress === 3) return 'bg-blue-100 text-blue-700';
+    if (progress === 2) return 'bg-amber-100 text-amber-700';
+    if (progress === 1) return 'bg-orange-100 text-orange-700';
     return 'bg-gray-100 text-gray-600';
 }
-
 function getProgressStageLabel(progress: number) {
-    if (progress >= 100) return 'Acquired';
-    if (progress >= 75) return 'Nearly there';
-    if (progress >= 50) return 'Developing';
-    if (progress >= 25) return 'Beginning';
-    return 'Not started';
+    if (progress === 4) return 'Demonstrates complete understanding of the skill';
+    if (progress === 3) return 'Consistently able to demonstrate of the skill';
+    if (progress === 2) return 'Inconsistently able to demonstrate the skill';
+    if (progress === 1) return 'Unable to demonstrate skill without significant support';
+    return 'Unable to attempt the skill';
 }
 
 function isSkillFormattedFeedback(text: string) {
@@ -315,7 +314,7 @@ export default function ParentSwimmerDetail() {
                                                 <span
                                                     className={`rounded-full px-2 py-0.5 ${getProgressBadgeClass(skill.progress)}`}
                                                 >
-                                                    {skill.progress}% - {getProgressStageLabel(skill.progress)}
+                                                    {skill.progress} - {getProgressStageLabel(skill.progress)}
                                                 </span>
                                             </div>
                                         </div>
