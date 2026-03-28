@@ -102,9 +102,9 @@ as $$
         jsonb_build_object(
           'id', ms.skill_id,
           'name', coalesce(s.name, 'Unknown skill'),
-          'progress', coalesce(ms.progress, case when ms.date_acquired is not null then 100 else 0 end),
+          'progress', ms.progress,
           'mastered', (
-            coalesce(ms.progress, case when ms.date_acquired is not null then 100 else 0 end) = 100
+            ms.progress = 4
             or ms.date_acquired is not null
           ),
           'dateAcquired', case
@@ -113,7 +113,7 @@ as $$
           end,
           'notes', coalesce(sng.notes, '[]'::jsonb)
         )
-        order by coalesce(ms.progress, case when ms.date_acquired is not null then 100 else 0 end) desc, s.name asc
+        order by ms.progress desc, s.name asc
       ) as skills
     from member_skill ms
     left join skill s on s.skill_id = ms.skill_id

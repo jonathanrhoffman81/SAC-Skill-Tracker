@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 interface SkillItem {
   id: string;
   name: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -24,12 +24,12 @@ interface EvaluationFormProps {
   onSubmissionComplete?: () => void;
 }
 
-const PROGRESS_OPTIONS: Array<{ value: 0 | 25 | 50 | 75 | 100; label: string }> = [
-  { value: 0, label: '0% - Not started' },
-  { value: 25, label: '25% - Beginning' },
-  { value: 50, label: '50% - Developing' },
-  { value: 75, label: '75% - Nearly there' },
-  { value: 100, label: '100% - Acquired' },
+const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
+  { value: 0, label: '0 - Not started' },
+  { value: 1, label: '1 - Beginning' },
+  { value: 2, label: '2 - Developing' },
+  { value: 3, label: '3 - Nearly there' },
+  { value: 4, label: '4 - Acquired' },
 ];
 
 export default function EvaluationForm({
@@ -216,13 +216,12 @@ export default function EvaluationForm({
                   <p className="text-sm font-medium text-gray-900">{skill.name}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                     <span
-                      className={`rounded-full px-2 py-0.5 ${
-                        progress === 100
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
+                      className={`rounded-full px-2 py-0.5 ${progress === 4
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-gray-100 text-gray-600'
+                        }`}
                     >
-                      {progress}% progress
+                      {progress} progress
                     </span>
                     {skill.dateAcquired && (
                       <span>Acquired on {skill.dateAcquired}</span>
@@ -241,11 +240,10 @@ export default function EvaluationForm({
                       return (
                         <label
                           key={option.value}
-                          className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                            isActive
-                              ? 'border-blue-600 bg-blue-50 text-blue-700'
-                              : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
-                          }`}
+                          className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${isActive
+                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
+                            }`}
                         >
                           <input
                             type="radio"

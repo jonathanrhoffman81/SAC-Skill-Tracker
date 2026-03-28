@@ -61,19 +61,19 @@ function getInitials(name: string) {
 }
 
 function getProgressBadgeClass(progress: number) {
-  if (progress >= 100) return "bg-emerald-100 text-emerald-700";
-  if (progress >= 75) return "bg-blue-100 text-blue-700";
-  if (progress >= 50) return "bg-amber-100 text-amber-700";
-  if (progress >= 25) return "bg-orange-100 text-orange-700";
+  if (progress === 4) return "bg-emerald-100 text-emerald-700";
+  if (progress === 3) return "bg-blue-100 text-blue-700";
+  if (progress === 2) return "bg-amber-100 text-amber-700";
+  if (progress === 1) return "bg-orange-100 text-orange-700";
   return "bg-gray-100 text-gray-600";
 }
-
 function getProgressStageLabel(progress: number) {
-  if (progress >= 100) return "Acquired";
-  if (progress >= 75) return "Nearly there";
-  if (progress >= 50) return "Developing";
-  if (progress >= 25) return "Beginning";
-  return "Not started";
+  if (progress === 4) return "Demonstrates complete understanding of the skill";
+  if (progress === 3) return "Consistently able to demonstrate of the skill";
+  if (progress === 2) return "Inconsistently able to demonstrate the skill";
+  if (progress === 1)
+    return "Unable to demonstrate skill without significant support";
+  return "Unable to attempt the skill";
 }
 
 function isSkillFormattedFeedback(text: string) {
@@ -228,8 +228,195 @@ export default function ParentSwimmerDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="text-sm text-gray-600">Loading swimmer details...</div>
+      <div className="min-h-screen bg-gray-50">
+        <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+          <div className="mx-auto max-w-4xl px-6 py-4">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.back()}
+                className="-ml-2 rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-lg font-semibold text-gray-700">
+                  {getInitials(swimmer?.name ?? "Unknown")}
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-gray-900">
+                    {swimmer?.name}
+                  </h1>
+                  <p className="text-xs text-gray-500">Parent View</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+          <section className="rounded-xl border border-gray-200 bg-white p-6">
+            <h3 className="mb-4 text-sm font-semibold text-gray-900">
+              Swimmer Profile
+            </h3>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div>
+                <p className="text-xs text-gray-500">Level</p>
+                <p className="text-sm text-gray-900">{swimmer?.level}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Age</p>
+                <p className="text-sm text-gray-900">
+                  {swimmer?.age ?? "Not available"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Enrollment Date</p>
+                <p className="text-sm text-gray-900">
+                  {swimmer?.enrollmentDate || "Not available"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Overall Progress</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  {progressPct}%
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-white p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Skills</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  Each skill includes its own instructor updates.
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Skills Acquired</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  {masteredCount}/{skills.length}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 -mx-6 border-t border-gray-100" />
+
+            <div className="mt-4 -mx-6 divide-y divide-gray-100">
+              {skills.map((skill) => {
+                const skillNotes = skill.notes ?? [];
+
+                return (
+                  <div key={skill.id} className="space-y-3 px-6 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p
+                          className={`text-sm ${skill.mastered ? "text-gray-900" : "text-gray-600"}`}
+                        >
+                          {skill.name}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          <span
+                            className={`rounded-full px-2 py-0.5 ${getProgressBadgeClass(skill.progress)}`}
+                          >
+                            {skill.progress} -{" "}
+                            {getProgressStageLabel(skill.progress)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {skill.dateAcquired && (
+                        <span className="text-xs text-gray-500">
+                          Updated on {skill.dateAcquired}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-semibold text-gray-700">
+                        Notes for this skill
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        {skillNotes.length > 0 ? (
+                          skillNotes.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="rounded-lg border border-gray-200 bg-white px-3 py-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                <span>{entry.author}</span>
+                                <span>{entry.date}</span>
+                              </div>
+                              <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
+                                {entry.content}
+                              </p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-gray-500">
+                            No notes for this skill yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {skills.length === 0 && (
+                <div className="px-6 py-6 text-sm text-gray-500">
+                  No skills tracked for this swimmer yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 -mx-6 border-t border-gray-100" />
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900">
+                  Session Notes
+                </h4>
+                <p className="mt-1 text-xs text-gray-500">
+                  General notes not tied to a specific skill.
+                </p>
+              </div>
+
+              {cleanSessionNotes.length > 0 ? (
+                cleanSessionNotes.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      <span>{entry.author}</span>
+                      <span>{entry.date}</span>
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
+                      {entry.content}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500">
+                  No session notes recorded yet.
+                </p>
+              )}
+            </div>
+          </section>
+        </main>
       </div>
     );
   }

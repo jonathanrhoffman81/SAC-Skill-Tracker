@@ -1,24 +1,23 @@
+"use client";
+// Proficiency descriptions for each progress value
+const PROFICIENCY_LABELS: Record<SkillProgress, string> = {
+  0: 'Unable to attempt the skill',
+  1: 'Unable to demonstrate skill without significant support',
+  2: 'Inconsistently able to demonstrate the skill',
+  3: 'Consistently able to demonstrate of the skill',
+  4: 'Demonstrates complete understanding of the skill',
+};
 /**
  * Swimm/Adult Swimmer dashboard page
  * Purpose: overview dashboard focused on swimmer progress and skill-level updates.
  */
 
-'use client';
-
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type SkillProgress = 0 | 25 | 50 | 75 | 100;
+type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
-const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 25, 50, 75, 100];
-
-const SKILL_PROGRESS_LABELS: Record<SkillProgress, string> = {
-  0: 'Not started',
-  25: 'Beginning',
-  50: 'Developing',
-  75: 'Nearly there',
-  100: 'Acquired',
-};
+const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
 
 const DASHBOARD_CACHE_PREFIX = 'account-dashboard-cache:';
 
@@ -60,29 +59,20 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function normalizeSkillProgress(value: unknown, mastered?: boolean): SkillProgress {
-  const numericValue = typeof value === 'number' ? value : Number(value);
-  if (SKILL_PROGRESS_STEPS.includes(numericValue as SkillProgress)) {
-    return numericValue as SkillProgress;
-  }
-
-  return mastered ? 100 : 0;
-}
 
 function getProgressBadgeClasses(progress: SkillProgress) {
-  if (progress === 100) {
-    return 'bg-emerald-100 text-emerald-700';
+  switch (progress) {
+    case 4:
+      return 'bg-emerald-100 text-emerald-700';
+    case 3:
+      return 'bg-blue-100 text-blue-700';
+    case 2:
+      return 'bg-amber-100 text-amber-700';
+    case 1:
+      return 'bg-orange-100 text-orange-700';
+    default:
+      return 'bg-gray-100 text-gray-600';
   }
-  if (progress >= 75) {
-    return 'bg-blue-100 text-blue-700';
-  }
-  if (progress >= 50) {
-    return 'bg-amber-100 text-amber-700';
-  }
-  if (progress >= 25) {
-    return 'bg-orange-100 text-orange-700';
-  }
-  return 'bg-gray-100 text-gray-600';
 }
 
 export default function AccountDashboard() {
@@ -102,14 +92,10 @@ export default function AccountDashboard() {
       return Object.fromEntries(
         Object.entries(skillsBySwimmer ?? {}).map(([swimmerId, skills]) => [
           swimmerId,
-          (skills ?? []).map((skill) => {
-            const progress = normalizeSkillProgress(skill.progress, skill.mastered);
-            return {
-              ...skill,
-              progress,
-              mastered: progress === 100,
-            };
-          }),
+          (skills ?? []).map((skill) => ({
+            ...skill,
+            // progress is already 0-4, mastered is set by backend
+          })),
         ])
       ) as Record<string, SkillItem[]>;
     }
@@ -263,6 +249,19 @@ export default function AccountDashboard() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
+        {/* Proficiency Scale for Parents */}
+        <section className="mb-4">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+            <h2 className="text-sm font-semibold text-blue-900 mb-2">Proficiency Scale</h2>
+            <ul className="text-xs text-blue-900 space-y-1 pl-2">
+              <li><span className="font-bold">0.</span> Unable to attempt the skill</li>
+              <li><span className="font-bold">1.</span> Unable to show skill without significant support</li>
+              <li><span className="font-bold">2.</span> Inconsistently or with support is able to demonstrate the skill</li>
+              <li><span className="font-bold">3.</span> Consistently demonstrates application of the skill</li>
+              <li><span className="font-bold">4.</span> Demonstrates complete understanding of the skill</li>
+            </ul>
+          </div>
+        </section>
         {/* Loading Banner */}
         {isLoading && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
@@ -305,7 +304,7 @@ export default function AccountDashboard() {
           <div className="space-y-4">
             {uniqueSwimmers.map((swimmer) => {
               const skills = skillsBySwimmer[swimmer.id] || [];
-              const acquiredCount = skills.filter((s) => s.progress === 100).length;
+              const acquiredCount = skills.filter((s) => s.progress === 4).length;
               const pct = getOverallPct(skills);
               const isOpen = openSwimmerIds.includes(swimmer.id);
 
@@ -409,11 +408,10 @@ export default function AccountDashboard() {
                                       </span>
                                     )}
                                     <span
-                                      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${getProgressBadgeClasses(
-                                        skill.progress
-                                      )}`}
+                                      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${getProgressBadgeClasses(skill.progress)}`}
+                                      title={PROFICIENCY_LABELS[skill.progress as SkillProgress]}
                                     >
-                                      {skill.progress}% - {SKILL_PROGRESS_LABELS[skill.progress]}
+                                      {skill.progress} - {PROFICIENCY_LABELS[skill.progress as SkillProgress]}
                                     </span>
                                   </div>
                                 </div>
