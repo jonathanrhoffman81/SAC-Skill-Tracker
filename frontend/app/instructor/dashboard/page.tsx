@@ -62,21 +62,24 @@ export default function InstructorDashboard() {
   const [userName, setUserName] = useState('Guest User');
   const [userEmail, setUserEmail] = useState('');
   const [organizationName, setOrganizationName] = useState('SAC Skill Tracker');
+  const [swimmerTab, setSwimmerTab] = useState<'my' | 'all'>('my');
   const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function loadDashboardData(emailOverride?: string) {
+  async function loadDashboardData(emailOverride?: string, tab?: 'my' | 'all') {
     const email = emailOverride || userEmail;
+    const activeTab = tab || swimmerTab;
     if (!email) return;
 
     try {
       setIsLoading(true);
       setError('');
 
-      const response = await fetch(`/api/instructor/dashboard?email=${encodeURIComponent(email)}`);
+      const endpoint = activeTab === 'all' ? '/api/instructor/all-swimmers' : '/api/instructor/dashboard';
+      const response = await fetch(`${endpoint}?email=${encodeURIComponent(email)}`);
       const payload = (await response.json()) as DashboardPayload;
 
       if (!response.ok) {
@@ -238,9 +241,34 @@ export default function InstructorDashboard() {
 
         <section>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold">
-              My Swimmers
-            </span>
+            <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-1">
+              <button
+                onClick={() => {
+                  setSwimmerTab('my');
+                  loadDashboardData(undefined, 'my');
+                }}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  swimmerTab === 'my'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                My Swimmers
+              </button>
+              <button
+                onClick={() => {
+                  setSwimmerTab('all');
+                  loadDashboardData(undefined, 'all');
+                }}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  swimmerTab === 'all'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All Swimmers
+              </button>
+            </div>
             <div className="w-full max-w-xs">
               <input
                 type="text"
