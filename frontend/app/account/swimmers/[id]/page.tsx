@@ -284,11 +284,11 @@ export default function ParentSwimmerDetail() {
                             <p className="text-xs text-gray-500">Enrollment Date</p>
                             <p className="text-sm text-gray-900">{swimmer?.enrollmentDate || 'Not available'}</p>
                         </div>
-                                                <div>
-                                                        <p className="text-xs text-gray-500">Overall Progress</p>
-                                                        <p className="text-sm font-semibold text-gray-900">{progressPct}%</p>
+                        <div>
+                            <p className="text-xs text-gray-500">Overall Progress</p>
+                            <p className="text-sm font-semibold text-gray-900">{progressPct}%</p>
 
-                                                </div>
+                        </div>
                     </div>
                 </section>
 
