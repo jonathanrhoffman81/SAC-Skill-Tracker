@@ -10,7 +10,7 @@ interface DashboardClassPayload {
 interface DashboardSkillPayload {
   id: string;
   name: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -44,10 +44,12 @@ function formatDate(value?: string | null): string | undefined {
   });
 }
 
-function normalizeProgress(value: number | null | undefined): 0 | 25 | 50 | 75 | 100 {
-  if (value === 25 || value === 50 || value === 75 || value === 100) {
-    return value;
-  }
+function normalizeProgress(value: number | null | undefined): 0 | 1 | 2 | 3 | 4 {
+  if (value === 0) return 0;
+  if (value === 25) return 1;
+  if (value === 50) return 2;
+  if (value === 75) return 3;
+  if (value === 100) return 4;
   return 0;
 }
 
@@ -228,7 +230,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
 
   const memberSkillByKey = new Map<
     string,
-    { progress: 0 | 25 | 50 | 75 | 100; dateAcquired?: string }
+    { progress: 0 | 1 | 2 | 3 | 4; dateAcquired?: string }
   >();
 
   (memberSkillRows ?? []).forEach((row) => {
@@ -248,7 +250,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
           id: skill.skill_id,
           name: skill.name,
           progress,
-          mastered: progress === 100 || Boolean(memberSkill?.dateAcquired),
+          mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
           dateAcquired: memberSkill?.dateAcquired,
         };
       });

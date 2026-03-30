@@ -18,7 +18,7 @@ interface DashboardClass {
 interface DashboardSkill {
   id: string;
   name: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -47,9 +47,14 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function formatPct(mastered: number, total: number) {
-  if (total === 0) return 0;
-  return Math.round((mastered / total) * 100);
+function calculateAverageProficiency(skills: DashboardSkill[]): string {
+  if (skills.length === 0) return '0';
+  const proficiencyToPercentage = (level: 0 | 1 | 2 | 3 | 4): number => {
+    const mapping: Record<number, number> = { 0: 0, 1: 25, 2: 50, 3: 75, 4: 100 };
+    return mapping[level];
+  };
+  const totalPercentage = skills.reduce((sum, skill) => sum + proficiencyToPercentage(skill.progress), 0);
+  return Math.round(totalPercentage / skills.length).toString();
 }
 
 export default function InstructorDashboard() {
@@ -250,7 +255,7 @@ export default function InstructorDashboard() {
           <div className="space-y-4">
             {visibleSwimmers.map((swimmer) => {
               const mastered = swimmer.skills.filter((skill) => skill.mastered).length;
-              const pct = formatPct(mastered, swimmer.skills.length);
+              const avgProficiency = calculateAverageProficiency(swimmer.skills);
               const isOpen = openSwimmerId === swimmer.id;
 
               return (
@@ -282,8 +287,8 @@ export default function InstructorDashboard() {
                             </button>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span>{mastered}/{swimmer.skills.length} skills acquired</span>
-                            <span>{pct}% complete</span>
+                            <span>{mastered}/{swimmer.skills.length} skills mastered</span>
+                            <span>Avg proficiency: {avgProficiency}%</span>
                             {swimmer.classes.map((classItem) => (
                               <span
                                 key={classItem.id}
@@ -327,7 +332,7 @@ export default function InstructorDashboard() {
 
           {!isLoading && !error && visibleSwimmers.length === 0 && (
             <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
-              No swimmers assigned to you yet.
+              No swimmers assigned to you yet. 
             </div>
           )}
         </section>

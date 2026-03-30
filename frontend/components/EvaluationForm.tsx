@@ -32,6 +32,11 @@ const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
   { value: 4, label: '4 - Acquired' },
 ];
 
+function proficiencyToPercentage(level: 0 | 1 | 2 | 3 | 4): number {
+  const mapping: Record<number, number> = { 0: 0, 1: 25, 2: 50, 3: 75, 4: 100 };
+  return mapping[level];
+}
+
 export default function EvaluationForm({
   swimmerId,
   userEmail,
@@ -221,7 +226,7 @@ export default function EvaluationForm({
                         : 'bg-gray-100 text-gray-600'
                         }`}
                     >
-                      {progress} progress
+                      Proficiency: {proficiencyToPercentage(progress)}%
                     </span>
                     {skill.dateAcquired && (
                       <span>Acquired on {skill.dateAcquired}</span>
@@ -253,7 +258,7 @@ export default function EvaluationForm({
                             onChange={() => handleProgressChange(skill.id, option.value)}
                             className="h-3.5 w-3.5 accent-blue-600"
                           />
-                          <span>{option.value}%</span>
+                          <span>{option.value}</span>
                         </label>
                       );
                     })}
