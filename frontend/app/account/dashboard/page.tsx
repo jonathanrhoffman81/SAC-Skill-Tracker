@@ -248,18 +248,35 @@ export default function AccountDashboard() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
-        {/* Proficiency Scale for Parents */}
-        <section className="mb-4">
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-            <h2 className="text-sm font-semibold text-blue-900 mb-2">Proficiency Scale</h2>
-            <ul className="text-xs text-blue-900 space-y-1 pl-2">
-              <li><span className="font-bold">0.</span> Unable to attempt the skill</li>
-              <li><span className="font-bold">1.</span> Unable to show skill without significant support</li>
-              <li><span className="font-bold">2.</span> Inconsistently or with support is able to demonstrate the skill</li>
-              <li><span className="font-bold">3.</span> Consistently demonstrates application of the skill</li>
-              <li><span className="font-bold">4.</span> Demonstrates complete understanding of the skill</li>
-            </ul>
+      <main className="mx-auto max-w-7xl space-y-2 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
+        {/* Proficiency Rating for Parents */}
+        <section className="mb-3">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 pt-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Proficiency Scale</p>
+              <ul className="mt-3 space-y-2">
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">0</span>
+                  <span>Unable to attempt the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">1</span>
+                  <span>Unable to show skill without significant support</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">2</span>
+                  <span>Inconsistently or with support is able to demonstrate the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">3</span>
+                  <span>Consistently demonstrates application of the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">4</span>
+                  <span>Demonstrates complete understanding of the skill</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </section>
         {/* Loading Banner */}
