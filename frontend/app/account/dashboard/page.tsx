@@ -209,7 +209,7 @@ export default function AccountDashboard() {
 
   function getOverallPct(skills: SkillItem[]) {
     if (skills.length === 0) return 0;
-    return Math.round(skills.reduce((sum, skill) => sum + skill.progress, 0) / skills.length);
+    return Math.round((skills.reduce((sum, skill) => sum + skill.progress, 0) / (skills.length * 4)) * 100);
   }
 
   return (
@@ -331,16 +331,23 @@ export default function AccountDashboard() {
                             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
                               {swimmer.level}
                             </span>
-                            <button
-                              type="button"
-                              className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="cursor-pointer text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 router.push(`/account/swimmers/${swimmer.id}`);
                               }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.stopPropagation();
+                                  router.push(`/account/swimmers/${swimmer.id}`);
+                                }
+                              }}
                             >
                               View full profile
-                            </button>
+                            </span>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                             <span>{acquiredCount}/{skills.length} skills acquired</span>

@@ -195,13 +195,21 @@ export default function ParentSwimmerDetail() {
         };
     }, [swimmerId]);
 
+
+
+
     const masteredCount = useMemo(
         () => skills.filter((skill) => skill.mastered).length,
         [skills]
     );
 
     const progressPct = useMemo(
-        () => (skills.length ? Math.round(skills.reduce((sum, skill) => sum + skill.progress, 0) / skills.length) : 0),
+        () => {
+            if (!skills.length) return 0;
+            const sum = skills.reduce((acc, skill) => acc + skill.progress, 0);
+            const percent = (sum / (skills.length * 4)) * 100;
+            return Math.round(percent);
+        },
         [skills]
     );
 
@@ -276,10 +284,11 @@ export default function ParentSwimmerDetail() {
                             <p className="text-xs text-gray-500">Enrollment Date</p>
                             <p className="text-sm text-gray-900">{swimmer?.enrollmentDate || 'Not available'}</p>
                         </div>
-                        <div>
-                            <p className="text-xs text-gray-500">Overall Progress</p>
-                            <p className="text-sm font-semibold text-gray-900">{progressPct}%</p>
-                        </div>
+                                                <div>
+                                                        <p className="text-xs text-gray-500">Overall Progress</p>
+                                                        <p className="text-sm font-semibold text-gray-900">{progressPct}%</p>
+
+                                                </div>
                     </div>
                 </section>
 
