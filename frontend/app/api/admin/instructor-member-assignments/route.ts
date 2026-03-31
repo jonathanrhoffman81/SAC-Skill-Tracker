@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { getOrgIdByEmail, getRoleIdByName } from '@/lib/adminQueries';
+import { getRoleIdByName, resolveAdminRequestContext } from '@/lib/adminQueries';
 
 async function validateInstructorInOrg(
   supabase: any,
@@ -67,18 +67,9 @@ async function validateMemberInOrg(
 
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get('email');
-
-    if (!email) {
-      return NextResponse.json({ error: 'Email is required' }, { status: 400 });
-    }
-
     const supabase = getSupabaseAdminClient();
-    const organizationId = await getOrgIdByEmail(supabase, email);
-
-    if (!organizationId) {
-      return NextResponse.json({ error: 'Failed to find organization for user' }, { status: 500 });
-    }
+    const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
+    const organizationId = adminContext.organizationId;
 
     const { data: rawMembers, error: membersError } = await supabase
       .from('member')
@@ -288,19 +279,16 @@ export async function PUT(request: NextRequest) {
       instructor_person_id?: string | null;
     };
 
-    if (!body.email || !body.member_id) {
+    if (!body.member_id) {
       return NextResponse.json(
-        { error: 'email and member_id are required' },
+        { error: 'member_id is required' },
         { status: 400 }
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const organizationId = await getOrgIdByEmail(supabase, body.email);
-
-    if (!organizationId) {
-      return NextResponse.json({ error: 'Failed to resolve requester context' }, { status: 500 });
-    }
+    const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
+    const organizationId = adminContext.organizationId;
 
     const memberValidation = await validateMemberInOrg(supabase, body.member_id, organizationId);
     if (!memberValidation.ok) {

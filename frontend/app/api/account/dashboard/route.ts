@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
@@ -36,6 +37,18 @@ interface DashboardPayload {
   >;
 }
 
+const ACCOUNT_ROUTE_ROLE_SET = new Set([
+  'guardian',
+  'parent',
+  'account',
+  'member',
+  'human',
+  'swimmer',
+  'admin',
+  'super-admin',
+  'superadmin',
+]);
+
 
 
 function formatDate(value?: string | null): string | null {
@@ -52,17 +65,45 @@ function formatDate(value?: string | null): string | null {
   });
 }
 
+async function resolveAccountEmail(request: NextRequest): Promise<string> {
+  let sessionPerson = null;
+  try {
+    sessionPerson = await getCurrentPersonFromRequest(request);
+  } catch (error) {
+    if (!(error instanceof AuthContextError)) {
+      throw error;
+    }
+
+    const fallbackEmail = request.nextUrl.searchParams.get('email');
+    if (!fallbackEmail) {
+      throw new Error(`UNAUTHORIZED:${error.message}`);
+    }
+  }
+
+  if (sessionPerson?.email) {
+    const hasAllowedRole = sessionPerson.roleNames.some((role) =>
+      ACCOUNT_ROUTE_ROLE_SET.has(role.toLowerCase())
+    );
+
+    if (!hasAllowedRole) {
+      throw new Error('FORBIDDEN:You do not have access to the account dashboard.');
+    }
+
+    return sessionPerson.email;
+  }
+
+  const email = request.nextUrl.searchParams.get('email');
+  if (!email) {
+    throw new Error('Missing required query param: email');
+  }
+
+  return email;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdminClient();
-    const email = request.nextUrl.searchParams.get('email');
-
-    if (!email) {
-      return NextResponse.json(
-        { error: 'Missing required query param: email' },
-        { status: 400 }
-      );
-    }
+    const email = await resolveAccountEmail(request);
 
     const { data, error } = await supabaseAdmin.rpc('get_parent_dashboard', {
       p_email: email,
@@ -139,6 +180,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
+    if (message.startsWith('FORBIDDEN:')) {
+      return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+    }
+    if (message.startsWith('UNAUTHORIZED:')) {
+      return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+    }
+    if (message === 'Missing required query param: email') {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

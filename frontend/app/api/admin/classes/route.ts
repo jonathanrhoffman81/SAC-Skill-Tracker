@@ -15,26 +15,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { getOrgIdByEmail } from "@/lib/adminQueries";
+import { resolveAdminRequestContext } from "@/lib/adminQueries";
 
 // GET: Fetch all classes for an organization
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get("email");
-
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
-    }
-
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, email);
-
-    if (!orgId) {
-      return NextResponse.json(
-        { error: "Failed to find organization" },
-        { status: 500 },
-      );
-    }
+    const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get("email"));
+    const orgId = adminContext.organizationId;
 
     const { data: classes, error: classesError } = await supabase
       .from("class_entity")
@@ -70,14 +58,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const adminEmail = body.admin_email || body.email;
     const name = body.name;
     const schedule = body.schedule;
     const length_minutes = body.length_minutes;
 
-    if (!adminEmail || !name) {
+    if (!name) {
       return NextResponse.json(
-        { error: "Admin email and name required" },
+        { error: "Name required" },
         { status: 400 },
       );
     }
@@ -94,14 +81,8 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
-
-    if (!orgId) {
-      return NextResponse.json(
-        { error: "Failed to find organization" },
-        { status: 500 },
-      );
-    }
+    const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
+    const orgId = adminContext.organizationId;
 
     const insertData: any = {
       organization_id: orgId,
@@ -151,15 +132,14 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const adminEmail = body.admin_email || body.email;
     const class_id = body.class_id;
     const name = body.name;
     const schedule = body.schedule;
     const length_minutes = body.length_minutes;
 
-    if (!adminEmail || !class_id || !name) {
+    if (!class_id || !name) {
       return NextResponse.json(
-        { error: "Admin email, class_id, and name required" },
+        { error: "class_id and name required" },
         { status: 400 },
       );
     }
@@ -180,14 +160,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
-
-    if (!orgId) {
-      return NextResponse.json(
-        { error: "Failed to find organization" },
-        { status: 500 },
-      );
-    }
+    const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
+    const orgId = adminContext.organizationId;
 
     // Verify class belongs to this org
     const { data: existingClass } = await supabase
@@ -253,18 +227,18 @@ export async function PUT(request: NextRequest) {
 // DELETE: Delete a class
 export async function DELETE(request: NextRequest) {
   try {
-    const adminEmail = request.nextUrl.searchParams.get("email");
     const class_id = request.nextUrl.searchParams.get("class_id");
 
-    if (!adminEmail || !class_id) {
+    if (!class_id) {
       return NextResponse.json(
-        { error: "Admin email and class_id required" },
+        { error: "class_id required" },
         { status: 400 },
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
+    const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get("email"));
+    const orgId = adminContext.organizationId;
 
     if (!orgId) {
       return NextResponse.json(

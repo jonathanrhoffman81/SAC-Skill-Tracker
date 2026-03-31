@@ -7,6 +7,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface Instructor {
     person_id: string;
@@ -36,18 +37,14 @@ interface StudentAssignment {
     instructor_name?: string;
 }
 
-interface InstructorAssignmentManagerProps {
-    userEmail: string;
-}
+interface InstructorAssignmentManagerProps {}
 
 interface TagColor {
     bg: string;
     text: string;
 }
 
-export default function InstructorAssignmentManager({
-    userEmail,
-}: InstructorAssignmentManagerProps) {
+export default function InstructorAssignmentManager({}: InstructorAssignmentManagerProps) {
     const formatDisplayName = (firstName?: string | null, lastName?: string | null) => {
         const first = firstName?.trim() || '';
         const last = lastName?.trim() || '';
@@ -98,13 +95,11 @@ export default function InstructorAssignmentManager({
 
     // Fetch members, instructors, and assignments together from the stable endpoint
     const fetchAssignmentData = useCallback(async () => {
-        if (!userEmail) return;
         setLoading(true);
         setErrorMessage(null);
         try {
-            const response = await fetch(
-                `/api/admin/instructor-member-assignments?email=${encodeURIComponent(userEmail)}`
-            );
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch('/api/admin/instructor-member-assignments', { headers });
             if (!response.ok) {
                 const errorPayload = await response.json().catch(() => ({}));
                 const errorMessage = errorPayload?.error || 'Failed to load assignments';
@@ -160,12 +155,12 @@ export default function InstructorAssignmentManager({
         } finally {
             setLoading(false);
         }
-    }, [userEmail]);
+    }, []);
 
     // Load data on mount
     useEffect(() => {
         fetchAssignmentData();
-    }, [userEmail, fetchAssignmentData]);
+    }, [fetchAssignmentData]);
 
     useEffect(() => {
         return () => {
@@ -206,8 +201,6 @@ export default function InstructorAssignmentManager({
         studentId: string,
         instructorId: string | null
     ) => {
-        if (!userEmail) return;
-
         const previousStudent = students.find((s) => s.member_id === studentId);
         if (!previousStudent) return;
         if (pendingStudentIds.has(studentId)) return;
@@ -236,9 +229,8 @@ export default function InstructorAssignmentManager({
         try {
             const response = await fetch('/api/admin/instructor-member-assignments', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
-                    email: userEmail,
                     member_id: studentId,
                     instructor_person_id: instructorId,
                 }),

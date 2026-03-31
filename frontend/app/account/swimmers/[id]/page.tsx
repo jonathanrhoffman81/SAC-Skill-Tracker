@@ -7,6 +7,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import {
+    createAuthenticatedHeaders,
+    getAuthenticatedSessionIdentity,
+} from '@/lib/clientAuth';
 
 interface SwimmerDetail {
     id: string;
@@ -99,20 +103,8 @@ export default function ParentSwimmerDetail() {
             try {
                 setIsLoading(true);
                 setError('');
-
-                const stored = localStorage.getItem('user');
-                if (!stored) {
-                    throw new Error('Missing local user session. Please log in again.');
-                }
-
-                const userData = JSON.parse(stored);
-                const email = userData.email;
-
-                if (!email) {
-                    throw new Error('Missing user email from login session.');
-                }
-
-                const profileCacheKey = `${SWIMMER_PROFILE_CACHE_PREFIX}${email.toLowerCase()}:${swimmerId}`;
+                const identity = await getAuthenticatedSessionIdentity();
+                const profileCacheKey = `${SWIMMER_PROFILE_CACHE_PREFIX}${identity.authUserId}:${swimmerId}`;
                 const cachedProfileRaw = sessionStorage.getItem(profileCacheKey);
                 if (cachedProfileRaw) {
                     try {
@@ -130,7 +122,7 @@ export default function ParentSwimmerDetail() {
                 }
 
                 if (!hasCachedData) {
-                    const dashboardCacheKey = `${DASHBOARD_CACHE_PREFIX}${email.toLowerCase()}`;
+                    const dashboardCacheKey = `${DASHBOARD_CACHE_PREFIX}${identity.authUserId}`;
                     const cachedDashboardRaw = sessionStorage.getItem(dashboardCacheKey);
                     if (cachedDashboardRaw) {
                         try {
@@ -156,9 +148,8 @@ export default function ParentSwimmerDetail() {
                     }
                 }
 
-                const response = await fetch(
-                    `/api/account/swimmers/${swimmerId}?email=${encodeURIComponent(email)}`
-                );
+                const headers = await createAuthenticatedHeaders();
+                const response = await fetch(`/api/account/swimmers/${swimmerId}`, { headers });
                 const payload = (await response.json()) as SwimmerPayload;
 
                 if (!response.ok) {
@@ -387,4 +378,3 @@ export default function ParentSwimmerDetail() {
         </div>
     );
 }
-

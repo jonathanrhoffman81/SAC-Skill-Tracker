@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 interface DashboardClassPayload {
@@ -29,6 +30,8 @@ interface DashboardPayload {
   swimmers: DashboardSwimmerPayload[];
 }
 
+const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
+
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   return new Date(value).toLocaleDateString('en-US', {
@@ -47,13 +50,44 @@ function normalizeProgress(value: number | null | undefined): 0 | 1 | 2 | 3 | 4 
   return 0;
 }
 
+async function resolveInstructorEmail(request: NextRequest): Promise<string> {
+  let sessionPerson = null;
+  try {
+    sessionPerson = await getCurrentPersonFromRequest(request);
+  } catch (error) {
+    if (!(error instanceof AuthContextError)) {
+      throw error;
+    }
+
+    const fallbackEmail = request.nextUrl.searchParams.get('email');
+    if (!fallbackEmail) {
+      throw new Error(`UNAUTHORIZED:${error.message}`);
+    }
+  }
+
+  if (sessionPerson?.email) {
+    const hasAllowedRole = sessionPerson.roleNames.some((role) =>
+      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase())
+    );
+
+    if (!hasAllowedRole) {
+      throw new Error('FORBIDDEN:You do not have access to this instructor route.');
+    }
+
+    return sessionPerson.email;
+  }
+
+  const email = request.nextUrl.searchParams.get('email');
+  if (!email) {
+    throw new Error('Missing instructor email');
+  }
+
+  return email;
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get('email');
-
-    if (!email) {
-      return NextResponse.json({ error: 'Missing instructor email' }, { status: 400 });
-    }
+    const email = await resolveInstructorEmail(request);
 
     const supabaseAdmin = getSupabaseAdminClient();
 
@@ -281,6 +315,15 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
     console.error('All-swimmers route error:', message, error);
+    if (message.startsWith('FORBIDDEN:')) {
+      return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+    }
+    if (message.startsWith('UNAUTHORIZED:')) {
+      return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+    }
+    if (message === 'Missing instructor email') {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

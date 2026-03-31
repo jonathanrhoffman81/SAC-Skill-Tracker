@@ -7,12 +7,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
   getDashboardPathForRole,
   normalizeEmail,
   normalizeRole,
 } from "@/lib/authRoles";
+
+const LEGACY_LOCALSTORAGE_ROLE_SET = new Set(["admin", "super-admin"]);
 
 export default function Login() {
   const router = useRouter();
@@ -62,19 +65,25 @@ export default function Login() {
 
       let resolvedRole = effectiveRole;
 
-      // Fallback: if metadata role is missing, resolve from person/org role tables.
+      // Fallback: if metadata role is missing, resolve from person/org role tables using
+      // the authenticated session first. Email fallback remains only for legacy pages.
       if (!resolvedRole) {
-        const roleResponse = await fetch(
-          `/api/auth/resolve-role?email=${encodeURIComponent(authenticatedEmail)}`,
-        );
+        const authHeaders = await createAuthenticatedHeaders();
+        let roleResponse = await fetch("/api/auth/resolve-role", {
+          headers: authHeaders,
+        });
+
+        if (!roleResponse.ok) {
+          roleResponse = await fetch(
+            `/api/auth/resolve-role?email=${encodeURIComponent(authenticatedEmail)}`,
+          );
+        }
 
         if (roleResponse.ok) {
           const rolePayload = await roleResponse.json();
           resolvedRole = normalizeRole(String(rolePayload?.role || ""));
         }
       }
-
-      localStorage.setItem("user", JSON.stringify({ email: authenticatedEmail }));
 
       if (!resolvedRole) {
         throw new Error(
@@ -85,6 +94,12 @@ export default function Login() {
       const dashboardPath = getDashboardPathForRole(resolvedRole);
       if (!dashboardPath) {
         throw new Error(`Unsupported role: ${resolvedRole}`);
+      }
+
+      if (LEGACY_LOCALSTORAGE_ROLE_SET.has(resolvedRole)) {
+        localStorage.setItem("user", JSON.stringify({ email: authenticatedEmail }));
+      } else {
+        localStorage.removeItem("user");
       }
 
       router.push(dashboardPath);

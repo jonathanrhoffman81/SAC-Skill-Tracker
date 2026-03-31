@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 interface RouteParams {
@@ -50,6 +51,7 @@ interface SwimmerProfilePayload {
 }
 
 const VALID_PROGRESS_VALUES = new Set([0, 25, 50, 75, 100]);
+const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
@@ -155,6 +157,54 @@ async function resolveInstructorPersonId(email?: string | null) {
   }
 
   return { person: data };
+}
+
+async function resolveInstructorPersonForRequest(
+  request: NextRequest,
+  fallbackEmail?: string | null
+) {
+  let sessionPerson = null;
+  try {
+    sessionPerson = await getCurrentPersonFromRequest(request);
+  } catch (error) {
+    if (!(error instanceof AuthContextError)) {
+      throw error;
+    }
+
+    if (!fallbackEmail) {
+      return { error: `UNAUTHORIZED:${error.message}` as const };
+    }
+  }
+
+  if (sessionPerson) {
+    const hasAllowedRole = sessionPerson.roleNames.some((role) =>
+      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase())
+    );
+
+    if (!hasAllowedRole) {
+      return { error: 'FORBIDDEN:You do not have access to this instructor route.' as const };
+    }
+
+    return {
+      person: {
+        person_id: sessionPerson.personId,
+        email: sessionPerson.email,
+        first_name: sessionPerson.firstName,
+        last_name: sessionPerson.lastName,
+      },
+      source: 'session' as const,
+    };
+  }
+
+  const instructorResolution = await resolveInstructorPersonId(fallbackEmail);
+  if ('error' in instructorResolution) {
+    return { error: instructorResolution.error };
+  }
+
+  return {
+    person: instructorResolution.person,
+    source: 'email' as const,
+  };
 }
 
 async function instructorCanAccessMember(
@@ -459,11 +509,30 @@ async function buildSwimmerProfileFallback(email: string, memberId: string): Pro
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const memberId = params.id;
-    const email = request.nextUrl.searchParams.get('email');
+    const instructorResolution = await resolveInstructorPersonForRequest(
+      request,
+      request.nextUrl.searchParams.get('email')
+    );
 
-    if (!email) {
-      return NextResponse.json({ error: 'Missing instructor email' }, { status: 400 });
+    if ('error' in instructorResolution) {
+      const errorMessage = instructorResolution.error ?? 'Missing instructor email';
+      const status = errorMessage.startsWith('FORBIDDEN:')
+        ? 403
+        : errorMessage.startsWith('UNAUTHORIZED:')
+          ? 401
+          : errorMessage === 'Missing instructor email'
+          ? 400
+          : 400;
+      return NextResponse.json(
+        {
+          error: errorMessage
+            .replace('FORBIDDEN:', '')
+            .replace('UNAUTHORIZED:', ''),
+        },
+        { status }
+      );
     }
+    const email = instructorResolution.person.email;
 
     const supabaseAdmin = getSupabaseAdminClient();
     const { data, error } = await supabaseAdmin.rpc('get_instructor_swimmer_profile_payload', {
@@ -513,9 +582,23 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       progress?: number;
     };
 
-    const instructorResolution = await resolveInstructorPersonId(body.email);
+    const instructorResolution = await resolveInstructorPersonForRequest(request, body.email);
     if ('error' in instructorResolution) {
-      return NextResponse.json({ error: instructorResolution.error }, { status: 400 });
+      const errorMessage = instructorResolution.error ?? 'Missing instructor email';
+      return NextResponse.json(
+        {
+          error: errorMessage
+            .replace('FORBIDDEN:', '')
+            .replace('UNAUTHORIZED:', ''),
+        },
+        {
+          status: errorMessage.startsWith('FORBIDDEN:')
+            ? 403
+            : errorMessage.startsWith('UNAUTHORIZED:')
+              ? 401
+              : 400,
+        }
+      );
     }
     const instructor = instructorResolution.person;
 
@@ -580,9 +663,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       skillNotes?: Array<{ skillId?: string; note?: string }>;
     };
 
-    const instructorResolution = await resolveInstructorPersonId(body.email);
+    const instructorResolution = await resolveInstructorPersonForRequest(request, body.email);
     if ('error' in instructorResolution) {
-      return NextResponse.json({ error: instructorResolution.error }, { status: 400 });
+      const errorMessage = instructorResolution.error ?? 'Missing instructor email';
+      return NextResponse.json(
+        {
+          error: errorMessage
+            .replace('FORBIDDEN:', '')
+            .replace('UNAUTHORIZED:', ''),
+        },
+        {
+          status: errorMessage.startsWith('FORBIDDEN:')
+            ? 403
+            : errorMessage.startsWith('UNAUTHORIZED:')
+              ? 401
+              : 400,
+        }
+      );
     }
     const instructor = instructorResolution.person;
 

@@ -7,6 +7,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface MemberCandidate {
     member_id: string;
@@ -26,11 +27,10 @@ interface Instructor {
 }
 
 interface InstructorManagerProps {
-    userEmail: string;
     onRefresh: () => void;
 }
 
-export default function InstructorManager({ userEmail, onRefresh }: InstructorManagerProps) {
+export default function InstructorManager({ onRefresh }: InstructorManagerProps) {
     const [mode, setMode] = useState<'existing' | 'new'>('existing');
     const [loading, setLoading] = useState(false);
     const [instructorsLoading, setInstructorsLoading] = useState(true);
@@ -74,7 +74,8 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
     const fetchInstructors = async () => {
         setInstructorsLoading(true);
         try {
-            const response = await fetch(`/api/admin/instructors?email=${encodeURIComponent(userEmail)}`);
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch('/api/admin/instructors', { headers });
             const data = await response.json();
             if (response.ok) {
                 setInstructors(data.instructors || []);
@@ -89,7 +90,8 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
     // Fetch available persons
     const fetchAvailablePersons = async () => {
         try {
-            const response = await fetch(`/api/admin/persons?email=${encodeURIComponent(userEmail)}`);
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch('/api/admin/persons', { headers });
             const data = await response.json();
             if (response.ok) {
                 const persons = data.persons || [];
@@ -100,7 +102,7 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
             }
 
             // Fallback: if persons endpoint is empty, use swimmers endpoint as member source.
-            const swimmersResponse = await fetch(`/api/admin/swimmers?email=${encodeURIComponent(userEmail)}`);
+            const swimmersResponse = await fetch('/api/admin/swimmers', { headers });
             const swimmersData = await swimmersResponse.json();
             if (swimmersResponse.ok) {
                 const fallbackPersons = (swimmersData.swimmers || []).map((swimmer: any) => ({
@@ -119,10 +121,9 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
     };
 
     useEffect(() => {
-        if (!userEmail) return;
         fetchInstructors();
         fetchAvailablePersons();
-    }, [userEmail]);
+    }, []);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -189,7 +190,6 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
         setSuccessMessage(null);
         try {
             const payload: any = {
-                admin_email: userEmail,
                 mode,
             };
 
@@ -217,7 +217,7 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
 
             const response = await fetch('/api/admin/instructors', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(payload),
             });
 
@@ -267,9 +267,8 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
         try {
             const response = await fetch('/api/admin/instructors', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
-                    email: userEmail,
                     person_id: personId,
                     name: editingName.trim(),
                 }),
@@ -302,8 +301,10 @@ export default function InstructorManager({ userEmail, onRefresh }: InstructorMa
         setDeleteDialog({ show: false, personId: null, personName: '' });
 
         try {
-            const response = await fetch(`/api/admin/instructors?email=${encodeURIComponent(userEmail)}&person_id=${personId}`, {
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch(`/api/admin/instructors?person_id=${personId}`, {
                 method: 'DELETE',
+                headers,
             });
 
             if (!response.ok) throw new Error('Failed to delete instructor');

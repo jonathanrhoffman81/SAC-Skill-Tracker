@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import EvaluationForm from '@/components/EvaluationForm';
+import { createAuthenticatedHeaders, logoutAndRedirect } from '@/lib/clientAuth';
 
 interface DashboardClass {
   id: string;
@@ -60,7 +61,6 @@ function calculateAverageProficiency(skills: DashboardSkill[]): string {
 export default function InstructorDashboard() {
   const router = useRouter();
   const [userName, setUserName] = useState('Guest User');
-  const [userEmail, setUserEmail] = useState('');
   const [organizationName, setOrganizationName] = useState('SAC Skill Tracker');
   const [swimmerTab, setSwimmerTab] = useState<'my' | 'all'>('my');
   const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
@@ -69,17 +69,16 @@ export default function InstructorDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function loadDashboardData(emailOverride?: string, tab?: 'my' | 'all') {
-    const email = emailOverride || userEmail;
+  async function loadDashboardData(tab?: 'my' | 'all') {
     const activeTab = tab || swimmerTab;
-    if (!email) return;
 
     try {
       setIsLoading(true);
       setError('');
 
       const endpoint = activeTab === 'all' ? '/api/instructor/all-swimmers' : '/api/instructor/dashboard';
-      const response = await fetch(`${endpoint}?email=${encodeURIComponent(email)}`);
+      const headers = await createAuthenticatedHeaders();
+      const response = await fetch(endpoint, { headers });
       const payload = (await response.json()) as DashboardPayload;
 
       if (!response.ok) {
@@ -101,27 +100,7 @@ export default function InstructorDashboard() {
   }
 
   useEffect(() => {
-    const stored = localStorage.getItem('user');
-    if (!stored) {
-      setError('Missing local user session. Please log in again.');
-      setIsLoading(false);
-      return;
-    }
-
-    const userData = JSON.parse(stored);
-    const localName = userData.name || 'Guest User';
-    const email = userData.email || '';
-
-    setUserName(localName);
-    setUserEmail(email);
-
-    if (!email) {
-      setError('Missing user email from login session.');
-      setIsLoading(false);
-      return;
-    }
-
-    loadDashboardData(email);
+    loadDashboardData();
   }, []);
 
   const visibleSwimmers = useMemo(() => {
@@ -162,9 +141,8 @@ export default function InstructorDashboard() {
               {getInitials(userName)}
             </div>
             <button
-              onClick={() => {
-                localStorage.removeItem('user');
-                router.push('/login');
+              onClick={async () => {
+                await logoutAndRedirect('/login');
               }}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
             >
@@ -245,7 +223,7 @@ export default function InstructorDashboard() {
               <button
                 onClick={() => {
                   setSwimmerTab('my');
-                  loadDashboardData(undefined, 'my');
+                  loadDashboardData('my');
                 }}
                 className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                   swimmerTab === 'my'
@@ -258,7 +236,7 @@ export default function InstructorDashboard() {
               <button
                 onClick={() => {
                   setSwimmerTab('all');
-                  loadDashboardData(undefined, 'all');
+                  loadDashboardData('all');
                 }}
                 className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                   swimmerTab === 'all'
@@ -346,7 +324,6 @@ export default function InstructorDashboard() {
                     <div className="border-t border-gray-100 p-5 sm:p-6">
                       <EvaluationForm
                         swimmerId={swimmer.id}
-                        userEmail={userEmail}
                         skills={swimmer.skills}
                         classes={swimmer.classes}
                         onSubmissionComplete={() => loadDashboardData()}
