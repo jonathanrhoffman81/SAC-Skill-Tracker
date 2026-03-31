@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface SkillItem {
   id: string;
@@ -18,7 +19,6 @@ interface ClassItem {
 
 interface EvaluationFormProps {
   swimmerId: string;
-  userEmail: string;
   skills: SkillItem[];
   classes: ClassItem[];
   onSubmissionComplete?: () => void;
@@ -39,7 +39,6 @@ function proficiencyToPercentage(level: 0 | 1 | 2 | 3 | 4): number {
 
 export default function EvaluationForm({
   swimmerId,
-  userEmail,
   skills,
   classes,
   onSubmissionComplete,
@@ -117,21 +116,19 @@ export default function EvaluationForm({
       return;
     }
 
-    if (!userEmail) {
-      setError('Missing instructor session. Please log in again.');
-      return;
-    }
-
     setIsSubmitting(true);
     setError('');
     setSuccessMessage('');
 
     try {
+      const headers = await createAuthenticatedHeaders({
+        'Content-Type': 'application/json',
+      });
+
       const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          email: userEmail,
           classId: selectedClassId || undefined,
           note: trimmedNote || undefined,
           skillNotes: skillNoteEntries.map((entry) => ({

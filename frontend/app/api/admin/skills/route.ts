@@ -5,28 +5,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { getOrgIdByEmail } from '@/lib/adminQueries';
+import { resolveAdminRequestContext } from '@/lib/adminQueries';
 
 // GET: Fetch all skills for an organization
 export async function GET(request: NextRequest) {
     try {
-        const email = request.nextUrl.searchParams.get('email');
-
-        if (!email) {
-            return NextResponse.json(
-                { error: 'Email is required' },
-                { status: 400 }
-            );
-        }
-
         const supabase = getSupabaseAdminClient();
-        const orgId = await getOrgIdByEmail(supabase, email);
-        if (!orgId) {
-            return NextResponse.json(
-                { error: 'Failed to find organization' },
-                { status: 500 }
-            );
-        }
+        const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
+        const orgId = adminContext.organizationId;
 
         // Get all skills for this organization
         const { data: skills, error: skillsError } = await supabase
@@ -56,23 +42,18 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { email, name } = body;
+        const { name } = body;
 
-        if (!email || !name) {
+        if (!name) {
             return NextResponse.json(
-                { error: 'Email and name are required' },
+                { error: 'Name is required' },
                 { status: 400 }
             );
         }
 
         const supabase = getSupabaseAdminClient();
-        const orgId = await getOrgIdByEmail(supabase, email);
-        if (!orgId) {
-            return NextResponse.json(
-                { error: 'Failed to find organization' },
-                { status: 500 }
-            );
-        }
+        const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
+        const orgId = adminContext.organizationId;
 
         // Create the skill
         const { data: newSkill, error: createError } = await supabase
@@ -105,23 +86,18 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
     try {
         const body = await request.json();
-        const { email, skill_id, name } = body;
+        const { skill_id, name } = body;
 
-        if (!email || !skill_id || !name) {
+        if (!skill_id || !name) {
             return NextResponse.json(
-                { error: 'Email, skill_id, and name are required' },
+                { error: 'skill_id and name are required' },
                 { status: 400 }
             );
         }
 
         const supabase = getSupabaseAdminClient();
-        const orgId = await getOrgIdByEmail(supabase, email);
-        if (!orgId) {
-            return NextResponse.json(
-                { error: 'Failed to find organization' },
-                { status: 500 }
-            );
-        }
+        const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
+        const orgId = adminContext.organizationId;
 
         // Update the skill (only if it belongs to this organization)
         const { data: updatedSkill, error: updateError } = await supabase
@@ -152,24 +128,18 @@ export async function PUT(request: NextRequest) {
 // DELETE: Delete a skill
 export async function DELETE(request: NextRequest) {
     try {
-        const email = request.nextUrl.searchParams.get('email');
         const skill_id = request.nextUrl.searchParams.get('skill_id');
 
-        if (!email || !skill_id) {
+        if (!skill_id) {
             return NextResponse.json(
-                { error: 'Email and skill_id are required' },
+                { error: 'skill_id is required' },
                 { status: 400 }
             );
         }
 
         const supabase = getSupabaseAdminClient();
-        const orgId = await getOrgIdByEmail(supabase, email);
-        if (!orgId) {
-            return NextResponse.json(
-                { error: 'Failed to find organization' },
-                { status: 500 }
-            );
-        }
+        const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
+        const orgId = adminContext.organizationId;
 
         // Delete the skill (only if it belongs to this organization)
         const { error: deleteError } = await supabase
@@ -187,9 +157,13 @@ export async function DELETE(request: NextRequest) {
 
         return NextResponse.json({ success: true });
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Internal server error';
         console.error('Skills DELETE error:', error);
+        if (message.startsWith('FORBIDDEN:')) return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+        if (message.startsWith('UNAUTHORIZED:')) return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+        if (message === 'Missing admin email') return NextResponse.json({ error: message }, { status: 400 });
         return NextResponse.json(
-            { error: 'Internal server error' },
+            { error: message },
             { status: 500 }
         );
     }

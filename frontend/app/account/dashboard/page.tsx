@@ -14,6 +14,11 @@ const PROFICIENCY_LABELS: Record<SkillProgress, string> = {
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  createAuthenticatedHeaders,
+  getAuthenticatedSessionIdentity,
+  logoutAndRedirect,
+} from '@/lib/clientAuth';
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
@@ -118,23 +123,12 @@ export default function AccountDashboard() {
       try {
         setIsLoading(true);
         setError('');
-
-        const stored = localStorage.getItem('user');
-        if (!stored) {
-          throw new Error('Missing local user session. Please log in again.');
-        }
-
-        const userData = JSON.parse(stored);
-        const localName = userData.name || 'Guest User';
-        const email = userData.email;
+        const identity = await getAuthenticatedSessionIdentity();
+        const localName = identity.displayName || 'Guest User';
 
         setUserName(localName);
 
-        if (!email) {
-          throw new Error('Missing user email from login session.');
-        }
-
-        const cacheKey = `${DASHBOARD_CACHE_PREFIX}${email.toLowerCase()}`;
+        const cacheKey = `${DASHBOARD_CACHE_PREFIX}${identity.authUserId}`;
         const cachedRaw = sessionStorage.getItem(cacheKey);
         if (cachedRaw) {
           try {
@@ -150,7 +144,8 @@ export default function AccountDashboard() {
         }
 
         // Fetch all parent dashboard data in one request.
-        const response = await fetch(`/api/account/dashboard?email=${encodeURIComponent(email)}`);
+        const headers = await createAuthenticatedHeaders();
+        const response = await fetch('/api/account/dashboard', { headers });
         const payload = (await response.json()) as DashboardPayload & { error?: string };
 
         if (!response.ok) {
@@ -236,9 +231,8 @@ export default function AccountDashboard() {
               {userName ? getInitials(userName) : 'GU'}
             </div>
             <button
-              onClick={() => {
-                localStorage.removeItem('user');
-                router.push('/login');
+              onClick={async () => {
+                await logoutAndRedirect('/login');
               }}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
             >

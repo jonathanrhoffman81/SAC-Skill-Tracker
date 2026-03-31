@@ -7,6 +7,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface Class {
     class_id: string;
@@ -17,11 +18,10 @@ interface Class {
 }
 
 interface ClassManagerProps {
-    userEmail: string;
     onRefresh: () => void;
 }
 
-export default function ClassManager({ userEmail, onRefresh }: ClassManagerProps) {
+export default function ClassManager({ onRefresh }: ClassManagerProps) {
     const [loading, setLoading] = useState(false);
     const [classes, setClasses] = useState<Class[]>([]);
 
@@ -38,7 +38,8 @@ export default function ClassManager({ userEmail, onRefresh }: ClassManagerProps
     const fetchClasses = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`/api/admin/classes?email=${encodeURIComponent(userEmail)}`);
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch('/api/admin/classes', { headers });
             const data = await response.json();
             if (response.ok) {
                 setClasses(data.classes || []);
@@ -51,10 +52,8 @@ export default function ClassManager({ userEmail, onRefresh }: ClassManagerProps
     };
 
     useEffect(() => {
-        if (userEmail) {
-            fetchClasses();
-        }
-    }, [userEmail]);
+        fetchClasses();
+    }, []);
 
     const showToast = (message: string, type: 'success' | 'error' = 'error') => {
         const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -97,9 +96,8 @@ export default function ClassManager({ userEmail, onRefresh }: ClassManagerProps
         try {
             const response = await fetch('/api/admin/classes', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
-                    admin_email: userEmail,
                     class_id,
                     name: editingName.trim(),
                     schedule: editingSchedule.trim() || null,
@@ -136,10 +134,8 @@ export default function ClassManager({ userEmail, onRefresh }: ClassManagerProps
         setDeleteDialog({ show: false, classId: null, className: '' });
 
         try {
-            const response = await fetch(
-                `/api/admin/classes?email=${encodeURIComponent(userEmail)}&class_id=${class_id}`,
-                { method: 'DELETE' }
-            );
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch(`/api/admin/classes?class_id=${class_id}`, { method: 'DELETE', headers });
 
             const data = await response.json();
 

@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface SwimmerDetail {
   id: string;
@@ -80,22 +81,9 @@ export default function InstructorSwimmerDetail() {
     try {
       setIsLoading(true);
       setError('');
+      const headers = await createAuthenticatedHeaders();
 
-      const stored = localStorage.getItem('user');
-      if (!stored) {
-        throw new Error('Missing local user session. Please log in again.');
-      }
-
-      const userData = JSON.parse(stored);
-      const email = userData.email;
-
-      if (!email) {
-        throw new Error('Missing user email from login session.');
-      }
-
-      const response = await fetch(
-        `/api/instructor/swimmers/${swimmerId}?email=${encodeURIComponent(email)}`
-      );
+      const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, { headers });
       const payload = (await response.json()) as SwimmerPayload;
 
       if (!response.ok) {
@@ -142,24 +130,14 @@ export default function InstructorSwimmerDetail() {
 
       setSaveError('');
       setSavingSkillId(skill.id);
-
-      const stored = localStorage.getItem('user');
-      if (!stored) {
-        throw new Error('Missing local user session. Please log in again.');
-      }
-
-      const userData = JSON.parse(stored);
-      const email = userData.email;
-
-      if (!email) {
-        throw new Error('Missing user email from login session.');
-      }
+      const headers = await createAuthenticatedHeaders({
+        'Content-Type': 'application/json',
+      });
 
       const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          email,
           note: undefined,
           classId: selectedClassId || undefined,
           skillNotes: [{ skillId: skill.id, note }],
