@@ -5,28 +5,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { getOrgIdByEmail } from '@/lib/adminQueries';
+import { resolveAdminRequestContext } from '@/lib/adminQueries';
 
 // GET: Fetch all swimmers (members) for an organization
 export async function GET(request: NextRequest) {
     try {
-        const email = request.nextUrl.searchParams.get('email');
-        if (!email) {
-            return NextResponse.json(
-                { error: 'Email is required' },
-                { status: 400 }
-            );
-        }
-
         const supabase = getSupabaseAdminClient();
-        const orgId = await getOrgIdByEmail(supabase, email);
-
-        if (!orgId) {
-            return NextResponse.json(
-                { error: 'Failed to find organization' },
-                { status: 500 }
-            );
-        }
+        const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
+        const orgId = adminContext.organizationId;
 
         const { data: members, error: membersError } = await supabase
             .from('member')
@@ -51,9 +37,13 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ swimmers });
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Internal server error';
         console.error('Swimmers GET error:', error);
+        if (message.startsWith('FORBIDDEN:')) return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+        if (message.startsWith('UNAUTHORIZED:')) return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+        if (message === 'Missing admin email') return NextResponse.json({ error: message }, { status: 400 });
         return NextResponse.json(
-            { error: 'Internal server error' },
+            { error: message },
             { status: 500 }
         );
     }

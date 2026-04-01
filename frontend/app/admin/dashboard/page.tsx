@@ -7,6 +7,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  createAuthenticatedHeaders,
+  getAuthenticatedSessionIdentity,
+  logoutAndRedirect,
+} from "@/lib/clientAuth";
 import InstructorManager from "@/components/InstructorManager";
 import ClassManager from "@/components/ClassManager";
 import InstructorAssignmentManager from "@/components/InstructorAssignmentManager";
@@ -547,7 +552,6 @@ function EntityEditor({
 export default function AdminDashboard() {
   const router = useRouter();
   const [userName, setUserName] = useState("Admin User");
-  const [userEmail, setUserEmail] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("assignments");
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -652,12 +656,9 @@ export default function AdminDashboard() {
 
   // Fetch dashboard statistics
   const fetchStats = async () => {
-    if (!userEmail) return;
-
     try {
-      const response = await fetch(
-        `/api/admin/dashboard?email=${encodeURIComponent(userEmail)}`,
-      );
+      const headers = await createAuthenticatedHeaders();
+      const response = await fetch(`/api/admin/dashboard`, { headers });
       if (!response.ok) throw new Error("Failed to load stats");
       const data = await response.json();
       setStats(data);
@@ -670,20 +671,14 @@ export default function AdminDashboard() {
 
   // Load user info and dashboard statistics on mount
   useEffect(() => {
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      const userData = JSON.parse(stored);
-      setUserName(userData.name || "Admin User");
-      setUserEmail(userData.email || "");
-    }
-  }, []);
-
-  // Fetch stats when userEmail is set
-  useEffect(() => {
-    if (userEmail) {
+    (async () => {
+      try {
+        const identity = await getAuthenticatedSessionIdentity();
+        setUserName(identity.displayName || "Admin User");
+      } catch {}
       fetchStats();
-    }
-  }, [userEmail]);
+    })();
+  }, []);
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -770,13 +765,11 @@ export default function AdminDashboard() {
 
   // Load all entity types when user email is available
   useEffect(() => {
-    if (userEmail) {
-      Object.keys(ENTITY_CONFIG).forEach((type) => {
-        fetchEntity(type as EntityType);
-      });
-      fetchAdmins();
-    }
-  }, [userEmail]);
+    Object.keys(ENTITY_CONFIG).forEach((type) => {
+      fetchEntity(type as EntityType);
+    });
+    fetchAdmins();
+  }, []);
 
   const getPersonDisplayName = (person: OrgPerson) => {
     const name = `${person.first_name || ""} ${person.last_name || ""}`.trim();
@@ -784,12 +777,10 @@ export default function AdminDashboard() {
   };
 
   const fetchAdmins = async () => {
-    if (!userEmail) return;
     setAdminsLoading(true);
     try {
-      const response = await fetch(
-        `/api/admin/admins?email=${encodeURIComponent(userEmail)}`,
-      );
+      const headers = await createAuthenticatedHeaders();
+      const response = await fetch(`/api/admin/admins`, { headers });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to load admins");
       setAdmins(data.admins || []);
@@ -802,14 +793,13 @@ export default function AdminDashboard() {
   };
 
   const handlePromoteAdmin = async () => {
-    if (!userEmail || !selectedAdminCandidate) return;
+    if (!selectedAdminCandidate) return;
     setPromotingAdmin(true);
     try {
       const response = await fetch("/api/admin/admins", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          email: userEmail,
           person_id: selectedAdminCandidate,
         }),
       });
@@ -839,18 +829,17 @@ export default function AdminDashboard() {
 
   const handleDemoteAdmin = async () => {
     const personId = demoteConfirmDialog.personId;
-    if (!userEmail || !personId) return;
+    if (!personId) return;
 
     setDemoteConfirmDialog({ show: false, personId: null, personName: "" });
     setDemotingAdmin(personId);
 
     try {
-      const response = await fetch(
-        `/api/admin/admins?email=${encodeURIComponent(userEmail)}&person_id=${personId}`,
-        {
-          method: "DELETE",
-        },
-      );
+      const headers = await createAuthenticatedHeaders();
+      const response = await fetch(`/api/admin/admins?person_id=${personId}`, {
+        method: "DELETE",
+        headers,
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to demote admin");
       await fetchAdmins();
@@ -868,16 +857,14 @@ export default function AdminDashboard() {
 
   // Fetch a specific entity type from API with loading state management
   const fetchEntity = async (type: EntityType) => {
-    if (!userEmail) return;
     setEntities((prev) => ({
       ...prev,
       [type]: { ...prev[type], loading: true },
     }));
     try {
       const config = ENTITY_CONFIG[type];
-      const response = await fetch(
-        `${config.apiPath}?email=${encodeURIComponent(userEmail)}`,
-      );
+      const headers = await createAuthenticatedHeaders();
+      const response = await fetch(`${config.apiPath}`, { headers });
       if (!response.ok) throw new Error(`Failed to load ${type}`);
       const data = await response.json();
       const listData = data[config.dataKey] || [];
@@ -902,13 +889,13 @@ export default function AdminDashboard() {
   // Create new entity. Uses entity-specific API path and field names from config.
   const handleAdd = async (type: EntityType) => {
     const state = entities[type];
-    if (!state.newName.trim() || !userEmail) return;
+    if (!state.newName.trim()) return;
     try {
       const config = ENTITY_CONFIG[type];
       const response = await fetch(config.apiPath, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, name: state.newName.trim() }),
+        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ name: state.newName.trim() }),
       });
       if (!response.ok) throw new Error(`Failed to create ${type}`);
       setEntities((prev) => ({
@@ -925,14 +912,13 @@ export default function AdminDashboard() {
   // Update entity by ID. Uses correct ID field (skill_id, person_id, etc.) from config.
   const handleUpdate = async (type: EntityType, id: string) => {
     const state = entities[type];
-    if (!state.editingName.trim() || !userEmail) return;
+    if (!state.editingName.trim()) return;
     try {
       const config = ENTITY_CONFIG[type];
       const response = await fetch(config.apiPath, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          email: userEmail,
           [config.idField]: id,
           name: state.editingName.trim(),
         }),
@@ -969,7 +955,7 @@ export default function AdminDashboard() {
   // Delete entity after right-side confirmation.
   const handleDeleteConfirmed = async () => {
     const { type, entityId } = entityDeleteDialog;
-    if (!userEmail || !type || !entityId) return;
+    if (!type || !entityId) return;
 
     setEntityDeleteDialog({
       show: false,
@@ -980,10 +966,12 @@ export default function AdminDashboard() {
 
     try {
       const config = ENTITY_CONFIG[type];
+      const headers = await createAuthenticatedHeaders();
       const response = await fetch(
-        `${config.apiPath}?email=${encodeURIComponent(userEmail)}&${config.idField}=${entityId}`,
+        `${config.apiPath}?${config.idField}=${entityId}`,
         {
           method: "DELETE",
+          headers,
         },
       );
       if (!response.ok) throw new Error(`Failed to delete ${type}`);
@@ -1067,9 +1055,8 @@ export default function AdminDashboard() {
               {getInitials(userName)}
             </div>
             <button
-              onClick={() => {
-                localStorage.removeItem("user");
-                router.push("/login");
+              onClick={async () => {
+                await logoutAndRedirect("/login");
               }}
               className="h-8 w-8 sm:h-9 sm:w-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 flex-shrink-0"
             >
@@ -1333,7 +1320,6 @@ export default function AdminDashboard() {
         {/* Instructors Tab - kept mounted for instant tab switching */}
         <div className={activeTab === "instructors" ? "" : "hidden"}>
           <InstructorManager
-            userEmail={userEmail}
             onRefresh={() => {
               fetchStats();
               fetchEntity("instructors");
@@ -1344,7 +1330,6 @@ export default function AdminDashboard() {
         {/* Classes Tab - kept mounted for instant tab switching */}
         <div className={activeTab === "classes" ? "" : "hidden"}>
           <ClassManager
-            userEmail={userEmail}
             onRefresh={() => {
               fetchStats();
               fetchEntity("classes");
@@ -1354,7 +1339,7 @@ export default function AdminDashboard() {
 
         {/* Instructor Assignments Tab - kept mounted for instant tab switching */}
         <div className={activeTab === "assignments" ? "" : "hidden"}>
-          <InstructorAssignmentManager userEmail={userEmail} />
+          <InstructorAssignmentManager />
         </div>
 
         {/* All other entity tabs use the generic EntityEditor component */}

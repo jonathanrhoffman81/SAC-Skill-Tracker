@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import EvaluationForm from '@/components/EvaluationForm';
+import { createAuthenticatedHeaders, logoutAndRedirect } from '@/lib/clientAuth';
 
 interface DashboardClass {
   id: string;
@@ -18,7 +19,7 @@ interface DashboardClass {
 interface DashboardSkill {
   id: string;
   name: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -47,31 +48,37 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function formatPct(mastered: number, total: number) {
-  if (total === 0) return 0;
-  return Math.round((mastered / total) * 100);
+function calculateAverageProficiency(skills: DashboardSkill[]): string {
+  if (skills.length === 0) return '0';
+  const proficiencyToPercentage = (level: 0 | 1 | 2 | 3 | 4): number => {
+    const mapping: Record<number, number> = { 0: 0, 1: 25, 2: 50, 3: 75, 4: 100 };
+    return mapping[level];
+  };
+  const totalPercentage = skills.reduce((sum, skill) => sum + proficiencyToPercentage(skill.progress), 0);
+  return Math.round(totalPercentage / skills.length).toString();
 }
 
 export default function InstructorDashboard() {
   const router = useRouter();
   const [userName, setUserName] = useState('Guest User');
-  const [userEmail, setUserEmail] = useState('');
   const [organizationName, setOrganizationName] = useState('SAC Skill Tracker');
+  const [swimmerTab, setSwimmerTab] = useState<'my' | 'all'>('my');
   const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function loadDashboardData(emailOverride?: string) {
-    const email = emailOverride || userEmail;
-    if (!email) return;
+  async function loadDashboardData(tab?: 'my' | 'all') {
+    const activeTab = tab || swimmerTab;
 
     try {
       setIsLoading(true);
       setError('');
 
-      const response = await fetch(`/api/instructor/dashboard?email=${encodeURIComponent(email)}`);
+      const endpoint = activeTab === 'all' ? '/api/instructor/all-swimmers' : '/api/instructor/dashboard';
+      const headers = await createAuthenticatedHeaders();
+      const response = await fetch(endpoint, { headers });
       const payload = (await response.json()) as DashboardPayload;
 
       if (!response.ok) {
@@ -93,27 +100,7 @@ export default function InstructorDashboard() {
   }
 
   useEffect(() => {
-    const stored = localStorage.getItem('user');
-    if (!stored) {
-      setError('Missing local user session. Please log in again.');
-      setIsLoading(false);
-      return;
-    }
-
-    const userData = JSON.parse(stored);
-    const localName = userData.name || 'Guest User';
-    const email = userData.email || '';
-
-    setUserName(localName);
-    setUserEmail(email);
-
-    if (!email) {
-      setError('Missing user email from login session.');
-      setIsLoading(false);
-      return;
-    }
-
-    loadDashboardData(email);
+    loadDashboardData();
   }, []);
 
   const visibleSwimmers = useMemo(() => {
@@ -154,9 +141,8 @@ export default function InstructorDashboard() {
               {getInitials(userName)}
             </div>
             <button
-              onClick={() => {
-                localStorage.removeItem('user');
-                router.push('/login');
+              onClick={async () => {
+                await logoutAndRedirect('/login');
               }}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
             >
@@ -233,9 +219,34 @@ export default function InstructorDashboard() {
 
         <section>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold">
-              My Swimmers
-            </span>
+            <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-1">
+              <button
+                onClick={() => {
+                  setSwimmerTab('my');
+                  loadDashboardData('my');
+                }}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  swimmerTab === 'my'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                My Swimmers
+              </button>
+              <button
+                onClick={() => {
+                  setSwimmerTab('all');
+                  loadDashboardData('all');
+                }}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  swimmerTab === 'all'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All Swimmers
+              </button>
+            </div>
             <div className="w-full max-w-xs">
               <input
                 type="text"
@@ -250,7 +261,7 @@ export default function InstructorDashboard() {
           <div className="space-y-4">
             {visibleSwimmers.map((swimmer) => {
               const mastered = swimmer.skills.filter((skill) => skill.mastered).length;
-              const pct = formatPct(mastered, swimmer.skills.length);
+              const avgProficiency = calculateAverageProficiency(swimmer.skills);
               const isOpen = openSwimmerId === swimmer.id;
 
               return (
@@ -282,8 +293,8 @@ export default function InstructorDashboard() {
                             </button>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span>{mastered}/{swimmer.skills.length} skills acquired</span>
-                            <span>{pct}% complete</span>
+                            <span>{mastered}/{swimmer.skills.length} skills mastered</span>
+                            <span>Avg proficiency: {avgProficiency}%</span>
                             {swimmer.classes.map((classItem) => (
                               <span
                                 key={classItem.id}
@@ -313,7 +324,6 @@ export default function InstructorDashboard() {
                     <div className="border-t border-gray-100 p-5 sm:p-6">
                       <EvaluationForm
                         swimmerId={swimmer.id}
-                        userEmail={userEmail}
                         skills={swimmer.skills}
                         classes={swimmer.classes}
                         onSubmissionComplete={() => loadDashboardData()}
@@ -327,7 +337,7 @@ export default function InstructorDashboard() {
 
           {!isLoading && !error && visibleSwimmers.length === 0 && (
             <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
-              No swimmers assigned to you yet.
+              No swimmers assigned to you yet. 
             </div>
           )}
         </section>

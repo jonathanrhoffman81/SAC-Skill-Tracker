@@ -6,20 +6,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import {
-  getOrgIdByEmail,
   getPersonIdsForRoleInOrg,
   getRoleIdByName,
+  resolveAdminRequestContext,
 } from "@/lib/adminQueries";
 
 // GET: Fetch all instructors for an organization
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get("email");
-    if (!email)
-      return NextResponse.json({ error: "Email required" }, { status: 400 });
-
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, email);
+    const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get("email"));
+    const orgId = adminContext.organizationId;
     const roleId = await getRoleIdByName(supabase, "instructor");
 
     if (!orgId || !roleId)
@@ -83,7 +80,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const adminEmail = body.admin_email || body.email;
     const mode = body.mode;
     const person_id = body.person_id;
     const first_name = body.first_name;
@@ -92,21 +88,15 @@ export async function POST(request: NextRequest) {
     const member_id = body.member_id;
     const class_ids = body.class_ids;
 
-    if (!adminEmail) {
-      return NextResponse.json(
-        { error: "Admin email required" },
-        { status: 400 },
-      );
-    }
-
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
+    const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
+    const orgId = adminContext.organizationId;
 
     if (!orgId) {
-      console.error("Failed to find organization for admin email:", adminEmail);
+      console.error("Failed to find organization for admin request");
       return NextResponse.json(
         {
-          error: `Failed to find organization for admin email: ${adminEmail}. Make sure this email exists in the person table and has an active organization.`,
+          error: `Failed to find organization for admin request.`,
         },
         { status: 500 },
       );
@@ -290,19 +280,19 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const adminEmail = body.admin_email || body.email;
     const person_id = body.person_id;
     const name = body.name;
     const newEmail = body.new_email;
-    if (!adminEmail || !person_id || !name) {
+    if (!person_id || !name) {
       return NextResponse.json(
-        { error: "Admin email, person_id, and name required" },
+        { error: "person_id and name required" },
         { status: 400 },
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
+    const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
+    const orgId = adminContext.organizationId;
     if (!orgId)
       return NextResponse.json(
         { error: "Failed to find organization" },
@@ -353,19 +343,19 @@ export async function PUT(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const adminEmail = body.admin_email || body.email;
     const person_id = body.person_id;
     const class_ids = Array.isArray(body.class_ids) ? body.class_ids : [];
 
-    if (!adminEmail || !person_id) {
+    if (!person_id) {
       return NextResponse.json(
-        { error: "Admin email and person_id required" },
+        { error: "person_id required" },
         { status: 400 },
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
+    const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
+    const orgId = adminContext.organizationId;
     if (!orgId)
       return NextResponse.json(
         { error: "Failed to find organization" },
@@ -458,17 +448,17 @@ export async function PATCH(request: NextRequest) {
 // DELETE: Delete an instructor
 export async function DELETE(request: NextRequest) {
   try {
-    const adminEmail = request.nextUrl.searchParams.get("email");
     const person_id = request.nextUrl.searchParams.get("person_id");
-    if (!adminEmail || !person_id) {
+    if (!person_id) {
       return NextResponse.json(
-        { error: "Admin email and person_id required" },
+        { error: "person_id required" },
         { status: 400 },
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const orgId = await getOrgIdByEmail(supabase, adminEmail);
+    const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get("email"));
+    const orgId = adminContext.organizationId;
     const roleId = await getRoleIdByName(supabase, "instructor");
 
     if (!orgId || !roleId)

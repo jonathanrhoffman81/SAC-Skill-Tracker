@@ -5,16 +5,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { getOrgIdByEmail } from '@/lib/adminQueries';
+import { resolveAdminRequestContext } from '@/lib/adminQueries';
 
 // GET: Fetch all members in an organization, including linked person info when present.
 export async function GET(request: NextRequest) {
     try {
-        const email = request.nextUrl.searchParams.get('email');
-        if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 });
-
         const supabase = getSupabaseAdminClient();
-        const orgId = await getOrgIdByEmail(supabase, email);
+        const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
+        const orgId = adminContext.organizationId;
 
         // Be resilient: if user has no organization context, return an empty list instead of 500.
         if (!orgId) {
@@ -97,7 +95,11 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ persons });
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Internal server error';
         console.error('Persons GET error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+        if (message.startsWith('FORBIDDEN:')) return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+        if (message.startsWith('UNAUTHORIZED:')) return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+        if (message === 'Missing admin email') return NextResponse.json({ error: message }, { status: 400 });
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

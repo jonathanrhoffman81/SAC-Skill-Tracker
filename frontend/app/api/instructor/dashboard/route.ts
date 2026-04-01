@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 interface DashboardClassPayload {
@@ -10,7 +11,7 @@ interface DashboardClassPayload {
 interface DashboardSkillPayload {
   id: string;
   name: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -35,6 +36,8 @@ interface RpcDashboardRow {
   swimmers?: DashboardSwimmerPayload[];
 }
 
+const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
+
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   return new Date(value).toLocaleDateString('en-US', {
@@ -44,10 +47,12 @@ function formatDate(value?: string | null): string | undefined {
   });
 }
 
-function normalizeProgress(value: number | null | undefined): 0 | 25 | 50 | 75 | 100 {
-  if (value === 25 || value === 50 || value === 75 || value === 100) {
-    return value;
-  }
+function normalizeProgress(value: number | null | undefined): 0 | 1 | 2 | 3 | 4 {
+  if (value === 0) return 0;
+  if (value === 25) return 1;
+  if (value === 50) return 2;
+  if (value === 75) return 3;
+  if (value === 100) return 4;
   return 0;
 }
 
@@ -228,7 +233,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
 
   const memberSkillByKey = new Map<
     string,
-    { progress: 0 | 25 | 50 | 75 | 100; dateAcquired?: string }
+    { progress: 0 | 1 | 2 | 3 | 4; dateAcquired?: string }
   >();
 
   (memberSkillRows ?? []).forEach((row) => {
@@ -248,7 +253,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
           id: skill.skill_id,
           name: skill.name,
           progress,
-          mastered: progress === 100 || Boolean(memberSkill?.dateAcquired),
+          mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
           dateAcquired: memberSkill?.dateAcquired,
         };
       });
@@ -270,16 +275,44 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
   };
 }
 
+async function resolveInstructorEmail(request: NextRequest): Promise<{ email: string; source: 'session' | 'email' }> {
+  let sessionPerson = null;
+  try {
+    sessionPerson = await getCurrentPersonFromRequest(request);
+  } catch (error) {
+    if (!(error instanceof AuthContextError)) {
+      throw error;
+    }
+
+    const fallbackEmail = request.nextUrl.searchParams.get('email');
+    if (!fallbackEmail) {
+      throw new Error(`UNAUTHORIZED:${error.message}`);
+    }
+  }
+
+  if (sessionPerson?.email) {
+    const hasAllowedRole = sessionPerson.roleNames.some((role) =>
+      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase())
+    );
+
+    if (!hasAllowedRole) {
+      throw new Error('FORBIDDEN:You do not have access to the instructor dashboard.');
+    }
+
+    return { email: sessionPerson.email, source: 'session' };
+  }
+
+  const email = request.nextUrl.searchParams.get('email');
+  if (!email) {
+    throw new Error('Missing required query param: email');
+  }
+
+  return { email, source: 'email' };
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get('email');
-
-    if (!email) {
-      return NextResponse.json(
-        { error: 'Missing required query param: email' },
-        { status: 400 }
-      );
-    }
+    const { email } = await resolveInstructorEmail(request);
 
     const supabaseAdmin = getSupabaseAdminClient();
     const { data, error } = await supabaseAdmin.rpc('get_instructor_dashboard_payload', {
@@ -299,6 +332,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(fallbackPayload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected server error';
+    if (message.startsWith('FORBIDDEN:')) {
+      return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+    }
+    if (message.startsWith('UNAUTHORIZED:')) {
+      return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+    }
+    if (message === 'Missing required query param: email') {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

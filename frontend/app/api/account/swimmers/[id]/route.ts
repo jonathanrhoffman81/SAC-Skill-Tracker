@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  AuthContextError,
+  getCurrentPersonFromRequest,
+} from "@/lib/serverAuth";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 interface RouteParams {
@@ -21,6 +25,7 @@ interface SwimmerProfilePayload {
     enrollmentDate: string;
     organization: string;
   };
+
   skills: Array<{
     id: string;
     name: string;
@@ -31,6 +36,18 @@ interface SwimmerProfilePayload {
   }>;
   sessionNotes: SwimmerProfileNote[];
 }
+
+const ACCOUNT_ROUTE_ROLE_SET = new Set([
+  "guardian",
+  "parent",
+  "account",
+  "member",
+  "human",
+  "swimmer",
+  "admin",
+  "super-admin",
+  "superadmin",
+]);
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
@@ -96,6 +113,45 @@ async function resolveAccountPersonId(email?: string | null) {
   return { person: data };
 }
 
+async function resolveAccountPersonForRequest(request: NextRequest) {
+  let sessionPerson = null;
+
+  try {
+    sessionPerson = await getCurrentPersonFromRequest(request);
+  } catch (error) {
+    if (error instanceof AuthContextError) {
+      return {
+        error: `UNAUTHORIZED:${error.message}` as const,
+      };
+    }
+    throw error;
+  }
+
+  if (!sessionPerson) {
+    return {
+      error: "UNAUTHORIZED:No active session" as const,
+    };
+  }
+
+  const hasAllowedRole = sessionPerson.roleNames.some((role) =>
+    ACCOUNT_ROUTE_ROLE_SET.has(role.toLowerCase()),
+  );
+
+  if (!hasAllowedRole) {
+    return {
+      error: "FORBIDDEN:You do not have access to this account route." as const,
+    };
+  }
+
+  return {
+    person: {
+      person_id: sessionPerson.personId,
+    },
+    email: sessionPerson.email,
+    source: "session" as const,
+  };
+}
+
 async function accountCanAccessMember(
   accountPersonId: string,
   memberId: string,
@@ -134,18 +190,12 @@ async function accountCanAccessMember(
 }
 
 async function buildParentSwimmerProfile(
-  email: string,
+  accountPersonId: string,
   memberId: string,
 ): Promise<SwimmerProfilePayload> {
   const supabaseAdmin = getSupabaseAdminClient();
 
-  const accountResolution = await resolveAccountPersonId(email);
-  if ("error" in accountResolution) {
-    throw new Error(accountResolution.error);
-  }
-  const account = accountResolution.person;
-
-  const accessCheck = await accountCanAccessMember(account.person_id, memberId);
+  const accessCheck = await accountCanAccessMember(accountPersonId, memberId);
   if (!accessCheck.ok) {
     const accessError =
       accessCheck.error ?? "You do not have access to this swimmer.";
@@ -171,7 +221,7 @@ async function buildParentSwimmerProfile(
     throw new Error("NOT_FOUND:Swimmer not found.");
   }
 
-  const { data: org, error: orgError } = await supabaseAdmin
+  const { data: organization, error: orgError } = await supabaseAdmin
     .from("organization")
     .select("name")
     .eq("organization_id", member.organization_id)
@@ -180,6 +230,7 @@ async function buildParentSwimmerProfile(
   if (orgError) {
     throw new Error(`Failed to load organization: ${orgError.message}`);
   }
+
   const [
     { data: skills, error: skillsError },
     { data: orgSkills, error: orgSkillsError },
@@ -287,7 +338,7 @@ async function buildParentSwimmerProfile(
       age: calculateAge(member.date_of_birth),
       level: member.level ?? "Unassigned level",
       enrollmentDate: formatDate(member.created_at) ?? "",
-      organization: org?.name ?? "",
+      organization: organization?.name ?? "",
     },
     skills: (orgSkills ?? [])
       .map((row) => {
@@ -313,16 +364,30 @@ async function buildParentSwimmerProfile(
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const memberId = params.id;
-    const email = request.nextUrl.searchParams.get("email");
+    const accountResolution = await resolveAccountPersonForRequest(request);
 
-    if (!email) {
+    if ("error" in accountResolution) {
+      const errorMessage = accountResolution.error ?? "Missing account email";
       return NextResponse.json(
-        { error: "Missing account email" },
-        { status: 400 },
+        {
+          error: errorMessage
+            .replace("FORBIDDEN:", "")
+            .replace("UNAUTHORIZED:", ""),
+        },
+        {
+          status: errorMessage.startsWith("FORBIDDEN:")
+            ? 403
+            : errorMessage.startsWith("UNAUTHORIZED:")
+              ? 401
+              : 400,
+        },
       );
     }
 
-    const payload = await buildParentSwimmerProfile(email, memberId);
+    const payload = await buildParentSwimmerProfile(
+      accountResolution.person.person_id,
+      memberId,
+    );
     return NextResponse.json(payload);
   } catch (error) {
     const message =

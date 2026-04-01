@@ -14,6 +14,11 @@ const PROFICIENCY_LABELS: Record<SkillProgress, string> = {
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  createAuthenticatedHeaders,
+  getAuthenticatedSessionIdentity,
+  logoutAndRedirect,
+} from '@/lib/clientAuth';
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
@@ -118,23 +123,12 @@ export default function AccountDashboard() {
       try {
         setIsLoading(true);
         setError('');
-
-        const stored = localStorage.getItem('user');
-        if (!stored) {
-          throw new Error('Missing local user session. Please log in again.');
-        }
-
-        const userData = JSON.parse(stored);
-        const localName = userData.name || 'Guest User';
-        const email = userData.email;
+        const identity = await getAuthenticatedSessionIdentity();
+        const localName = identity.displayName || 'Guest User';
 
         setUserName(localName);
 
-        if (!email) {
-          throw new Error('Missing user email from login session.');
-        }
-
-        const cacheKey = `${DASHBOARD_CACHE_PREFIX}${email.toLowerCase()}`;
+        const cacheKey = `${DASHBOARD_CACHE_PREFIX}${identity.authUserId}`;
         const cachedRaw = sessionStorage.getItem(cacheKey);
         if (cachedRaw) {
           try {
@@ -150,7 +144,8 @@ export default function AccountDashboard() {
         }
 
         // Fetch all parent dashboard data in one request.
-        const response = await fetch(`/api/account/dashboard?email=${encodeURIComponent(email)}`);
+        const headers = await createAuthenticatedHeaders();
+        const response = await fetch('/api/account/dashboard', { headers });
         const payload = (await response.json()) as DashboardPayload & { error?: string };
 
         if (!response.ok) {
@@ -209,7 +204,7 @@ export default function AccountDashboard() {
 
   function getOverallPct(skills: SkillItem[]) {
     if (skills.length === 0) return 0;
-    return Math.round(skills.reduce((sum, skill) => sum + skill.progress, 0) / skills.length);
+    return Math.round((skills.reduce((sum, skill) => sum + skill.progress, 0) / (skills.length * 4)) * 100);
   }
 
   return (
@@ -236,9 +231,8 @@ export default function AccountDashboard() {
               {userName ? getInitials(userName) : 'GU'}
             </div>
             <button
-              onClick={() => {
-                localStorage.removeItem('user');
-                router.push('/login');
+              onClick={async () => {
+                await logoutAndRedirect('/login');
               }}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
             >
@@ -248,18 +242,35 @@ export default function AccountDashboard() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
-        {/* Proficiency Scale for Parents */}
-        <section className="mb-4">
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-            <h2 className="text-sm font-semibold text-blue-900 mb-2">Proficiency Scale</h2>
-            <ul className="text-xs text-blue-900 space-y-1 pl-2">
-              <li><span className="font-bold">0.</span> Unable to attempt the skill</li>
-              <li><span className="font-bold">1.</span> Unable to show skill without significant support</li>
-              <li><span className="font-bold">2.</span> Inconsistently or with support is able to demonstrate the skill</li>
-              <li><span className="font-bold">3.</span> Consistently demonstrates application of the skill</li>
-              <li><span className="font-bold">4.</span> Demonstrates complete understanding of the skill</li>
-            </ul>
+      <main className="mx-auto max-w-7xl space-y-2 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
+        {/* Proficiency Rating for Parents */}
+        <section className="mb-3">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 pt-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Proficiency Scale</p>
+              <ul className="mt-3 space-y-2">
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">0</span>
+                  <span>Unable to attempt the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">1</span>
+                  <span>Unable to show skill without significant support</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">2</span>
+                  <span>Inconsistently or with support is able to demonstrate the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">3</span>
+                  <span>Consistently demonstrates application of the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">4</span>
+                  <span>Demonstrates complete understanding of the skill</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </section>
         {/* Loading Banner */}
@@ -331,16 +342,23 @@ export default function AccountDashboard() {
                             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
                               {swimmer.level}
                             </span>
-                            <button
-                              type="button"
-                              className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="cursor-pointer text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 router.push(`/account/swimmers/${swimmer.id}`);
                               }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.stopPropagation();
+                                  router.push(`/account/swimmers/${swimmer.id}`);
+                                }
+                              }}
                             >
                               View full profile
-                            </button>
+                            </span>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                             <span>{acquiredCount}/{skills.length} skills acquired</span>

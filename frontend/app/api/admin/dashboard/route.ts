@@ -7,10 +7,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import {
   getActivePersonOrganizations,
-  getOrgIdByEmail,
   getOrganizationById,
   getRoleIdByName,
   mapPersonIdsForPersonOrgRole,
+  resolveAdminRequestContext,
 } from "@/lib/adminQueries";
 
 interface AdminDashboardStats {
@@ -25,22 +25,13 @@ interface AdminDashboardStats {
 export async function GET(request: NextRequest) {
   console.log("called");
   try {
-    const email = request.nextUrl.searchParams.get("email");
-
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
-    }
-
     const supabase = getSupabaseAdminClient();
-
-    // Step 1: Resolve organization from requesting admin email
-    const organizationId = await getOrgIdByEmail(supabase, email);
-    if (!organizationId) {
-      return NextResponse.json(
-        { error: "Failed to find organization for user" },
-        { status: 500 },
-      );
-    }
+    const adminContext = await resolveAdminRequestContext(
+      request,
+      supabase,
+      request.nextUrl.searchParams.get("email")
+    );
+    const organizationId = adminContext.organizationId;
 
     // Step 2: Get organization details
     const organization = await getOrganizationById(supabase, organizationId);
@@ -147,9 +138,19 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(stats);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Internal server error";
     console.error("Admin dashboard error:", error);
+    if (message.startsWith("FORBIDDEN:")) {
+      return NextResponse.json({ error: message.replace("FORBIDDEN:", "") }, { status: 403 });
+    }
+    if (message.startsWith("UNAUTHORIZED:")) {
+      return NextResponse.json({ error: message.replace("UNAUTHORIZED:", "") }, { status: 401 });
+    }
+    if (message === "Missing admin email") {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message },
       { status: 500 },
     );
   }

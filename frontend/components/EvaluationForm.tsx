@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface SkillItem {
   id: string;
@@ -18,7 +19,6 @@ interface ClassItem {
 
 interface EvaluationFormProps {
   swimmerId: string;
-  userEmail: string;
   skills: SkillItem[];
   classes: ClassItem[];
   onSubmissionComplete?: () => void;
@@ -32,9 +32,13 @@ const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
   { value: 4, label: '4 - Acquired' },
 ];
 
+function proficiencyToPercentage(level: 0 | 1 | 2 | 3 | 4): number {
+  const mapping: Record<number, number> = { 0: 0, 1: 25, 2: 50, 3: 75, 4: 100 };
+  return mapping[level];
+}
+
 export default function EvaluationForm({
   swimmerId,
-  userEmail,
   skills,
   classes,
   onSubmissionComplete,
@@ -112,21 +116,19 @@ export default function EvaluationForm({
       return;
     }
 
-    if (!userEmail) {
-      setError('Missing instructor session. Please log in again.');
-      return;
-    }
-
     setIsSubmitting(true);
     setError('');
     setSuccessMessage('');
 
     try {
+      const headers = await createAuthenticatedHeaders({
+        'Content-Type': 'application/json',
+      });
+
       const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          email: userEmail,
           classId: selectedClassId || undefined,
           note: trimmedNote || undefined,
           skillNotes: skillNoteEntries.map((entry) => ({
@@ -221,7 +223,7 @@ export default function EvaluationForm({
                         : 'bg-gray-100 text-gray-600'
                         }`}
                     >
-                      {progress} progress
+                      Proficiency: {proficiencyToPercentage(progress)}%
                     </span>
                     {skill.dateAcquired && (
                       <span>Acquired on {skill.dateAcquired}</span>
@@ -253,7 +255,7 @@ export default function EvaluationForm({
                             onChange={() => handleProgressChange(skill.id, option.value)}
                             className="h-3.5 w-3.5 accent-blue-600"
                           />
-                          <span>{option.value}%</span>
+                          <span>{option.value}</span>
                         </label>
                       );
                     })}

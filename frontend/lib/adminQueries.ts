@@ -3,9 +3,28 @@
  * Centralizes organization and role resolution logic.
  */
 
+import type { NextRequest } from 'next/server';
+import { normalizeRole } from '@/lib/authRoles';
+import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
+
 export interface ActivePersonOrg {
     person_organization_id: string;
     person_id: string;
+}
+
+const ADMIN_ROUTE_ROLE_SET = new Set([
+    'admin',
+    'org-admin',
+    'org_admin',
+    'super-admin',
+    'superadmin',
+]);
+
+export interface AdminRequestContext {
+    email: string;
+    personId: string | null;
+    organizationId: string;
+    source: 'session' | 'email';
 }
 
 export async function getPersonIdByEmail(supabase: any, email: string): Promise<string | null> {
@@ -30,6 +49,70 @@ export async function getOrgIdByEmail(supabase: any, email: string): Promise<str
         .single();
 
     return personOrg?.organization_id ?? null;
+}
+
+export async function resolveAdminRequestContext(
+    request: NextRequest,
+    supabase: any,
+    fallbackEmail?: string | null
+): Promise<AdminRequestContext> {
+    let sessionPerson = null;
+    try {
+        sessionPerson = await getCurrentPersonFromRequest(request);
+    } catch (error) {
+        if (!(error instanceof AuthContextError)) {
+            throw error;
+        }
+
+        if (!fallbackEmail) {
+            throw new Error(`UNAUTHORIZED:${error.message}`);
+        }
+    }
+
+    if (sessionPerson?.email) {
+        const hasAdminRole = sessionPerson.roleNames.some((role) =>
+            ADMIN_ROUTE_ROLE_SET.has(normalizeRole(role))
+        );
+
+        if (!hasAdminRole) {
+            throw new Error('FORBIDDEN:You do not have access to this admin route.');
+        }
+
+        const activeMembership = sessionPerson.memberships.find((membership) =>
+            membership.status === 'active' &&
+            membership.roles.some((role) => ADMIN_ROUTE_ROLE_SET.has(normalizeRole(role)))
+        );
+
+        if (!activeMembership?.organizationId) {
+            throw new Error('FORBIDDEN:No active admin organization membership was found.');
+        }
+
+        return {
+            email: sessionPerson.email,
+            personId: sessionPerson.personId,
+            organizationId: activeMembership.organizationId,
+            source: 'session',
+        };
+    }
+
+    const email = String(fallbackEmail || '').trim();
+    if (!email) {
+        throw new Error('Missing admin email');
+    }
+
+    const organizationId = await getOrgIdByEmail(supabase, email);
+    if (!organizationId) {
+        throw new Error('Failed to find organization');
+    }
+
+    const personId = await getPersonIdByEmail(supabase, email);
+
+    return {
+        email,
+        personId,
+        organizationId,
+        source: 'email',
+    };
 }
 
 export async function getOrganizationById(supabase: any, organizationId: string) {
