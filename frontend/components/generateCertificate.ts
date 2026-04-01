@@ -54,17 +54,14 @@ export async function generateCertificate(data: any) {
   doc.setFontSize(30);
   doc.text(name, 148, 110, { align: "center" });
 
-  // ✅ Skill-specific description
   doc.setFont("Times", "Normal");
   doc.setFontSize(14);
   doc.text(`has successfully mastered`, 148, 125, { align: "center" });
 
-  // ✅ Skill name highlighted
   doc.setFont("Times", "Bold");
   doc.setFontSize(20);
   doc.text(skill, 148, 135, { align: "center" });
 
-  // ✅ Date acquired
   doc.setFont("Times", "Normal");
   doc.setFontSize(14);
   doc.text(`Date Acquired: ${date}`, 148, 150, { align: "center" });

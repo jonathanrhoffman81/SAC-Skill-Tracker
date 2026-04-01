@@ -23,13 +23,12 @@ interface AdminDashboardStats {
 }
 
 export async function GET(request: NextRequest) {
-  console.log("called");
   try {
     const supabase = getSupabaseAdminClient();
     const adminContext = await resolveAdminRequestContext(
       request,
       supabase,
-      request.nextUrl.searchParams.get("email")
+      request.nextUrl.searchParams.get("email"),
     );
     const organizationId = adminContext.organizationId;
 
@@ -138,20 +137,24 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(stats);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
     console.error("Admin dashboard error:", error);
     if (message.startsWith("FORBIDDEN:")) {
-      return NextResponse.json({ error: message.replace("FORBIDDEN:", "") }, { status: 403 });
+      return NextResponse.json(
+        { error: message.replace("FORBIDDEN:", "") },
+        { status: 403 },
+      );
     }
     if (message.startsWith("UNAUTHORIZED:")) {
-      return NextResponse.json({ error: message.replace("UNAUTHORIZED:", "") }, { status: 401 });
+      return NextResponse.json(
+        { error: message.replace("UNAUTHORIZED:", "") },
+        { status: 401 },
+      );
     }
     if (message === "Missing admin email") {
       return NextResponse.json({ error: message }, { status: 400 });
     }
-    return NextResponse.json(
-      { error: message },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
