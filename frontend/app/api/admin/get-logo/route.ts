@@ -1,28 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { getOrgIdByEmail } from "@/lib/adminQueries";
+import { getCurrentPersonFromRequest } from "@/lib/serverAuth";
 
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseAdminClient();
 
-    const email = req.nextUrl.searchParams.get("email");
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    const person = await getCurrentPersonFromRequest(req);
+    if (!person) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get org ID
-    const orgId = await getOrgIdByEmail(supabase, email);
-    if (!orgId) {
-      return NextResponse.json(
-        { error: "Organization not found" },
-        { status: 404 },
-      );
+    const { data: personOrg, error } = await supabase
+      .from("person_organization")
+      .select("organization_id")
+      .eq("person_id", person.personId)
+      .maybeSingle();
+
+    if (error || !personOrg) {
+      return NextResponse.json({ publicUrl: null });
     }
 
+    const orgId = personOrg.organization_id;
     const filePath = `${orgId}/logo.png`;
 
-    // Check if file exists in the bucket
+    // Check if file exists
     const { data: files, error: listError } = await supabase.storage
       .from("organization-logos")
       .list(orgId);
@@ -41,17 +43,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ publicUrl: null });
     }
 
-    // File exists, get public URL
     const { data } = supabase.storage
       .from("organization-logos")
       .getPublicUrl(filePath);
 
-    // Add cache-buster to prevent stale CDN caching
-    const publicUrl = data?.publicUrl
-      ? `${data.publicUrl}?t=${Date.now()}`
-      : null;
-
-    return NextResponse.json({ publicUrl });
+    return NextResponse.json({
+      publicUrl: data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null,
+    });
   } catch (err) {
     console.error("Get logo error:", err);
     return NextResponse.json(

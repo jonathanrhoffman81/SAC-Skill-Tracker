@@ -586,12 +586,13 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const fetchLogo = async () => {
-      if (!userEmail) return;
-
       try {
-        const res = await fetch(
-          `/api/admin/get-logo?email=${encodeURIComponent(userEmail)}`,
-        );
+        const headers = await createAuthenticatedHeaders();
+
+        const res = await fetch(`/api/admin/get-logo`, {
+          headers,
+        });
+
         const data = await res.json();
 
         if (data.publicUrl) {
@@ -600,13 +601,13 @@ export default function AdminDashboard() {
           setLogoUrl(null);
         }
       } catch (err) {
-        console.error("Error fetching logo from API:", err);
+        console.error("Error fetching logo:", err);
         setLogoUrl(null);
       }
     };
 
     fetchLogo();
-  }, [userEmail]);
+  }, []);
 
   const getInitials = (name: string) =>
     name
@@ -798,7 +799,9 @@ export default function AdminDashboard() {
     try {
       const response = await fetch("/api/admin/admins", {
         method: "POST",
-        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        headers: await createAuthenticatedHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({
           person_id: selectedAdminCandidate,
         }),
@@ -894,7 +897,9 @@ export default function AdminDashboard() {
       const config = ENTITY_CONFIG[type];
       const response = await fetch(config.apiPath, {
         method: "POST",
-        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        headers: await createAuthenticatedHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ name: state.newName.trim() }),
       });
       if (!response.ok) throw new Error(`Failed to create ${type}`);
@@ -917,7 +922,9 @@ export default function AdminDashboard() {
       const config = ENTITY_CONFIG[type];
       const response = await fetch(config.apiPath, {
         method: "PUT",
-        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        headers: await createAuthenticatedHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({
           [config.idField]: id,
           name: state.editingName.trim(),
@@ -1188,10 +1195,7 @@ export default function AdminDashboard() {
           <div className="bg-white p-6 rounded-xl border">
             <h2 className="font-semibold mb-4">Organization Settings</h2>
 
-            <LogoManage
-              organizationId={stats.organizationId}
-              userEmail={userEmail}
-            />
+            <LogoManage organizationId={stats.organizationId} />
           </div>
         )}
 

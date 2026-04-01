@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { generateCertificate } from "@/components/generateCertificate";
+import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
 export default function CertificatePage() {
   const params = useParams();
@@ -16,30 +17,30 @@ export default function CertificatePage() {
   // Load swimmer + skills
   useEffect(() => {
     async function loadData() {
-      const stored = localStorage.getItem("user");
-      if (!stored) return;
+      try {
+        const headers = await createAuthenticatedHeaders();
 
-      const { email } = JSON.parse(stored);
+        const res = await fetch(`/api/account/swimmers/${swimmerId}`, {
+          headers,
+        });
 
-      const res = await fetch(
-        `/api/account/swimmers/${swimmerId}?email=${encodeURIComponent(email)}`,
-      );
+        const data = await res.json();
 
-      const data = await res.json();
+        if (data?.swimmer) {
+          setSwimmer(data.swimmer);
 
-      if (data?.swimmer) {
-        setSwimmer(data.swimmer);
+          const completedSkills = (data.skills || []).filter(
+            (s: any) => s.progress === 4,
+          );
 
-        // ✅ Only completed skills
-        const completedSkills = (data.skills || []).filter(
-          (s: any) => s.progress === 4,
-        );
+          setSkills(completedSkills);
 
-        setSkills(completedSkills);
-
-        if (completedSkills.length > 0) {
-          setSelectedSkillId(completedSkills[0].id);
+          if (completedSkills.length > 0) {
+            setSelectedSkillId(completedSkills[0].id);
+          }
         }
+      } catch (err) {
+        console.error("Error loading swimmer:", err);
       }
     }
 
@@ -57,8 +58,8 @@ export default function CertificatePage() {
       const url = await generateCertificate({
         name: swimmer.name,
         university: swimmer.organization,
-        skill: skill.name, // ✅ correct skill
-        date: skill.dateAcquired, // ✅ correct date
+        skill: skill.name,
+        date: skill.dateAcquired,
       });
 
       setPreviewUrl(url);
@@ -80,6 +81,7 @@ export default function CertificatePage() {
   };
 
   // No certificates available
+
   if (skills.length === 0) {
     return <div className="p-6">No certificates available yet.</div>;
   }
@@ -93,7 +95,6 @@ export default function CertificatePage() {
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-4">Certificate Preview</h1>
 
-      {/* ✅ Skill selector */}
       {skills.length > 1 && (
         <select
           value={selectedSkillId || ""}
@@ -108,7 +109,6 @@ export default function CertificatePage() {
         </select>
       )}
 
-      {/* ✅ Preview */}
       <iframe
         src={previewUrl}
         width="100%"
@@ -116,7 +116,6 @@ export default function CertificatePage() {
         className="border rounded-lg"
       />
 
-      {/* ✅ Download */}
       <button
         onClick={handleDownload}
         className="mt-4 bg-blue-600 text-white px-4 py-2 rounded"

@@ -2,24 +2,21 @@ import { useEffect, useState } from "react";
 
 export default function LogoManage({
   organizationId,
-  userEmail,
 }: {
   organizationId: string;
-  userEmail: string;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [fileSelected, setFileSelected] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [logoExists, setLogoExists] = useState(false); // track if a logo exists on server
+  const [logoExists, setLogoExists] = useState(false);
 
-  // Load existing logo on mount
+  // Load existing logo
   useEffect(() => {
     const fetchLogo = async () => {
       try {
-        const res = await fetch(
-          `/api/admin/get-logo?email=${encodeURIComponent(userEmail)}`,
-        );
+        const res = await fetch("/api/admin/get-logo");
         const data = await res.json();
+
         if (data.publicUrl) {
           setPreview(data.publicUrl);
           setLogoExists(true);
@@ -32,25 +29,24 @@ export default function LogoManage({
       }
     };
 
-    if (userEmail) fetchLogo();
-  }, [userEmail]);
+    fetchLogo();
+  }, []);
 
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete the logo?")) return;
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin/upload-logo?email=${encodeURIComponent(userEmail)}`,
-        { method: "DELETE" },
-      );
+      const res = await fetch("/api/admin/upload-logo", {
+        method: "DELETE",
+      });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
       setPreview(null);
       setFileSelected(null);
       setLogoExists(false);
-      console.log("Logo deleted successfully");
     } catch (err) {
       console.error("Delete failed:", err);
     } finally {
@@ -64,12 +60,12 @@ export default function LogoManage({
 
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("email", userEmail);
 
       const res = await fetch("/api/admin/upload-logo", {
         method: "POST",
         body: formData,
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
@@ -78,7 +74,6 @@ export default function LogoManage({
         setFileSelected(null);
         setLogoExists(true);
       }
-      console.log("Upload success:", data.publicUrl);
     } catch (err) {
       console.error("Upload failed:", err);
     } finally {
@@ -124,7 +119,6 @@ export default function LogoManage({
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
-              console.log(file.size);
               if (file.size > 2 * 1024 * 1024) {
                 alert("File must be under 2MB");
                 return;
@@ -138,7 +132,7 @@ export default function LogoManage({
         {/* Upload Button */}
         <button
           type="button"
-          className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400`}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
           disabled={loading || !fileSelected}
           onClick={() => fileSelected && handleUpload(fileSelected)}
         >
