@@ -1301,8 +1301,7 @@ export default function AdminDashboard() {
               onRefresh={() => {
                 fetchStats();
                 fetchEntity("instructors");
-              }}
-            />
+              } } userEmail={""}            />
           </div>
 
           <div className={activeTab === "classes" ? "w-full min-h-[60vh]" : "hidden"}>
@@ -1310,8 +1309,7 @@ export default function AdminDashboard() {
               onRefresh={() => {
                 fetchStats();
                 fetchEntity("classes");
-              }}
-            />
+              } } userEmail={""}            />
           </div>
 
           <div className={activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"}>

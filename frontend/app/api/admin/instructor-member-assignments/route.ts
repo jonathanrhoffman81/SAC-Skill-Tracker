@@ -2,8 +2,55 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { getRoleIdByName, resolveAdminRequestContext } from '@/lib/adminQueries';
 
+type SupabaseClient = ReturnType<typeof getSupabaseAdminClient>;
+
+interface PersonOrganizationRow {
+  person_organization_id: string;
+  person_id: string;
+}
+
+interface MemberRow {
+  member_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  level?: string | null;
+}
+
+interface InstructorRow {
+  person_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+}
+
+interface EnrollmentRow {
+  member_id: string;
+  class_id: string;
+}
+
+interface ClassRow {
+  class_id: string;
+  name: string | null;
+}
+
+interface AssignmentRow {
+  instructor_person_id: string;
+  member_id: string;
+}
+
+interface PersonOrgRoleRow {
+  person_organization_id: string;
+}
+
+interface AssignmentRequestBody {
+  email?: string;
+  member_id?: string;
+  member_ids?: string[];
+  instructor_person_id?: string | null;
+}
+
 async function validateInstructorInOrg(
-  supabase: any,
+  supabase: SupabaseClient,
   instructorPersonId: string,
   organizationId: string
 ): Promise<{ ok: boolean; error?: string }> {
@@ -47,7 +94,7 @@ async function validateInstructorInOrg(
 }
 
 async function validateMemberInOrg(
-  supabase: any,
+  supabase: SupabaseClient,
   memberId: string,
   organizationId: string
 ): Promise<{ ok: boolean; error?: string }> {
@@ -85,7 +132,7 @@ export async function GET(request: NextRequest) {
     const chunkSize = 200;
 
     // Best-effort instructor loading so member/assignment data still returns even if role metadata has issues.
-    let instructors: any[] = [];
+    let instructors: InstructorRow[] = [];
     const instructorRoleId = await getRoleIdByName(supabase, 'instructor');
     if (instructorRoleId) {
       const { data: activePersonOrgs, error: activePersonOrgsError } = await supabase
@@ -95,13 +142,14 @@ export async function GET(request: NextRequest) {
         .eq('status', 'active');
 
       if (!activePersonOrgsError) {
-        const personOrgIds = (activePersonOrgs ?? []).map((row: any) => row.person_organization_id);
-        const personIdByPersonOrgId = new Map(
-          (activePersonOrgs ?? []).map((row: any) => [row.person_organization_id, row.person_id])
+        const typedActivePersonOrgs = (activePersonOrgs ?? []) as PersonOrganizationRow[];
+        const personOrgIds = typedActivePersonOrgs.map((row) => row.person_organization_id);
+        const personIdByPersonOrgId = new Map<string, string>(
+          typedActivePersonOrgs.map((row) => [row.person_organization_id, row.person_id])
         );
 
         if (personOrgIds.length > 0) {
-          const allInstructorRoleRows: Array<{ person_organization_id: string }> = [];
+          const allInstructorRoleRows: PersonOrgRoleRow[] = [];
           for (let i = 0; i < personOrgIds.length; i += chunkSize) {
             const personOrgIdChunk = personOrgIds.slice(i, i + chunkSize);
             const { data: instructorRoleRows, error: instructorRoleRowsError } = await supabase
@@ -115,7 +163,9 @@ export async function GET(request: NextRequest) {
               continue;
             }
 
-            allInstructorRoleRows.push(...((instructorRoleRows || []) as Array<{ person_organization_id: string }>));
+            allInstructorRoleRows.push(
+              ...((instructorRoleRows || []) as PersonOrgRoleRow[])
+            );
           }
 
           const instructorPersonIds = Array.from(
@@ -127,7 +177,7 @@ export async function GET(request: NextRequest) {
           );
 
           if (instructorPersonIds.length > 0) {
-            const allInstructors: any[] = [];
+            const allInstructors: InstructorRow[] = [];
             for (let i = 0; i < instructorPersonIds.length; i += chunkSize) {
               const personIdChunk = instructorPersonIds.slice(i, i + chunkSize);
               const { data: instructorsData, error: instructorsError } = await supabase
@@ -140,7 +190,7 @@ export async function GET(request: NextRequest) {
                 continue;
               }
 
-              allInstructors.push(...(instructorsData || []));
+              allInstructors.push(...((instructorsData || []) as InstructorRow[]));
             }
 
             instructors = allInstructors;
@@ -153,15 +203,15 @@ export async function GET(request: NextRequest) {
       console.warn('Instructor role not found; returning members/assignments without instructor list.');
     }
 
-    const members = rawMembers ?? [];
-    const memberIds = members.map((m: any) => m.member_id);
-    const memberIdSet = new Set(memberIds);
+    const members = (rawMembers ?? []) as MemberRow[];
+    const memberIds = members.map((member) => member.member_id);
+    const memberIdSet = new Set<string>(memberIds);
 
     // Load class tags for each member via enrollment -> class_entity.
     // Use chunked IN queries to avoid oversized Supabase requests.
     const memberClassNames = new Map<string, string[]>();
     if (memberIds.length > 0) {
-      const allEnrollments: Array<{ member_id: string; class_id: string }> = [];
+      const allEnrollments: EnrollmentRow[] = [];
 
       for (let i = 0; i < memberIds.length; i += chunkSize) {
         const memberIdChunk = memberIds.slice(i, i + chunkSize);
@@ -175,13 +225,13 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        allEnrollments.push(...((enrollmentChunk || []) as Array<{ member_id: string; class_id: string }>));
+        allEnrollments.push(...((enrollmentChunk || []) as EnrollmentRow[]));
       }
 
       const classIds = Array.from(
         new Set(
           allEnrollments
-            .map((enrollment: any) => enrollment.class_id)
+            .map((enrollment) => enrollment.class_id)
             .filter((id: string | null | undefined): id is string => Boolean(id))
         )
       );
@@ -201,7 +251,7 @@ export async function GET(request: NextRequest) {
             continue;
           }
 
-          for (const row of classRows ?? []) {
+          for (const row of (classRows ?? []) as ClassRow[]) {
             classNameById.set(row.class_id, row.name || 'Unnamed class');
           }
         }
@@ -218,7 +268,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const scopedAssignments: Array<{ instructor_person_id: string; member_id: string }> = [];
+    const scopedAssignments: AssignmentRow[] = [];
     if (memberIds.length > 0) {
       for (let i = 0; i < memberIds.length; i += chunkSize) {
         const memberIdChunk = memberIds.slice(i, i + chunkSize);
@@ -233,29 +283,32 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        scopedAssignments.push(...((assignmentsChunk || []) as Array<{ instructor_person_id: string; member_id: string }>));
+        scopedAssignments.push(...((assignmentsChunk || []) as AssignmentRow[]));
       }
     }
 
-    const uniqueAssignments = Array.from(
-      new Map(
+    const uniqueAssignments = Array.from<AssignmentRow>(
+      new Map<string, AssignmentRow>(
         scopedAssignments
           .filter((assignment) => memberIdSet.has(assignment.member_id))
-          .map((assignment) => [`${assignment.member_id}:${assignment.instructor_person_id}`, assignment])
+          .map((assignment) => [
+            `${assignment.member_id}:${assignment.instructor_person_id}`,
+            assignment,
+          ])
       ).values()
     );
 
     // Deduplicate likely duplicate roster entries by normalized full name.
     const dedupedMembers = Array.from(
-      new Map(
-        members.map((member: any) => {
+      new Map<string, MemberRow>(
+        members.map((member) => {
           const normalizedName = `${member.first_name || ''} ${member.last_name || ''}`
             .trim()
             .toLowerCase();
           return [normalizedName, member];
         })
       ).values()
-    ).map((member: any) => ({
+    ).map((member) => ({
       ...member,
       class_names: memberClassNames.get(member.member_id) || [],
     }));
@@ -273,12 +326,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const body = (await request.json()) as {
-      email?: string;
-      member_id?: string;
-      member_ids?: string[];
-      instructor_person_id?: string | null;
-    };
+    const body = (await request.json()) as AssignmentRequestBody;
 
     const memberIds = Array.from(
       new Set(
@@ -340,12 +388,7 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const body = (await request.json()) as {
-      email?: string;
-      member_id?: string;
-      member_ids?: string[];
-      instructor_person_id?: string;
-    };
+    const body = (await request.json()) as AssignmentRequestBody;
 
     const memberIds = Array.from(
       new Set(
