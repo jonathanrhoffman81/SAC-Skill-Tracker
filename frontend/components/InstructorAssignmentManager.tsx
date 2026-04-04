@@ -1,9 +1,3 @@
-/**
- * InstructorAssignmentManager Component
- * Purpose: Assign swimmers to instructors with a class-first workflow.
- * Features: bulk assign by class, multi-instructor access per swimmer, direct add/remove.
- */
-
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -43,14 +37,14 @@ interface ClassGroup {
     assignedToSelectedCount: number;
 }
 
-interface InstructorAssignmentManagerProps { }
+interface InstructorAssignmentManagerProps {}
 
 interface TagColor {
     bg: string;
     text: string;
 }
 
-export default function InstructorAssignmentManager({ }: InstructorAssignmentManagerProps) {
+export default function InstructorAssignmentManager({}: InstructorAssignmentManagerProps) {
     const formatDisplayName = (firstName?: string | null, lastName?: string | null) => {
         const first = firstName?.trim() || '';
         const last = lastName?.trim() || '';
@@ -64,13 +58,15 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedInstructorId, setSelectedInstructorId] = useState('');
+    const [classFilter, setClassFilter] = useState('all');
     const [selectedClassNames, setSelectedClassNames] = useState<Set<string>>(new Set());
     const [pendingStudentIds, setPendingStudentIds] = useState<Set<string>>(new Set());
-    const [assigningSelectedClasses, setAssigningSelectedClasses] = useState(false);
-    const [removingSelectedClasses, setRemovingSelectedClasses] = useState(false);
+    const [assigningClasses, setAssigningClasses] = useState(false);
     const [showInstructorDropdown, setShowInstructorDropdown] = useState(false);
+    const [showClassFilterDropdown, setShowClassFilterDropdown] = useState(false);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const instructorDropdownRef = useRef<HTMLDivElement>(null);
+    const classFilterDropdownRef = useRef<HTMLDivElement>(null);
 
     const classTagPalette: TagColor[] = [
         { bg: 'bg-blue-100', text: 'text-blue-800' },
@@ -188,6 +184,9 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
             if (instructorDropdownRef.current && !instructorDropdownRef.current.contains(event.target as Node)) {
                 setShowInstructorDropdown(false);
             }
+            if (classFilterDropdownRef.current && !classFilterDropdownRef.current.contains(event.target as Node)) {
+                setShowClassFilterDropdown(false);
+            }
         };
 
         document.addEventListener('mousedown', handleClickOutside);
@@ -199,12 +198,29 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
     const selectedInstructor =
         instructors.find((inst) => inst.person_id === selectedInstructorId) || null;
 
+    const classFilterOptions = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    students.flatMap((student) =>
+                        student.class_names.length ? student.class_names : ['No class']
+                    )
+                )
+            ).sort((a, b) => a.localeCompare(b)),
+        [students]
+    );
+
     const matchesSearch = useCallback(
         (student: StudentAssignment) =>
             formatDisplayName(student.first_name, student.last_name)
                 .toLowerCase()
                 .includes(searchTerm.toLowerCase()),
         [searchTerm]
+    );
+
+    const matchesClassFilter = useCallback(
+        (className: string) => classFilter === 'all' || classFilter === className,
+        [classFilter]
     );
 
     const sortStudents = (list: StudentAssignment[]) =>
@@ -220,6 +236,7 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
         students.forEach((student) => {
             const classes = student.class_names.length ? student.class_names : ['No class'];
             classes.forEach((className) => {
+                if (!matchesClassFilter(className) || !matchesSearch(student)) return;
                 const existing = classToStudents.get(className) || [];
                 existing.push(student);
                 classToStudents.set(className, existing);
@@ -241,7 +258,7 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
                 };
             })
             .sort((a, b) => a.className.localeCompare(b.className));
-    }, [students, selectedInstructor]);
+    }, [students, matchesClassFilter, matchesSearch, selectedInstructor]);
 
     const selectedInstructorStudents = useMemo(
         () =>
@@ -343,7 +360,7 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
             }
 
             if (action === 'assign') {
-                showToast(memberIds.length === 1 ? 'Swimmer assigned successfully' : 'Class assigned successfully');
+                showToast(memberIds.length === 1 ? 'Swimmer assigned successfully' : 'Classes assigned successfully');
             } else {
                 showToast(memberIds.length === 1 ? 'Instructor access removed' : 'Class access removed');
             }
@@ -359,11 +376,6 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
     const handleAssignStudent = async (student: StudentAssignment) => {
         if (!selectedInstructor) return;
         await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'assign');
-    };
-
-    const handleUnassignStudent = async (student: StudentAssignment) => {
-        if (!selectedInstructor) return;
-        await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'remove');
     };
 
     const toggleClassSelection = (className: string) => {
@@ -383,9 +395,7 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
         [classGroups, selectedClassNames]
     );
 
-    const selectedClassCount = selectedClassGroups.length;
-
-    const selectedClassMemberIdsToAssign = useMemo(() => {
+    const selectedClassMemberIds = useMemo(() => {
         if (!selectedInstructor) return [];
 
         return Array.from(
@@ -399,37 +409,14 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
         );
     }, [selectedClassGroups, selectedInstructor]);
 
-    const selectedClassMemberIdsToRemove = useMemo(() => {
-        if (!selectedInstructor) return [];
-
-        return Array.from(
-            new Set(
-                selectedClassGroups.flatMap((group) =>
-                    group.students
-                        .filter((student) => student.instructor_ids.includes(selectedInstructor.person_id))
-                        .map((student) => student.member_id)
-                )
-            )
-        );
-    }, [selectedClassGroups, selectedInstructor]);
-
     const handleAssignSelectedClasses = async () => {
-        if (!selectedInstructor || selectedClassMemberIdsToAssign.length === 0) return;
-        setAssigningSelectedClasses(true);
-        try {
-            await sendAssignmentRequest(selectedClassMemberIdsToAssign, selectedInstructor.person_id, 'assign');
-        } finally {
-            setAssigningSelectedClasses(false);
-        }
-    };
+        if (!selectedInstructor || selectedClassMemberIds.length === 0) return;
 
-    const handleRemoveSelectedClasses = async () => {
-        if (!selectedInstructor || selectedClassMemberIdsToRemove.length === 0) return;
-        setRemovingSelectedClasses(true);
+        setAssigningClasses(true);
         try {
-            await sendAssignmentRequest(selectedClassMemberIdsToRemove, selectedInstructor.person_id, 'remove');
+            await sendAssignmentRequest(selectedClassMemberIds, selectedInstructor.person_id, 'assign');
         } finally {
-            setRemovingSelectedClasses(false);
+            setAssigningClasses(false);
         }
     };
 
@@ -446,6 +433,8 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
                 : [],
         [matchesSearch, selectedInstructor, students]
     );
+
+    const selectedClassFilterLabel = classFilter === 'all' ? 'All classes' : classFilter;
 
     return (
         <div className="space-y-4 relative">
@@ -464,10 +453,10 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
             <div className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 p-4 sm:p-5">
                 <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">Class Assignment</p>
                 <p className="text-sm font-semibold text-slate-900 sm:text-base">
-                    Pick an instructor, click the classes they should teach, then press assign.
+                    Pick an instructor and assign them to one or more classes.
                 </p>
                 <p className="mt-2 text-xs text-slate-600 sm:text-sm">
-                    Instructors can be assigned to multiple classes, and class access stacks with any existing assignments.
+                    You can select multiple classes at once, then manually add swimmers below if needed.
                 </p>
             </div>
 
@@ -535,17 +524,73 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
                                     {formatDisplayName(selectedInstructor.first_name, selectedInstructor.last_name)}
                                 </p>
                                 <p className="mt-1 text-xs text-slate-500">
-                                    {selectedClassCount} classes selected
+                                    {selectedClassNames.size} classes selected
                                 </p>
                             </div>
                         )}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div>
-                            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
-                            <p className="text-sm font-semibold text-slate-900">Choose Classes</p>
-                            <p className="mt-1 text-xs text-slate-500">Select one or more classes, then assign them together.</p>
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
+                                <p className="text-sm font-semibold text-slate-900">Choose Classes</p>
+                                <p className="mt-1 text-xs text-slate-500">Click as many classes as you want, then assign them together.</p>
+                            </div>
+                            <div ref={classFilterDropdownRef} className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowClassFilterDropdown((prev) => !prev)}
+                                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
+                                >
+                                    <span className="truncate text-left text-slate-900">{selectedClassFilterLabel}</span>
+                                    <svg
+                                        className={`h-4 w-4 text-slate-500 transition-transform ${showClassFilterDropdown ? 'rotate-180' : ''}`}
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </button>
+
+                                {showClassFilterDropdown && (
+                                    <div className="absolute right-0 z-30 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setClassFilter('all');
+                                                setShowClassFilterDropdown(false);
+                                            }}
+                                            className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${classFilter === 'all'
+                                                ? 'bg-sky-50 text-sky-700'
+                                                : 'text-slate-900 hover:bg-slate-50'
+                                                }`}
+                                        >
+                                            All classes
+                                        </button>
+                                        {classFilterOptions.map((className) => {
+                                            const isActive = classFilter === className;
+                                            return (
+                                                <button
+                                                    key={className}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setClassFilter(className);
+                                                        setShowClassFilterDropdown(false);
+                                                    }}
+                                                    className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
+                                                        ? 'bg-sky-50 text-sky-700'
+                                                        : 'text-slate-900 hover:bg-slate-50'
+                                                        }`}
+                                                >
+                                                    {className}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
@@ -592,36 +637,30 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
 
                 <div className="space-y-4">
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                        <div>
-                            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
-                            <p className="text-sm font-semibold text-slate-900">Assign Selected Classes</p>
-                            <p className="mt-1 text-xs text-slate-500">
-                                Use these buttons to assign or remove all selected classes at once.
-                            </p>
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                            <button
-                                onClick={handleAssignSelectedClasses}
-                                disabled={!selectedInstructor || selectedClassCount === 0 || selectedClassMemberIdsToAssign.length === 0 || assigningSelectedClasses}
-                                className="rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:text-sm"
-                            >
-                                {assigningSelectedClasses ? 'Assigning...' : `Assign Selected Classes${selectedClassCount ? ` (${selectedClassCount})` : ''}`}
-                            </button>
-                            <button
-                                onClick={handleRemoveSelectedClasses}
-                                disabled={!selectedInstructor || selectedClassCount === 0 || selectedClassMemberIdsToRemove.length === 0 || removingSelectedClasses}
-                                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
-                            >
-                                {removingSelectedClasses ? 'Removing...' : `Remove Selected Classes${selectedClassCount ? ` (${selectedClassCount})` : ''}`}
-                            </button>
-                            <button
-                                onClick={() => setSelectedClassNames(new Set())}
-                                disabled={selectedClassCount === 0}
-                                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
-                            >
-                                Clear Selection
-                            </button>
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
+                                <p className="text-sm font-semibold text-slate-900">Assign Selected Classes</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Pick one or more classes on the left, then assign them together.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={handleAssignSelectedClasses}
+                                    disabled={selectedClassNames.size === 0 || selectedClassMemberIds.length === 0 || assigningClasses}
+                                    className="rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:text-sm"
+                                >
+                                    {assigningClasses ? 'Assigning classes...' : 'Assign Selected Classes'}
+                                </button>
+                                <button
+                                    onClick={() => setSelectedClassNames(new Set())}
+                                    disabled={selectedClassNames.size === 0}
+                                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
+                                >
+                                    Clear
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -639,11 +678,50 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
                 </div>
             )}
 
+            {!loading && selectedInstructor && (
+                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
+                    <p className="mb-3 text-xs font-semibold text-gray-900 sm:text-sm">
+                        Swimmers In {formatDisplayName(selectedInstructor.first_name, selectedInstructor.last_name)}'s Classes ({selectedInstructorStudents.length})
+                    </p>
+                    {selectedInstructorStudents.length === 0 ? (
+                        <p className="text-xs text-gray-500">No swimmers assigned to this instructor yet.</p>
+                    ) : (
+                        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                            {selectedInstructorStudents.map((student) => (
+                                <div
+                                    key={`assigned-${selectedInstructor.person_id}-${student.member_id}`}
+                                    className="rounded-lg border border-gray-200 p-2"
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-medium text-gray-900 sm:text-sm">
+                                            {formatDisplayName(student.first_name, student.last_name)}
+                                        </p>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
+                                                const colors = getClassTagColors(className);
+                                                return (
+                                                    <span
+                                                        key={`assigned-tag-${student.member_id}-${className}`}
+                                                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${colors.bg} ${colors.text}`}
+                                                    >
+                                                        {className}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {!loading && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                     <p className="text-sm font-semibold text-slate-900">Manual Add Swimmers</p>
                     <p className="mt-1 text-xs text-slate-500">
-                        Add swimmers one at a time if they need special access outside their class assignment.
+                        Add swimmers one by one if they need access outside of their class assignment.
                     </p>
 
                     {!selectedInstructor ? (
@@ -699,52 +777,6 @@ export default function InstructorAssignmentManager({ }: InstructorAssignmentMan
                                 </div>
                             )}
                         </>
-                    )}
-                </div>
-            )}
-
-            {!loading && selectedInstructor && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                    <p className="mb-3 text-xs font-semibold text-gray-900 sm:text-sm">
-                        Direct Access for {formatDisplayName(selectedInstructor.first_name, selectedInstructor.last_name)} ({selectedInstructorStudents.length})
-                    </p>
-                    {selectedInstructorStudents.length === 0 ? (
-                        <p className="text-xs text-gray-500">No swimmers assigned to this instructor yet.</p>
-                    ) : (
-                        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                            {selectedInstructorStudents.map((student) => (
-                                <div
-                                    key={`assigned-${selectedInstructor.person_id}-${student.member_id}`}
-                                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 p-2"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-xs font-medium text-gray-900 sm:text-sm">
-                                            {formatDisplayName(student.first_name, student.last_name)}
-                                        </p>
-                                        <div className="mt-1 flex flex-wrap gap-1">
-                                            {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
-                                                const colors = getClassTagColors(className);
-                                                return (
-                                                    <span
-                                                        key={`assigned-tag-${student.member_id}-${className}`}
-                                                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${colors.bg} ${colors.text}`}
-                                                    >
-                                                        {className}
-                                                    </span>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => handleUnassignStudent(student)}
-                                        disabled={pendingStudentIds.has(student.member_id)}
-                                        className="rounded border border-gray-300 px-2 py-1 text-[10px] text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 sm:text-xs"
-                                    >
-                                        {pendingStudentIds.has(student.member_id) ? 'Saving...' : 'Remove'}
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
                     )}
                 </div>
             )}
