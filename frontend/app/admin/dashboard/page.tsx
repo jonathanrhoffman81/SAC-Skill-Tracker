@@ -674,7 +674,7 @@ export default function AdminDashboard() {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
-      } catch {}
+      } catch { }
       fetchStats();
     })();
   }, []);
@@ -1036,8 +1036,8 @@ export default function AdminDashboard() {
                 setSidebarOpen(false);
               }}
               className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
-                  ? "bg-gray-100 text-gray-900"
-                  : "text-gray-700 hover:bg-gray-50"
+                ? "bg-gray-100 text-gray-900"
+                : "text-gray-700 hover:bg-gray-50"
                 }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
@@ -1059,7 +1059,6 @@ export default function AdminDashboard() {
       </aside>
 
       <div className="flex min-h-screen flex-col">
-        {/* Consistent Header */}
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -1109,8 +1108,8 @@ export default function AdminDashboard() {
             </div>
           </div>
         </header>
+
         <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
-          {/* Loading Banner */}
           {loading && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
               <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-blue-600 flex-shrink-0"></div>
@@ -1119,7 +1118,7 @@ export default function AdminDashboard() {
               </p>
             </div>
           )}
-          {/* Error Banner */}
+
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4">
               <div className="flex items-start justify-between gap-3">
@@ -1136,7 +1135,7 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
-          {/* Stats */}
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
             {statCards.map((stat) => (
               <div key={stat.label} className="bg-white rounded-lg sm:rounded-xl border border-gray-200 p-3 sm:p-4 md:p-5 shadow-sm">
@@ -1148,7 +1147,7 @@ export default function AdminDashboard() {
               </div>
             ))}
           </div>
-          {/* Tab Content */}
+
           {activeTab === "roster" && (
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
@@ -1211,8 +1210,7 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                   <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5 sm:mt-2">
-                    Promoting keeps instructor permissions and adds admin
-                    permissions.
+                    Promoting keeps instructor permissions and adds admin permissions.
                   </p>
                 </div>
 
@@ -1252,9 +1250,7 @@ export default function AdminDashboard() {
                             className="px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                             title="Demote to instructor"
                           >
-                            {demotingAdmin === person.person_id
-                              ? "Demoting..."
-                              : "Demote"}
+                            {demotingAdmin === person.person_id ? "Demoting..." : "Demote"}
                           </button>
                         </div>
                       ))}
@@ -1262,7 +1258,6 @@ export default function AdminDashboard() {
                   )}
                 </div>
 
-                {/* Right-side demote confirmation */}
                 {demoteConfirmDialog.show && (
                   <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
                     <p className="text-sm font-semibold text-gray-900">
@@ -1301,7 +1296,6 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Instructors Tab - kept mounted for instant tab switching */}
           <div className={activeTab === "instructors" ? "w-full min-h-[60vh]" : "hidden"}>
             <InstructorManager
               onRefresh={() => {
@@ -1311,7 +1305,6 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* Classes Tab - kept mounted for instant tab switching */}
           <div className={activeTab === "classes" ? "w-full min-h-[60vh]" : "hidden"}>
             <ClassManager
               onRefresh={() => {
@@ -1321,12 +1314,10 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* Instructor Assignments Tab - kept mounted for instant tab switching */}
           <div className={activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"}>
             <InstructorAssignmentManager />
           </div>
 
-          {/* All other entity tabs use the generic EntityEditor component */}
           {activeTab !== "roster" &&
             activeTab !== "admins" &&
             activeTab !== "instructors" &&
@@ -1385,7 +1376,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-          {/* Right-side toast notifications */}
           <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
             {toasts.map((toast) => (
               <div
@@ -1400,7 +1390,6 @@ export default function AdminDashboard() {
             ))}
           </div>
 
-          {/* Right-side delete confirmation */}
           {entityDeleteDialog.show && (
             <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
               <p className="text-sm font-semibold text-gray-900">

@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface Instructor {
@@ -44,14 +44,14 @@ interface ClassGroup {
     availableToAssignCount: number;
 }
 
-interface InstructorAssignmentManagerProps {}
+interface InstructorAssignmentManagerProps { }
 
 interface TagColor {
     bg: string;
     text: string;
 }
 
-export default function InstructorAssignmentManager({}: InstructorAssignmentManagerProps) {
+export default function InstructorAssignmentManager({ }: InstructorAssignmentManagerProps) {
     const formatDisplayName = (firstName?: string | null, lastName?: string | null) => {
         const first = firstName?.trim() || '';
         const last = lastName?.trim() || '';
@@ -490,8 +490,8 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                                         setShowInstructorDropdown(false);
                                                     }}
                                                     className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                            ? 'bg-blue-50 text-blue-700'
-                                                            : 'text-gray-900 hover:bg-gray-50'
+                                                        ? 'bg-blue-50 text-blue-700'
+                                                        : 'text-gray-900 hover:bg-gray-50'
                                                         }`}
                                                 >
                                                     {formatDisplayName(instructor.first_name, instructor.last_name)}
@@ -545,8 +545,8 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                                 setShowClassFilterDropdown(false);
                                             }}
                                             className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${classFilter === 'all'
-                                                    ? 'bg-sky-50 text-sky-700'
-                                                    : 'text-slate-900 hover:bg-slate-50'
+                                                ? 'bg-sky-50 text-sky-700'
+                                                : 'text-slate-900 hover:bg-slate-50'
                                                 }`}
                                         >
                                             All classes
@@ -562,8 +562,8 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                                         setShowClassFilterDropdown(false);
                                                     }}
                                                     className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                            ? 'bg-sky-50 text-sky-700'
-                                                            : 'text-slate-900 hover:bg-slate-50'
+                                                        ? 'bg-sky-50 text-sky-700'
+                                                        : 'text-slate-900 hover:bg-slate-50'
                                                         }`}
                                                 >
                                                     {className}
@@ -588,11 +588,10 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                             key={group.className}
                                             type="button"
                                             onClick={() => setSelectedClassName(group.className)}
-                                            className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
-                                                isActive
-                                                    ? 'border-sky-300 bg-sky-50 shadow-sm'
-                                                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                                            }`}
+                                            className={`w-full rounded-2xl border px-3 py-3 text-left transition ${isActive
+                                                ? 'border-sky-300 bg-sky-50 shadow-sm'
+                                                : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                                                }`}
                                         >
                                             <div className="flex items-center justify-between gap-3">
                                                 <div className="min-w-0">
