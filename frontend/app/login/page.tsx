@@ -24,6 +24,35 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
 
+  const handleForgotPassword = async () => {
+    setError("");
+
+    try {
+      const normalizedEmail = normalizeEmail(email);
+
+      if (!normalizedEmail) {
+        throw new Error("Enter your email first");
+      }
+
+      if (!supabase) {
+        throw new Error("Supabase not configured");
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        normalizedEmail,
+        {
+          redirectTo: `${window.location.origin}/account/reset-password`,
+        },
+      );
+
+      if (error) throw error;
+
+      setError("Password reset email sent. Check your inbox.");
+    } catch (err: any) {
+      setError(err.message || "Failed to send reset email.");
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -41,15 +70,18 @@ export default function Login() {
 
       setLoading(true);
 
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      });
+      const { data, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
 
       if (signInError) throw signInError;
       if (!data.user) throw new Error("Login failed. Please try again.");
 
-      const authenticatedEmail = normalizeEmail(data.user.email || normalizedEmail);
+      const authenticatedEmail = normalizeEmail(
+        data.user.email || normalizedEmail,
+      );
       const metadataCandidates = [
         data.user.user_metadata?.role,
         data.user.user_metadata?.user_role,
@@ -97,7 +129,10 @@ export default function Login() {
       }
 
       if (LEGACY_LOCALSTORAGE_ROLE_SET.has(resolvedRole)) {
-        localStorage.setItem("user", JSON.stringify({ email: authenticatedEmail }));
+        localStorage.setItem(
+          "user",
+          JSON.stringify({ email: authenticatedEmail }),
+        );
       } else {
         localStorage.removeItem("user");
       }
@@ -217,6 +252,16 @@ export default function Login() {
           {error && (
             <div className="text-red-600 text-sm text-center">{error}</div>
           )}
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Forgot Password?
+            </button>
+          </div>
 
           {/* Submit Button */}
           <button
