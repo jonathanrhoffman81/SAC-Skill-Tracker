@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { generateCertificate } from "@/components/generateCertificate";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 export default function CertificatePage() {
+  const router = useRouter();
   const params = useParams();
   const swimmerId = params.id as string;
 
@@ -13,6 +23,9 @@ export default function CertificatePage() {
   const [swimmer, setSwimmer] = useState<any>(null);
   const [skills, setSkills] = useState<any[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const generatedForSkillRef = useRef<string | null>(null);
 
   // Load swimmer + skills
   useEffect(() => {
@@ -41,16 +54,23 @@ export default function CertificatePage() {
         }
       } catch (err) {
         console.error("Error loading swimmer:", err);
+      } finally {
+        setIsLoading(false);
       }
     }
 
     loadData();
   }, [swimmerId]);
 
-  // Generate certificate when skill changes
+  // Generate certificate
   useEffect(() => {
     async function generatePreview() {
       if (!swimmer || !selectedSkillId) return;
+
+      if (generatedForSkillRef.current === selectedSkillId) return;
+      generatedForSkillRef.current = selectedSkillId;
+
+      setPreviewUrl(null);
 
       const skill = skills.find((s) => s.id === selectedSkillId);
       if (!skill) return;
@@ -80,48 +100,99 @@ export default function CertificatePage() {
     link.click();
   };
 
-  // No certificates available
+  if (isLoading) {
+    return <div className="p-6">Loading...</div>;
+  }
 
   if (skills.length === 0) {
     return <div className="p-6">No certificates available yet.</div>;
   }
 
-  // Still loading preview
-  if (!previewUrl) {
-    return <div className="p-6">Loading certificate...</div>;
-  }
-
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold mb-4">Certificate Preview</h1>
+    <div className="min-h-screen bg-gray-50">
+      {/* ✅ HEADER (same as parent page) */}
+      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <div className="mx-auto max-w-4xl px-6 py-4">
+          <div className="flex items-center gap-4">
+            {/* Back button */}
+            <button
+              onClick={() => router.back()}
+              className="-ml-2 rounded-lg p-2 text-gray-500 hover:bg-gray-100"
+            >
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+            </button>
 
-      {skills.length > 1 && (
-        <select
-          value={selectedSkillId || ""}
-          onChange={(e) => setSelectedSkillId(e.target.value)}
-          className="mb-4 border px-3 py-2 rounded"
+            {/* Avatar + name */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-lg font-semibold text-gray-700">
+                {getInitials(swimmer?.name ?? "Unknown")}
+              </div>
+
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">
+                  {swimmer?.name}
+                </h1>
+                <p className="text-xs text-gray-500">Parent View</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ✅ PAGE CONTENT */}
+      <main className="mx-auto max-w-4xl px-6 py-8">
+        <h1 className="text-xl font-semibold mb-4">Certificate Preview</h1>
+
+        {skills.length > 1 && (
+          <select
+            value={selectedSkillId || ""}
+            onChange={(e) => setSelectedSkillId(e.target.value)}
+            className="mb-4 border px-3 py-2 rounded"
+          >
+            {skills.map((skill) => (
+              <option key={skill.id} value={skill.id}>
+                {skill.name} ({skill.dateAcquired})
+              </option>
+            ))}
+          </select>
+        )}
+
+        <div className="relative">
+          {!previewUrl && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white border rounded-lg">
+              Generating certificate...
+            </div>
+          )}
+
+          {previewUrl && (
+            <iframe
+              src={previewUrl}
+              width="100%"
+              height="600px"
+              className="border rounded-lg"
+            />
+          )}
+        </div>
+
+        <button
+          onClick={handleDownload}
+          className="mt-4 bg-blue-600 text-white px-4 py-2 rounded"
         >
-          {skills.map((skill) => (
-            <option key={skill.id} value={skill.id}>
-              {skill.name} ({skill.dateAcquired})
-            </option>
-          ))}
-        </select>
-      )}
-
-      <iframe
-        src={previewUrl}
-        width="100%"
-        height="600px"
-        className="border rounded-lg"
-      />
-
-      <button
-        onClick={handleDownload}
-        className="mt-4 bg-blue-600 text-white px-4 py-2 rounded"
-      >
-        Download PDF
-      </button>
+          Download PDF
+        </button>
+      </main>
     </div>
   );
 }
