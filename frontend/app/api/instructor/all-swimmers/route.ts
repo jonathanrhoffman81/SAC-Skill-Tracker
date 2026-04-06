@@ -28,9 +28,41 @@ interface DashboardPayload {
   userName: string;
   organizationName: string;
   swimmers: DashboardSwimmerPayload[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
 }
 
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
+const PAGE_SIZE = 25;
+
+function parsePage(request: NextRequest): number {
+  const rawPage = Number(request.nextUrl.searchParams.get('page') ?? '1');
+  if (!Number.isFinite(rawPage) || rawPage < 1) return 1;
+  return Math.floor(rawPage);
+}
+
+function parseSearchQuery(request: NextRequest): string {
+  return (request.nextUrl.searchParams.get('q') ?? '').trim();
+}
+
+function buildPagination(page: number, pageSize: number, total: number) {
+  const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  return {
+    page: safePage,
+    pageSize,
+    total,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+    hasPreviousPage: safePage > 1,
+  };
+}
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
@@ -88,6 +120,8 @@ async function resolveInstructorEmail(request: NextRequest): Promise<string> {
 export async function GET(request: NextRequest) {
   try {
     const email = await resolveInstructorEmail(request);
+    const page = parsePage(request);
+    const searchQuery = parseSearchQuery(request);
 
     const supabaseAdmin = getSupabaseAdminClient();
 
@@ -133,6 +167,7 @@ export async function GET(request: NextRequest) {
         userName,
         organizationName: 'SAC Skill Tracker',
         swimmers: [],
+        pagination: buildPagination(page, PAGE_SIZE, 0),
       } as DashboardPayload);
     }
 
@@ -151,13 +186,42 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get ALL members in organization
-    const { data: members, error: membersError } = await supabaseAdmin
+    let memberCountQuery = supabaseAdmin
+      .from('member')
+      .select('member_id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId);
+
+    if (searchQuery) {
+      memberCountQuery = memberCountQuery.or(
+        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+      );
+    }
+
+    const { count: totalCount, error: memberCountError } = await memberCountQuery;
+    if (memberCountError) {
+      console.error('Member count error:', memberCountError);
+      return NextResponse.json({ error: `Failed to count members: ${memberCountError.message}` }, { status: 500 });
+    }
+
+    const pagination = buildPagination(page, PAGE_SIZE, totalCount ?? 0);
+    const from = (pagination.page - 1) * pagination.pageSize;
+    const to = from + pagination.pageSize - 1;
+
+    let pagedMembersQuery = supabaseAdmin
       .from('member')
       .select('member_id, first_name, last_name, level')
       .eq('organization_id', organizationId)
       .order('first_name', { ascending: true })
-      .order('last_name', { ascending: true });
+      .order('last_name', { ascending: true })
+      .range(from, to);
+
+    if (searchQuery) {
+      pagedMembersQuery = pagedMembersQuery.or(
+        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+      );
+    }
+
+    const { data: members, error: membersError } = await pagedMembersQuery;
 
     if (membersError) {
       console.error('Members error:', membersError);
@@ -169,6 +233,7 @@ export async function GET(request: NextRequest) {
         userName,
         organizationName: organization?.name || 'SAC Skill Tracker',
         swimmers: [],
+        pagination,
       } as DashboardPayload);
     }
 
@@ -309,6 +374,7 @@ export async function GET(request: NextRequest) {
       userName,
       organizationName: organization?.name || 'SAC Skill Tracker',
       swimmers,
+      pagination,
     };
 
     return NextResponse.json(payload);
