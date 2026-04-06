@@ -19,9 +19,10 @@ interface Class {
 
 interface ClassManagerProps {
     onRefresh: () => void;
+    userEmail?: string;
 }
 
-export default function ClassManager({ onRefresh }: ClassManagerProps) {
+export default function ClassManager({ onRefresh, userEmail }: ClassManagerProps) {
     const [loading, setLoading] = useState(false);
     const [classes, setClasses] = useState<Class[]>([]);
 
