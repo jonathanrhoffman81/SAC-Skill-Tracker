@@ -6,7 +6,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   createAuthenticatedHeaders,
   getAuthenticatedSessionIdentity,
@@ -340,21 +339,21 @@ function EntityEditor({
   const deduplicatedList =
     type === "swimmers"
       ? Array.from(
-          new Map(
-            state.list.map((item) => {
-              const displayName = config.displayName(item);
-              return [displayName.toLowerCase(), item];
-            }),
-          ).values(),
-        )
+        new Map(
+          state.list.map((item) => {
+            const displayName = config.displayName(item);
+            return [displayName.toLowerCase(), item];
+          }),
+        ).values(),
+      )
       : state.list;
 
   // Filter list by name if searching
   const filteredList = searchFilter.trim()
     ? deduplicatedList.filter((item) => {
-        const displayName = config.displayName(item).toLowerCase();
-        return displayName.includes(searchFilter.toLowerCase());
-      })
+      const displayName = config.displayName(item).toLowerCase();
+      return displayName.includes(searchFilter.toLowerCase());
+    })
     : deduplicatedList;
 
   return (
@@ -550,7 +549,6 @@ function EntityEditor({
 }
 
 export default function AdminDashboard() {
-  const router = useRouter();
   const [userName, setUserName] = useState("Admin User");
   const [activeTab, setActiveTab] = useState<Tab>("assignments");
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -676,7 +674,7 @@ export default function AdminDashboard() {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
-      } catch {}
+      } catch { }
       fetchStats();
     })();
   }, []);
@@ -946,6 +944,11 @@ export default function AdminDashboard() {
     }
   };
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const handleLogout = async () => {
+    await logoutAndRedirect("/login");
+  };
+
   const requestDeleteEntity = (type: EntityType, id: string) => {
     const entity = entities[type].list.find((item) => item.id === id);
     const label = entity
@@ -995,467 +998,435 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* HEADER */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Logo or fallback icon */}
-            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
-              {logoUrl ? (
-                <img
-                  src={logoUrl}
-                  alt="Organization Logo"
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display =
-                      "none";
-                  }}
-                />
-              ) : (
-                <svg
-                  className="w-4 h-4 sm:w-5 sm:h-5 text-white absolute"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 10V3L4 14h7v7l9-11h-7z"
-                  />
-                </svg>
-              )}
-              <svg
-                className="w-4 h-4 sm:w-5 sm:h-5 text-white absolute"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-            </div>
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-gray-900/20 backdrop-blur-[1px]"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close menu overlay"
+        />
+      )}
 
-            <div className="min-w-0">
-              <p className="text-xs sm:text-sm font-bold text-gray-900 truncate">
-                {stats?.organizationName || "SAC Skill Tracker"}
-              </p>
-              <p className="text-[10px] sm:text-xs text-gray-500 hidden sm:block">
-                Administrator Dashboard
-              </p>
-            </div>
+      <aside
+        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        aria-hidden={!sidebarOpen}
+      >
+        <div className="mb-8 flex items-center justify-between px-1">
+          <div>
+            <p className="text-lg font-semibold text-gray-900">Menu</p>
+            <p className="text-xs text-gray-500">Administrator tools</p>
           </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="text-right hidden md:block">
-              <p className="text-sm font-medium text-gray-900">{userName}</p>
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                Administrator
-              </span>
-            </div>
-            <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-gray-800 flex items-center justify-center text-[10px] sm:text-xs font-semibold text-white flex-shrink-0">
-              {getInitials(userName)}
-            </div>
-            <button
-              onClick={async () => {
-                await logoutAndRedirect("/login");
-              }}
-              className="h-8 w-8 sm:h-9 sm:w-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 flex-shrink-0"
-            >
-              <svg
-                className="w-4 h-4 sm:w-5 sm:h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
-              </svg>
-            </button>
-          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="rounded-full p-2 text-gray-500 hover:bg-gray-100 focus:outline-none"
+            aria-label="Close menu"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
-        {/* Loading Banner */}
-        {loading && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-            <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-blue-600 flex-shrink-0"></div>
-            <p className="text-xs sm:text-sm text-blue-800">
-              Loading dashboard statistics...
-            </p>
-          </div>
-        )}
-
-        {/* Error Banner */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
-                <svg
-                  className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 mt-0.5 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-red-800">
-                    Failed to load statistics
-                  </p>
-                  <p className="text-[10px] sm:text-xs text-red-700 mt-0.5 sm:mt-1 break-words">
-                    {error}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => window.location.reload()}
-                className="text-[10px] sm:text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition-colors whitespace-nowrap flex-shrink-0"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4">
-          {statCards.map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-white rounded-lg sm:rounded-xl border border-gray-200 p-3 sm:p-4 md:p-5 shadow-sm"
-            >
-              <p className="text-[10px] sm:text-xs md:text-sm text-gray-500 mb-1 truncate">
-                {stat.label}
-              </p>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-1 sm:gap-2">
-                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900">
-                  {stat.value}
-                </p>
-                <div className="[&>svg]:w-6 [&>svg]:h-6 sm:[&>svg]:w-7 sm:[&>svg]:h-7 md:[&>svg]:w-8 md:[&>svg]:h-8 lg:[&>svg]:w-9 lg:[&>svg]:h-9 flex-shrink-0">
-                  {stat.icon}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-2 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-hide">
+        <div className="flex-1 flex flex-col gap-1 overflow-y-auto">
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-                activeTab === tab.id
-                  ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:from-blue-600 hover:to-blue-700 transform hover:-translate-y-0.5"
-                  : "bg-white text-gray-700 border border-gray-200 hover:border-blue-300 hover:shadow-md hover:bg-blue-50 shadow-sm"
-              }`}
+              onClick={() => {
+                setActiveTab(tab.id);
+                setSidebarOpen(false);
+              }}
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
+                ? "bg-gray-100 text-gray-900"
+                : "text-gray-700 hover:bg-gray-50"
+                }`}
             >
-              <span className="[&>svg]:w-3.5 [&>svg]:h-3.5 sm:[&>svg]:w-4 sm:[&>svg]:h-4">
-                {tab.icon}
-              </span>
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.label.split(" ")[0]}</span>
+              <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
+        <div className="mt-6 border-t border-gray-100 pt-4">
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span>Log out</span>
+          </button>
+        </div>
+      </aside>
 
-        {/* Tab Content */}
-        {activeTab === "roster" && (
-          <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
-            <div className="p-4 sm:p-6 flex items-center justify-between border-b border-gray-100">
-              <h2 className="text-sm sm:text-base font-semibold text-gray-900">
-                Import from SportsEngine
-              </h2>
-            </div>
-
-            <ImportRoster
-              organizationId={stats?.organizationId}
-              onImportComplete={() => fetchStats()}
-            />
-          </div>
-        )}
-        {activeTab === "settings" && stats?.organizationId && (
-          <div className="bg-white p-6 rounded-xl border">
-            <h2 className="font-semibold mb-4">Organization Settings</h2>
-
-            <LogoManage organizationId={stats.organizationId} />
-          </div>
-        )}
-
-        {activeTab === "admins" && (
-          <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-            <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4">
-              Organization Admins
-            </h2>
-
-            <div className="mb-4 sm:mb-6">
-              <p className="text-xs sm:text-sm font-medium text-gray-800 mb-2">
-                Promote instructor to admin
-              </p>
-              <div className="flex gap-2">
-                <select
-                  value={selectedAdminCandidate}
-                  onChange={(e) => setSelectedAdminCandidate(e.target.value)}
-                  className="flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-600 sm:h-9 sm:w-9 sm:rounded-xl">
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt="Organization Logo"
+                    className="h-full w-full object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : null}
+                <svg
+                  className={`h-4 w-4 text-white sm:h-5 sm:w-5 ${logoUrl ? "absolute" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <option value="">Select an instructor...</option>
-                  {adminCandidates.map((person) => (
-                    <option key={person.person_id} value={person.person_id}>
-                      {getPersonDisplayName(person)}
-                      {person.email ? ` (${person.email})` : ""}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={handlePromoteAdmin}
-                  disabled={!selectedAdminCandidate || promotingAdmin}
-                  className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-600 text-white text-xs sm:text-sm rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition whitespace-nowrap"
-                >
-                  {promotingAdmin ? "Promoting..." : "Promote"}
-                </button>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
               </div>
-              <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5 sm:mt-2">
-                Promoting keeps instructor permissions and adds admin
-                permissions.
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs sm:text-sm font-medium text-gray-800 mb-2">
-                Current admins
-              </p>
-              {adminsLoading ? (
-                <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 border-b-2 border-blue-600"></div>
-                  Loading admins...
-                </div>
-              ) : admins.length === 0 ? (
-                <p className="text-xs sm:text-sm text-gray-500">
-                  No admins found.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {admins.map((person) => (
-                    <div
-                      key={person.person_id}
-                      className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-gray-100 bg-gray-50 flex items-center justify-between gap-2"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs sm:text-sm text-gray-900 truncate">
-                          {getPersonDisplayName(person)}
-                        </p>
-                        {person.email && (
-                          <p className="text-[10px] sm:text-xs text-gray-500 truncate">
-                            {person.email}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => confirmDemoteAdmin(person)}
-                        disabled={demotingAdmin === person.person_id}
-                        className="px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                        title="Demote to instructor"
-                      >
-                        {demotingAdmin === person.person_id
-                          ? "Demoting..."
-                          : "Demote"}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Right-side demote confirmation */}
-            {demoteConfirmDialog.show && (
-              <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
-                <p className="text-sm font-semibold text-gray-900">
-                  Demote Admin
-                </p>
-                <p className="mt-1 text-xs sm:text-sm text-gray-600">
-                  Demote{" "}
-                  <span className="font-medium">
-                    {demoteConfirmDialog.personName}
-                  </span>
-                  ? They will keep instructor permissions but lose admin access.
-                </p>
-                <div className="mt-3 flex justify-end gap-2">
-                  <button
-                    onClick={() =>
-                      setDemoteConfirmDialog({
-                        show: false,
-                        personId: null,
-                        personName: "",
-                      })
-                    }
-                    className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDemoteAdmin}
-                    className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
-                  >
-                    Demote
-                  </button>
-                </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">{stats?.organizationName || "SAC Skill Tracker"}</p>
+                <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">Administrator Dashboard</p>
               </div>
-            )}
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="hidden text-right md:block">
+                <p className="text-sm font-medium text-gray-900">{userName}</p>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Administrator</span>
+              </div>
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
+                {getInitials(userName)}
+              </div>
+              <button
+                onClick={() => setSidebarOpen((open) => !open)}
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
+                title="Menu"
+                aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+              >
+                <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            </div>
           </div>
-        )}
+        </header>
 
-        {/* Instructors Tab - kept mounted for instant tab switching */}
-        <div className={activeTab === "instructors" ? "" : "hidden"}>
-          <InstructorManager
-            onRefresh={() => {
-              fetchStats();
-              fetchEntity("instructors");
-            }}
-          />
-        </div>
-
-        {/* Classes Tab - kept mounted for instant tab switching */}
-        <div className={activeTab === "classes" ? "" : "hidden"}>
-          <ClassManager
-            onRefresh={() => {
-              fetchStats();
-              fetchEntity("classes");
-            }}
-          />
-        </div>
-
-        {/* Instructor Assignments Tab - kept mounted for instant tab switching */}
-        <div className={activeTab === "assignments" ? "" : "hidden"}>
-          <InstructorAssignmentManager />
-        </div>
-
-        {/* All other entity tabs use the generic EntityEditor component */}
-        {activeTab !== "roster" &&
-          activeTab !== "admins" &&
-          activeTab !== "instructors" &&
-          activeTab !== "classes" &&
-          activeTab !== "assignments" &&
-          activeTab !== "settings" && (
-            <EntityEditor
-              type={activeTab as EntityType}
-              state={entities[activeTab as EntityType]}
-              onAdd={() => handleAdd(activeTab as EntityType)}
-              onUpdate={(id) => handleUpdate(activeTab as EntityType, id)}
-              onDelete={(id) =>
-                requestDeleteEntity(activeTab as EntityType, id)
-              }
-              onStartEdit={(item) =>
-                setEntities((prev) => ({
-                  ...prev,
-                  [activeTab]: {
-                    ...prev[activeTab as EntityType],
-                    editingId: item.id,
-                    editingName:
-                      ENTITY_CONFIG[activeTab as EntityType].displayName(item),
-                  },
-                }))
-              }
-              onCancelEdit={() =>
-                setEntities((prev) => ({
-                  ...prev,
-                  [activeTab]: {
-                    ...prev[activeTab as EntityType],
-                    editingId: null,
-                    editingName: "",
-                  },
-                }))
-              }
-              onNewNameChange={(value) =>
-                setEntities((prev) => ({
-                  ...prev,
-                  [activeTab]: {
-                    ...prev[activeTab as EntityType],
-                    newName: value,
-                  },
-                }))
-              }
-              onEditNameChange={(value) =>
-                setEntities((prev) => ({
-                  ...prev,
-                  [activeTab]: {
-                    ...prev[activeTab as EntityType],
-                    editingName: value,
-                  },
-                }))
-              }
-            />
+        <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
+          {loading && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
+              <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-blue-600 flex-shrink-0"></div>
+              <p className="text-xs sm:text-sm text-blue-800">
+                Loading dashboard statistics...
+              </p>
+            </div>
           )}
 
-        {/* Right-side toast notifications */}
-        <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
-          {toasts.map((toast) => (
-            <div
-              key={toast.id}
-              className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
-                toast.type === "success"
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="min-w-0">
+                    <p className="text-xs sm:text-sm font-medium text-red-800">Failed to load statistics</p>
+                    <p className="text-[10px] sm:text-xs text-red-700 mt-0.5 sm:mt-1 break-words">{error}</p>
+                  </div>
+                </div>
+                <button onClick={() => window.location.reload()} className="text-[10px] sm:text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition-colors whitespace-nowrap flex-shrink-0">Retry</button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
+            {statCards.map((stat) => (
+              <div key={stat.label} className="bg-white rounded-lg sm:rounded-xl border border-gray-200 p-3 sm:p-4 md:p-5 shadow-sm">
+                <p className="text-[10px] sm:text-xs md:text-sm text-gray-500 mb-1 truncate">{stat.label}</p>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-1 sm:gap-2">
+                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900">{stat.value}</p>
+                  <div className="[&>svg]:w-6 [&>svg]:h-6 sm:[&>svg]:w-7 sm:[&>svg]:h-7 md:[&>svg]:w-8 md:[&>svg]:h-8 lg:[&>svg]:w-9 lg:[&>svg]:h-9 flex-shrink-0">{stat.icon}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {activeTab === "roster" && (
+            <div className="w-full min-h-[60vh]">
+              <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                <div className="p-4 sm:p-6 flex items-center justify-between border-b border-gray-100">
+                  <h2 className="text-sm sm:text-base font-semibold text-gray-900">
+                    Import from SportsEngine
+                  </h2>
+                </div>
+
+                <ImportRoster
+                  organizationId={stats?.organizationId}
+                  onImportComplete={() => fetchStats()}
+                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "settings" && stats?.organizationId && (
+            <div className="w-full min-h-[60vh]">
+              <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
+                <h2 className="mb-4 text-sm font-semibold text-gray-900 sm:text-base">
+                  Organization Settings
+                </h2>
+                <LogoManage organizationId={stats.organizationId} />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "admins" && (
+            <div className="w-full min-h-[60vh]">
+              <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
+                <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4">
+                  Organization Admins
+                </h2>
+
+                <div className="mb-4 sm:mb-6">
+                  <p className="text-xs sm:text-sm font-medium text-gray-800 mb-2">
+                    Promote instructor to admin
+                  </p>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedAdminCandidate}
+                      onChange={(e) => setSelectedAdminCandidate(e.target.value)}
+                      className="flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    >
+                      <option value="">Select an instructor...</option>
+                      {adminCandidates.map((person) => (
+                        <option key={person.person_id} value={person.person_id}>
+                          {getPersonDisplayName(person)}
+                          {person.email ? ` (${person.email})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handlePromoteAdmin}
+                      disabled={!selectedAdminCandidate || promotingAdmin}
+                      className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-600 text-white text-xs sm:text-sm rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition whitespace-nowrap"
+                    >
+                      {promotingAdmin ? "Promoting..." : "Promote"}
+                    </button>
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5 sm:mt-2">
+                    Promoting keeps instructor permissions and adds admin permissions.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs sm:text-sm font-medium text-gray-800 mb-2">
+                    Current admins
+                  </p>
+                  {adminsLoading ? (
+                    <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 border-b-2 border-blue-600"></div>
+                      Loading admins...
+                    </div>
+                  ) : admins.length === 0 ? (
+                    <p className="text-xs sm:text-sm text-gray-500">
+                      No admins found.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {admins.map((person) => (
+                        <div
+                          key={person.person_id}
+                          className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-gray-100 bg-gray-50 flex items-center justify-between gap-2"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs sm:text-sm text-gray-900 truncate">
+                              {getPersonDisplayName(person)}
+                            </p>
+                            {person.email && (
+                              <p className="text-[10px] sm:text-xs text-gray-500 truncate">
+                                {person.email}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => confirmDemoteAdmin(person)}
+                            disabled={demotingAdmin === person.person_id}
+                            className="px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                            title="Demote to instructor"
+                          >
+                            {demotingAdmin === person.person_id ? "Demoting..." : "Demote"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {demoteConfirmDialog.show && (
+                  <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Demote Admin
+                    </p>
+                    <p className="mt-1 text-xs sm:text-sm text-gray-600">
+                      Demote{" "}
+                      <span className="font-medium">
+                        {demoteConfirmDialog.personName}
+                      </span>
+                      ? They will keep instructor permissions but lose admin access.
+                    </p>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        onClick={() =>
+                          setDemoteConfirmDialog({
+                            show: false,
+                            personId: null,
+                            personName: "",
+                          })
+                        }
+                        className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleDemoteAdmin}
+                        className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
+                      >
+                        Demote
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className={activeTab === "instructors" ? "w-full min-h-[60vh]" : "hidden"}>
+            <InstructorManager
+              onRefresh={() => {
+                fetchStats();
+                fetchEntity("instructors");
+              }}
+            />
+          </div>
+
+          <div className={activeTab === "classes" ? "w-full min-h-[60vh]" : "hidden"}>
+            <ClassManager
+              onRefresh={() => {
+                fetchStats();
+                fetchEntity("classes");
+              }}
+            />
+          </div>
+
+          <div className={activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"}>
+            <InstructorAssignmentManager />
+          </div>
+
+          {activeTab !== "roster" &&
+            activeTab !== "admins" &&
+            activeTab !== "instructors" &&
+            activeTab !== "classes" &&
+            activeTab !== "assignments" &&
+            activeTab !== "settings" && (
+              <div className="w-full min-h-[60vh]">
+                <EntityEditor
+                  type={activeTab as EntityType}
+                  state={entities[activeTab as EntityType]}
+                  onAdd={() => handleAdd(activeTab as EntityType)}
+                  onUpdate={(id) => handleUpdate(activeTab as EntityType, id)}
+                  onDelete={(id) =>
+                    requestDeleteEntity(activeTab as EntityType, id)
+                  }
+                  onStartEdit={(item) =>
+                    setEntities((prev) => ({
+                      ...prev,
+                      [activeTab]: {
+                        ...prev[activeTab as EntityType],
+                        editingId: item.id,
+                        editingName:
+                          ENTITY_CONFIG[activeTab as EntityType].displayName(item),
+                      },
+                    }))
+                  }
+                  onCancelEdit={() =>
+                    setEntities((prev) => ({
+                      ...prev,
+                      [activeTab]: {
+                        ...prev[activeTab as EntityType],
+                        editingId: null,
+                        editingName: "",
+                      },
+                    }))
+                  }
+                  onNewNameChange={(value) =>
+                    setEntities((prev) => ({
+                      ...prev,
+                      [activeTab]: {
+                        ...prev[activeTab as EntityType],
+                        newName: value,
+                      },
+                    }))
+                  }
+                  onEditNameChange={(value) =>
+                    setEntities((prev) => ({
+                      ...prev,
+                      [activeTab]: {
+                        ...prev[activeTab as EntityType],
+                        editingName: value,
+                      },
+                    }))
+                  }
+                />
+              </div>
+            )}
+
+          <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
+            {toasts.map((toast) => (
+              <div
+                key={toast.id}
+                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${toast.type === "success"
                   ? "bg-green-50 border-green-200 text-green-800"
                   : "bg-red-50 border-red-200 text-red-800"
-              }`}
-            >
-              {toast.message}
-            </div>
-          ))}
-        </div>
-
-        {/* Right-side delete confirmation */}
-        {entityDeleteDialog.show && (
-          <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
-            <p className="text-sm font-semibold text-gray-900">
-              Confirm Delete
-            </p>
-            <p className="mt-1 text-xs sm:text-sm text-gray-600 break-words">
-              Delete{" "}
-              <span className="font-medium">
-                {entityDeleteDialog.entityLabel}
-              </span>
-              ?
-            </p>
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                onClick={() =>
-                  setEntityDeleteDialog({
-                    show: false,
-                    type: null,
-                    entityId: null,
-                    entityLabel: "",
-                  })
-                }
-                className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+                  }`}
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteConfirmed}
-                className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
-              >
-                Delete
-              </button>
-            </div>
+                {toast.message}
+              </div>
+            ))}
           </div>
-        )}
-      </main>
+
+          {entityDeleteDialog.show && (
+            <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
+              <p className="text-sm font-semibold text-gray-900">
+                Confirm Delete
+              </p>
+              <p className="mt-1 text-xs sm:text-sm text-gray-600 break-words">
+                Delete{" "}
+                <span className="font-medium">
+                  {entityDeleteDialog.entityLabel}
+                </span>
+                ?
+              </p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  onClick={() =>
+                    setEntityDeleteDialog({
+                      show: false,
+                      type: null,
+                      entityId: null,
+                      entityLabel: "",
+                    })
+                  }
+                  className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteConfirmed}
+                  className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

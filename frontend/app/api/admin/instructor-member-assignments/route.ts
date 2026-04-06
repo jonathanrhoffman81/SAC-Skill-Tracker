@@ -274,68 +274,130 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = (await request.json()) as {
-      email?: string;
       member_id?: string;
+      member_ids?: string[];
       instructor_person_id?: string | null;
     };
 
-    if (!body.member_id) {
+    const memberIds = Array.from(
+      new Set(
+        [body.member_id, ...(body.member_ids ?? [])].filter(
+          (value): value is string => Boolean(value)
+        )
+      )
+    );
+
+    if (memberIds.length === 0) {
       return NextResponse.json(
-        { error: 'member_id is required' },
+        { error: 'At least one member_id is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!body.instructor_person_id) {
+      return NextResponse.json(
+        { error: 'instructor_person_id is required' },
         { status: 400 }
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
+    const adminContext = await resolveAdminRequestContext(request, supabase);
     const organizationId = adminContext.organizationId;
 
-    const memberValidation = await validateMemberInOrg(supabase, body.member_id, organizationId);
-    if (!memberValidation.ok) {
-      return NextResponse.json({ error: memberValidation.error }, { status: 400 });
-    }
-
-    // Validate instructor BEFORE deleting to prevent orphaned unassignments
-    if (body.instructor_person_id) {
-      const instructorValidation = await validateInstructorInOrg(
-        supabase,
-        body.instructor_person_id,
-        organizationId
-      );
-      if (!instructorValidation.ok) {
-        return NextResponse.json({ error: instructorValidation.error }, { status: 400 });
+    for (const memberId of memberIds) {
+      const memberValidation = await validateMemberInOrg(supabase, memberId, organizationId);
+      if (!memberValidation.ok) {
+        return NextResponse.json({ error: memberValidation.error }, { status: 400 });
       }
     }
 
-    // Delete any existing assignment for this member
-    const { error: deleteError } = await supabase
-      .from('instructor_member_assignment')
-      .delete()
-      .eq('member_id', body.member_id);
+    const instructorValidation = await validateInstructorInOrg(
+      supabase,
+      body.instructor_person_id,
+      organizationId
+    );
+    if (!instructorValidation.ok) {
+      return NextResponse.json({ error: instructorValidation.error }, { status: 400 });
+    }
 
-    if (deleteError) {
+    const rows = memberIds.map((memberId) => ({
+      instructor_person_id: body.instructor_person_id as string,
+      member_id: memberId,
+    }));
+
+    const { error: upsertError } = await supabase
+      .from('instructor_member_assignment')
+      .upsert(rows, { onConflict: 'member_id,instructor_person_id', ignoreDuplicates: true });
+
+    if (upsertError) {
       return NextResponse.json(
-        { error: `Failed to update assignment: ${deleteError.message}` },
+        { error: `Failed to create assignment: ${upsertError.message}` },
         { status: 500 }
       );
     }
 
-    // If a new instructor is provided, create the assignment
-    if (body.instructor_person_id) {
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown server error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
-      const { error: insertError } = await supabase
-        .from('instructor_member_assignment')
-        .insert({
-          instructor_person_id: body.instructor_person_id,
-          member_id: body.member_id,
-        });
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      member_id?: string;
+      member_ids?: string[];
+      instructor_person_id?: string;
+    };
 
-      if (insertError) {
-        return NextResponse.json(
-          { error: `Failed to create assignment: ${insertError.message}` },
-          { status: 500 }
-        );
+    const memberIds = Array.from(
+      new Set(
+        [body.member_id, ...(body.member_ids ?? [])].filter(
+          (value): value is string => Boolean(value)
+        )
+      )
+    );
+
+    if (!body.instructor_person_id || memberIds.length === 0) {
+      return NextResponse.json(
+        { error: 'instructor_person_id and at least one member are required' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getSupabaseAdminClient();
+    const adminContext = await resolveAdminRequestContext(request, supabase);
+    const organizationId = adminContext.organizationId;
+
+    const instructorValidation = await validateInstructorInOrg(
+      supabase,
+      body.instructor_person_id,
+      organizationId
+    );
+    if (!instructorValidation.ok) {
+      return NextResponse.json({ error: instructorValidation.error }, { status: 400 });
+    }
+
+    for (const memberId of memberIds) {
+      const memberValidation = await validateMemberInOrg(supabase, memberId, organizationId);
+      if (!memberValidation.ok) {
+        return NextResponse.json({ error: memberValidation.error }, { status: 400 });
       }
+    }
+
+    const { error: deleteError } = await supabase
+      .from('instructor_member_assignment')
+      .delete()
+      .eq('instructor_person_id', body.instructor_person_id)
+      .in('member_id', memberIds);
+
+    if (deleteError) {
+      return NextResponse.json(
+        { error: `Failed to remove assignment: ${deleteError.message}` },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true });
