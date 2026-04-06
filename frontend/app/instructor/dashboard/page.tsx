@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import EvaluationForm from "@/components/EvaluationForm";
 import {
@@ -52,6 +52,26 @@ interface DashboardPayload {
 
 const PAGE_SIZE = 25;
 
+interface PaginationState {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+interface CachedDashboardEntry {
+  userName: string;
+  organizationName: string;
+  swimmers: DashboardSwimmer[];
+  pagination: PaginationState;
+}
+
+function buildCacheKey(tab: "my" | "all", page: number, search: string) {
+  return `${tab}|${page}|${search.toLowerCase()}`;
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -91,7 +111,7 @@ export default function InstructorDashboard() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pagination, setPagination] = useState({
+  const [pagination, setPagination] = useState<PaginationState>({
     page: 1,
     pageSize: PAGE_SIZE,
     total: 0,
@@ -101,15 +121,31 @@ export default function InstructorDashboard() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const cacheRef = useRef<Map<string, CachedDashboardEntry>>(new Map());
 
   async function loadDashboardData(
     tab?: "my" | "all",
     page?: number,
     search?: string,
+    options?: { forceRefresh?: boolean },
   ) {
     const activeTab = tab || swimmerTab;
     const activePage = page || currentPage;
     const activeSearch = search ?? debouncedSearchQuery;
+    const cacheKey = buildCacheKey(activeTab, activePage, activeSearch);
+
+    if (!options?.forceRefresh) {
+      const cached = cacheRef.current.get(cacheKey);
+      if (cached) {
+        setError("");
+        setUserName((prev) => cached.userName || prev);
+        setOrganizationName(cached.organizationName || "SAC Skill Tracker");
+        setSwimmers(cached.swimmers);
+        setPagination(cached.pagination);
+        setIsLoading(false);
+        return;
+      }
+    }
 
     try {
       setIsLoading(true);
@@ -151,8 +187,56 @@ export default function InstructorDashboard() {
         hasPreviousPage: activePage > 1,
       };
       setPagination(serverPagination);
+      cacheRef.current.set(cacheKey, {
+        userName: payload.userName || userName,
+        organizationName: payload.organizationName || "SAC Skill Tracker",
+        swimmers: payload.swimmers ?? [],
+        pagination: serverPagination,
+      });
       if (serverPagination.page !== activePage) {
         setCurrentPage(serverPagination.page);
+      }
+
+      // Warm the opposite tab's first page so tab switches are instant after initial load.
+      if (!activeSearch && activePage === 1) {
+        const oppositeTab: "my" | "all" = activeTab === "my" ? "all" : "my";
+        const oppositeCacheKey = buildCacheKey(oppositeTab, 1, "");
+
+        if (!cacheRef.current.has(oppositeCacheKey)) {
+          const oppositeEndpoint =
+            oppositeTab === "all"
+              ? "/api/instructor/all-swimmers"
+              : "/api/instructor/dashboard";
+          const oppositeParams = new URLSearchParams({
+            page: "1",
+            pageSize: String(PAGE_SIZE),
+          });
+
+          fetch(`${oppositeEndpoint}?${oppositeParams.toString()}`, { headers })
+            .then(async (response) => {
+              if (!response.ok) return;
+              const oppositePayload =
+                (await response.json()) as DashboardPayload;
+              const oppositePagination = oppositePayload.pagination ?? {
+                page: 1,
+                pageSize: PAGE_SIZE,
+                total: oppositePayload.swimmers?.length ?? 0,
+                totalPages: 1,
+                hasNextPage: false,
+                hasPreviousPage: false,
+              };
+              cacheRef.current.set(oppositeCacheKey, {
+                userName: oppositePayload.userName || userName,
+                organizationName:
+                  oppositePayload.organizationName || "SAC Skill Tracker",
+                swimmers: oppositePayload.swimmers ?? [],
+                pagination: oppositePagination,
+              });
+            })
+            .catch(() => {
+              // Silent prefetch failure is acceptable; regular fetch path still works.
+            });
+        }
       }
     } catch (fetchError) {
       const message =
@@ -325,7 +409,11 @@ export default function InstructorDashboard() {
                 </div>
               </div>
               <button
-                onClick={() => loadDashboardData()}
+                onClick={() =>
+                  loadDashboardData(undefined, undefined, undefined, {
+                    forceRefresh: true,
+                  })
+                }
                 className="whitespace-nowrap rounded-md bg-red-100 px-2 py-1 text-[10px] text-red-800 transition-colors hover:bg-red-200 sm:px-3 sm:py-1.5 sm:text-xs"
               >
                 Retry
@@ -527,6 +615,9 @@ export default function InstructorDashboard() {
                             swimmerTab,
                             currentPage,
                             debouncedSearchQuery,
+                            {
+                              forceRefresh: true,
+                            },
                           )
                         }
                       />
