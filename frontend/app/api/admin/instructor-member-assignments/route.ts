@@ -1,26 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { getOrgIdByEmail, getRoleIdByName } from '@/lib/adminQueries';
-
-async function resolveAdminRequestContext(
-  request: NextRequest,
-  supabase: any,
-  emailFromInput?: string | null
-): Promise<{ organizationId: string }> {
-  const email = emailFromInput?.trim();
-
-  if (!email) {
-    throw new Error('email is required');
-  }
-
-  const organizationId = await getOrgIdByEmail(supabase, email);
-
-  if (!organizationId) {
-    throw new Error('Failed to resolve requester context');
-  }
-
-  return { organizationId };
-}
+import { getRoleIdByName, resolveAdminRequestContext } from '@/lib/adminQueries';
 
 async function validateInstructorInOrg(
   supabase: any,
@@ -294,7 +274,6 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = (await request.json()) as {
-      email?: string;
       member_id?: string;
       member_ids?: string[];
       instructor_person_id?: string | null;
@@ -323,7 +302,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdminClient();
-    const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
+    const adminContext = await resolveAdminRequestContext(request, supabase);
     const organizationId = adminContext.organizationId;
 
     for (const memberId of memberIds) {
@@ -368,7 +347,6 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const body = (await request.json()) as {
-      email?: string;
       member_id?: string;
       member_ids?: string[];
       instructor_person_id?: string;
@@ -382,19 +360,16 @@ export async function DELETE(request: NextRequest) {
       )
     );
 
-    if (!body.email || !body.instructor_person_id || memberIds.length === 0) {
+    if (!body.instructor_person_id || memberIds.length === 0) {
       return NextResponse.json(
-        { error: 'email, instructor_person_id, and at least one member are required' },
+        { error: 'instructor_person_id and at least one member are required' },
         { status: 400 }
       );
     }
 
     const supabase = getSupabaseAdminClient();
-    const organizationId = await getOrgIdByEmail(supabase, body.email);
-
-    if (!organizationId) {
-      return NextResponse.json({ error: 'Failed to resolve requester context' }, { status: 500 });
-    }
+    const adminContext = await resolveAdminRequestContext(request, supabase);
+    const organizationId = adminContext.organizationId;
 
     const instructorValidation = await validateInstructorInOrg(
       supabase,

@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
         { status: 401 },
       );
     }
-    if (message === "Missing admin email" || message === "Missing organizationId") {
+    if (message === "Missing admin email" || message === "Failed to find organization") {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     return NextResponse.json({ error: message }, { status: 500 });

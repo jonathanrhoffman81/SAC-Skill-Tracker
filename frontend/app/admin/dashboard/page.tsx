@@ -1310,7 +1310,8 @@ export default function AdminDashboard() {
               onRefresh={() => {
                 fetchStats();
                 fetchEntity("classes");
-              } } userEmail={""}            />
+              }}
+            />
           </div>
 
           <div className={activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"}>

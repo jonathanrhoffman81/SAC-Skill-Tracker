@@ -28,10 +28,9 @@ interface Instructor {
 
 interface InstructorManagerProps {
     onRefresh: () => void;
-    userEmail?: string;
 }
 
-export default function InstructorManager({ onRefresh, userEmail }: InstructorManagerProps) {
+export default function InstructorManager({ onRefresh }: InstructorManagerProps) {
     const [mode, setMode] = useState<'existing' | 'new'>('existing');
     const [loading, setLoading] = useState(false);
     const [instructorsLoading, setInstructorsLoading] = useState(true);

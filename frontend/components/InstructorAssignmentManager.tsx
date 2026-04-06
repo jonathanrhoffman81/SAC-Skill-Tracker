@@ -304,9 +304,16 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
         instructorId: string,
         action: 'assign' | 'remove'
     ) => {
+        const memberIdSet = new Set(memberIds);
+        const instructorNameById = new Map(
+            instructors.map((item) => [
+                item.person_id,
+                formatDisplayName(item.first_name, item.last_name),
+            ])
+        );
         setStudents((prev) =>
             prev.map((student) => {
-                if (!memberIds.includes(student.member_id)) return student;
+                if (!memberIdSet.has(student.member_id)) return student;
 
                 const nextInstructorIds =
                     action === 'assign'
@@ -316,12 +323,7 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                 const nextInstructorNames = Array.from(
                     new Set(
                         nextInstructorIds
-                            .map((id) => {
-                                const instructor = instructors.find((item) => item.person_id === id);
-                                return instructor
-                                    ? formatDisplayName(instructor.first_name, instructor.last_name)
-                                    : undefined;
-                            })
+                            .map((id) => instructorNameById.get(id))
                             .filter((name): name is string => Boolean(name))
                     )
                 );
@@ -376,6 +378,11 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
     const handleAssignStudent = async (student: StudentAssignment) => {
         if (!selectedInstructor) return;
         await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'assign');
+    };
+
+    const handleRemoveStudent = async (student: StudentAssignment) => {
+        if (!selectedInstructor) return;
+        await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'remove');
     };
 
     const toggleClassSelection = (className: string) => {
@@ -690,7 +697,7 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                             {selectedInstructorStudents.map((student) => (
                                 <div
                                     key={`assigned-${selectedInstructor.person_id}-${student.member_id}`}
-                                    className="rounded-lg border border-gray-200 p-2"
+                                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 p-2"
                                 >
                                     <div className="min-w-0 flex-1">
                                         <p className="text-xs font-medium text-gray-900 sm:text-sm">
@@ -710,6 +717,13 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                             })}
                                         </div>
                                     </div>
+                                    <button
+                                        onClick={() => handleRemoveStudent(student)}
+                                        disabled={pendingStudentIds.has(student.member_id)}
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
+                                    >
+                                        {pendingStudentIds.has(student.member_id) ? 'Saving...' : 'Unassign'}
+                                    </button>
                                 </div>
                             ))}
                         </div>
