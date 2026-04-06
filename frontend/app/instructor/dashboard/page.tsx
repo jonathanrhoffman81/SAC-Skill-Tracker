@@ -39,8 +39,18 @@ interface DashboardPayload {
   userName: string;
   organizationName?: string;
   swimmers: DashboardSwimmer[];
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
   error?: string;
 }
+
+const PAGE_SIZE = 25;
 
 function getInitials(name: string) {
   return name
@@ -78,12 +88,28 @@ export default function InstructorDashboard() {
   const [swimmerTab, setSwimmerTab] = useState<"my" | "all">("my");
   const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: PAGE_SIZE,
+    total: 0,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function loadDashboardData(tab?: "my" | "all") {
+  async function loadDashboardData(
+    tab?: "my" | "all",
+    page?: number,
+    search?: string,
+  ) {
     const activeTab = tab || swimmerTab;
+    const activePage = page || currentPage;
+    const activeSearch = search ?? debouncedSearchQuery;
 
     try {
       setIsLoading(true);
@@ -93,8 +119,18 @@ export default function InstructorDashboard() {
         activeTab === "all"
           ? "/api/instructor/all-swimmers"
           : "/api/instructor/dashboard";
+      const params = new URLSearchParams({
+        page: String(activePage),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (activeSearch) {
+        params.set("q", activeSearch);
+      }
+
       const headers = await createAuthenticatedHeaders();
-      const response = await fetch(endpoint, { headers });
+      const response = await fetch(`${endpoint}?${params.toString()}`, {
+        headers,
+      });
       const payload = (await response.json()) as DashboardPayload;
 
       if (!response.ok) {
@@ -106,6 +142,18 @@ export default function InstructorDashboard() {
       setUserName((prev) => payload.userName || prev);
       setOrganizationName(payload.organizationName || "SAC Skill Tracker");
       setSwimmers(payload.swimmers ?? []);
+      const serverPagination = payload.pagination ?? {
+        page: activePage,
+        pageSize: PAGE_SIZE,
+        total: payload.swimmers?.length ?? 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: activePage > 1,
+      };
+      setPagination(serverPagination);
+      if (serverPagination.page !== activePage) {
+        setCurrentPage(serverPagination.page);
+      }
     } catch (fetchError) {
       const message =
         fetchError instanceof Error
@@ -114,6 +162,14 @@ export default function InstructorDashboard() {
 
       setError(message);
       setSwimmers([]);
+      setPagination({
+        page: 1,
+        pageSize: PAGE_SIZE,
+        total: 0,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -142,17 +198,17 @@ export default function InstructorDashboard() {
 
     fetchLogo();
   }, []);
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 250);
 
-  const visibleSwimmers = useMemo(() => {
-    if (!searchQuery) {
-      return swimmers;
-    }
+    return () => window.clearTimeout(handle);
+  }, [searchQuery]);
 
-    const query = searchQuery.toLowerCase();
-    return swimmers.filter((swimmer) =>
-      swimmer.name.toLowerCase().includes(query),
-    );
-  }, [swimmers, searchQuery]);
+  useEffect(() => {
+    loadDashboardData(swimmerTab, currentPage, debouncedSearchQuery);
+  }, [swimmerTab, currentPage, debouncedSearchQuery]);
 
   const handleSwimmerClick = (swimmerId: string) => {
     setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
@@ -340,7 +396,8 @@ export default function InstructorDashboard() {
               <button
                 onClick={() => {
                   setSwimmerTab("my");
-                  loadDashboardData("my");
+                  setCurrentPage(1);
+                  setOpenSwimmerId(null);
                 }}
                 className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                   swimmerTab === "my"
@@ -353,7 +410,8 @@ export default function InstructorDashboard() {
               <button
                 onClick={() => {
                   setSwimmerTab("all");
-                  loadDashboardData("all");
+                  setCurrentPage(1);
+                  setOpenSwimmerId(null);
                 }}
                 className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                   swimmerTab === "all"
@@ -369,14 +427,17 @@ export default function InstructorDashboard() {
                 type="text"
                 placeholder="Search swimmers..."
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setCurrentPage(1);
+                }}
                 className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           <div className="space-y-4">
-            {visibleSwimmers.map((swimmer) => {
+            {swimmers.map((swimmer) => {
               const mastered = swimmer.skills.filter(
                 (skill) => skill.mastered,
               ).length;
@@ -461,7 +522,13 @@ export default function InstructorDashboard() {
                         swimmerId={swimmer.id}
                         skills={swimmer.skills}
                         classes={swimmer.classes}
-                        onSubmissionComplete={() => loadDashboardData()}
+                        onSubmissionComplete={() =>
+                          loadDashboardData(
+                            swimmerTab,
+                            currentPage,
+                            debouncedSearchQuery,
+                          )
+                        }
                       />
                     </div>
                   )}
@@ -470,9 +537,47 @@ export default function InstructorDashboard() {
             })}
           </div>
 
-          {!isLoading && !error && visibleSwimmers.length === 0 && (
+          {!isLoading && !error && pagination.total > PAGE_SIZE && (
+            <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-gray-600 sm:text-sm">
+                Showing {(pagination.page - 1) * pagination.pageSize + 1}
+                {" - "}
+                {Math.min(
+                  pagination.page * pagination.pageSize,
+                  pagination.total,
+                )}
+                {" of "}
+                {pagination.total} swimmers
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!pagination.hasPreviousPage || isLoading}
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.max(1, prev - 1))
+                  }
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-600 sm:text-sm">
+                  Page {pagination.page} of {pagination.totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={!pagination.hasNextPage || isLoading}
+                  onClick={() => setCurrentPage((prev) => prev + 1)}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !error && swimmers.length === 0 && (
             <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
-              No swimmers assigned to you yet.
+              No swimmers found.
             </div>
           )}
         </section>
