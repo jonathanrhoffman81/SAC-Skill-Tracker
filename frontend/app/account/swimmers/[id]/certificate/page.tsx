@@ -19,6 +19,7 @@ export default function CertificatePage() {
   const params = useParams();
   const swimmerId = params.id as string;
 
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [swimmer, setSwimmer] = useState<any>(null);
   const [skills, setSkills] = useState<any[]>([]);
@@ -62,6 +63,28 @@ export default function CertificatePage() {
     loadData();
   }, [swimmerId]);
 
+  useEffect(() => {
+    async function fetchLogo() {
+      try {
+        const headers = await createAuthenticatedHeaders();
+
+        const res = await fetch("/api/admin/get-logo", {
+          headers,
+        });
+
+        const data = await res.json();
+
+        if (data.publicUrl) {
+          setLogoUrl(data.publicUrl);
+        }
+      } catch (err) {
+        console.error("Failed to fetch logo", err);
+      }
+    }
+
+    fetchLogo();
+  }, []);
+
   // Generate certificate
   useEffect(() => {
     async function generatePreview() {
@@ -80,6 +103,7 @@ export default function CertificatePage() {
         university: swimmer.organization,
         skill: skill.name,
         date: skill.dateAcquired,
+        logoUrl,
       });
 
       setPreviewUrl(url);
@@ -110,7 +134,6 @@ export default function CertificatePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ✅ HEADER (same as parent page) */}
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
         <div className="mx-auto max-w-4xl px-6 py-4">
           <div className="flex items-center gap-4">
@@ -151,7 +174,6 @@ export default function CertificatePage() {
         </div>
       </header>
 
-      {/* ✅ PAGE CONTENT */}
       <main className="mx-auto max-w-4xl px-6 py-8">
         <h1 className="text-xl font-semibold mb-4">Certificate Preview</h1>
 

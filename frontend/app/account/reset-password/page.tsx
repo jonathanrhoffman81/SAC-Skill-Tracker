@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState(""); // ✅ new
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const router = useRouter();
 
