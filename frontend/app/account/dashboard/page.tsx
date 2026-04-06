@@ -1,30 +1,30 @@
 "use client";
 // Proficiency descriptions for each progress value
 const PROFICIENCY_LABELS: Record<SkillProgress, string> = {
-  0: 'Unable to attempt the skill',
-  1: 'Unable to demonstrate skill without significant support',
-  2: 'Inconsistently able to demonstrate the skill',
-  3: 'Consistently able to demonstrate of the skill',
-  4: 'Demonstrates complete understanding of the skill',
+  0: "Unable to attempt the skill",
+  1: "Unable to demonstrate skill without significant support",
+  2: "Inconsistently able to demonstrate the skill",
+  3: "Consistently able to demonstrate of the skill",
+  4: "Demonstrates complete understanding of the skill",
 };
 /**
  * Swimm/Adult Swimmer dashboard page
  * Purpose: overview dashboard focused on swimmer progress and skill-level updates.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   createAuthenticatedHeaders,
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
-} from '@/lib/clientAuth';
+} from "@/lib/clientAuth";
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
 const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
 
-const DASHBOARD_CACHE_PREFIX = 'account-dashboard-cache:';
+const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:";
 
 interface SwimmerCard {
   id: string;
@@ -51,49 +51,53 @@ interface SkillItem {
 interface DashboardPayload {
   userName: string;
   organizationName?: string;
-  swimmers: Array<Omit<SwimmerCard, 'classIds'> & { classIds?: string[] }>;
+  swimmers: Array<Omit<SwimmerCard, "classIds"> & { classIds?: string[] }>;
   skillsBySwimmer: Record<string, SkillItem[]>;
 }
 
 function getInitials(name: string) {
   return name
-    .split(' ')
+    .split(" ")
     .map((part) => part[0])
-    .join('')
+    .join("")
     .slice(0, 2)
     .toUpperCase();
 }
 
-
 function getProgressBadgeClasses(progress: SkillProgress) {
   switch (progress) {
     case 4:
-      return 'bg-emerald-100 text-emerald-700';
+      return "bg-emerald-100 text-emerald-700";
     case 3:
-      return 'bg-blue-100 text-blue-700';
+      return "bg-blue-100 text-blue-700";
     case 2:
-      return 'bg-amber-100 text-amber-700';
+      return "bg-amber-100 text-amber-700";
     case 1:
-      return 'bg-orange-100 text-orange-700';
+      return "bg-orange-100 text-orange-700";
     default:
-      return 'bg-gray-100 text-gray-600';
+      return "bg-gray-100 text-gray-600";
   }
 }
 
 export default function AccountDashboard() {
   const router = useRouter();
-  const [userName, setUserName] = useState('Guest User');
-  const [organizationName, setOrganizationName] = useState('SAC Skill Tracker');
+  const [userName, setUserName] = useState("Guest User");
+  const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [openSwimmerIds, setOpenSwimmerIds] = useState<string[]>([]);
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
-  const [skillsBySwimmer, setSkillsBySwimmer] = useState<Record<string, SkillItem[]>>({});
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [skillsBySwimmer, setSkillsBySwimmer] = useState<
+    Record<string, SkillItem[]>
+  >({});
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    function normalizeSkillsBySwimmer(skillsBySwimmer?: DashboardPayload['skillsBySwimmer']) {
+    function normalizeSkillsBySwimmer(
+      skillsBySwimmer?: DashboardPayload["skillsBySwimmer"],
+    ) {
       return Object.fromEntries(
         Object.entries(skillsBySwimmer ?? {}).map(([swimmerId, skills]) => [
           swimmerId,
@@ -101,18 +105,18 @@ export default function AccountDashboard() {
             ...skill,
             // progress is already 0-4, mastered is set by backend
           })),
-        ])
+        ]),
       ) as Record<string, SkillItem[]>;
     }
 
     function applyPayload(payload: DashboardPayload, fallbackName: string) {
       setUserName(payload.userName || fallbackName);
-      setOrganizationName(payload.organizationName || 'SAC Skill Tracker');
+      setOrganizationName(payload.organizationName || "SAC Skill Tracker");
       setSwimmers(
         (payload.swimmers ?? []).map((swimmer) => ({
           ...swimmer,
           classIds: swimmer.classIds ?? [],
-        }))
+        })),
       );
       setSkillsBySwimmer(normalizeSkillsBySwimmer(payload.skillsBySwimmer));
     }
@@ -122,9 +126,9 @@ export default function AccountDashboard() {
 
       try {
         setIsLoading(true);
-        setError('');
+        setError("");
         const identity = await getAuthenticatedSessionIdentity();
-        const localName = identity.displayName || 'Guest User';
+        const localName = identity.displayName || "Guest User";
 
         setUserName(localName);
 
@@ -145,11 +149,13 @@ export default function AccountDashboard() {
 
         // Fetch all parent dashboard data in one request.
         const headers = await createAuthenticatedHeaders();
-        const response = await fetch('/api/account/dashboard', { headers });
-        const payload = (await response.json()) as DashboardPayload & { error?: string };
+        const response = await fetch("/api/account/dashboard", { headers });
+        const payload = (await response.json()) as DashboardPayload & {
+          error?: string;
+        };
 
         if (!response.ok) {
-          throw new Error(payload.error || 'Failed to load dashboard data.');
+          throw new Error(payload.error || "Failed to load dashboard data.");
         }
 
         if (!isMounted) return;
@@ -158,7 +164,8 @@ export default function AccountDashboard() {
         sessionStorage.setItem(cacheKey, JSON.stringify(payload));
       } catch (fetchError) {
         if (!isMounted) return;
-        const message = fetchError instanceof Error ? fetchError.message : 'Unexpected error';
+        const message =
+          fetchError instanceof Error ? fetchError.message : "Unexpected error";
         if (!hasCachedData) {
           setError(message);
           setSwimmers([]);
@@ -202,9 +209,38 @@ export default function AccountDashboard() {
     });
   }, [uniqueSwimmers]);
 
+  useEffect(() => {
+    async function fetchLogo() {
+      try {
+        const headers = await createAuthenticatedHeaders();
+
+        const res = await fetch("/api/admin/get-logo", {
+          headers,
+        });
+
+        const data = await res.json();
+
+        if (data.publicUrl) {
+          setLogoUrl(data.publicUrl);
+        } else {
+          setLogoUrl(null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch logo", err);
+        setLogoUrl(null);
+      }
+    }
+
+    fetchLogo();
+  }, []);
+
   function getOverallPct(skills: SkillItem[]) {
     if (skills.length === 0) return 0;
-    return Math.round((skills.reduce((sum, skill) => sum + skill.progress, 0) / (skills.length * 4)) * 100);
+    return Math.round(
+      (skills.reduce((sum, skill) => sum + skill.progress, 0) /
+        (skills.length * 4)) *
+        100,
+    );
   }
 
   return (
@@ -212,31 +248,69 @@ export default function AccountDashboard() {
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 sm:h-9 sm:w-9 sm:rounded-xl">
-              <svg className="h-4 w-4 text-white sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="Organization Logo"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <svg
+                  className="h-4 w-4 text-gray-500 sm:h-5 sm:w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+              )}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">{organizationName}</p>
-              <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">Parent Dashboard</p>
+              <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
+                {organizationName}
+              </p>
+              <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">
+                Parent Dashboard
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="hidden text-right md:block">
-              <p className="text-sm font-medium text-gray-900">{userName || 'Guest User'}</p>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Parent</span>
+              <p className="text-sm font-medium text-gray-900">
+                {userName || "Guest User"}
+              </p>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                Parent
+              </span>
             </div>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
-              {userName ? getInitials(userName) : 'GU'}
+              {userName ? getInitials(userName) : "GU"}
             </div>
             <button
               onClick={async () => {
-                await logoutAndRedirect('/login');
+                await logoutAndRedirect("/login");
               }}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
             >
-              <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+              <svg
+                className="h-4 w-4 sm:h-5 sm:w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
             </button>
           </div>
         </div>
@@ -247,26 +321,43 @@ export default function AccountDashboard() {
         <section className="mb-3">
           <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 pt-4">
             <div>
-              <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Proficiency Scale</p>
+              <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
+                Proficiency Scale
+              </p>
               <ul className="mt-3 space-y-2">
                 <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">0</span>
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    0
+                  </span>
                   <span>Unable to attempt the skill</span>
                 </li>
                 <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">1</span>
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    1
+                  </span>
                   <span>Unable to show skill without significant support</span>
                 </li>
                 <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">2</span>
-                  <span>Inconsistently or with support is able to demonstrate the skill</span>
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    2
+                  </span>
+                  <span>
+                    Inconsistently or with support is able to demonstrate the
+                    skill
+                  </span>
                 </li>
                 <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">3</span>
-                  <span>Consistently demonstrates application of the skill</span>
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    3
+                  </span>
+                  <span>
+                    Consistently demonstrates application of the skill
+                  </span>
                 </li>
                 <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">4</span>
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    4
+                  </span>
                   <span>Demonstrates complete understanding of the skill</span>
                 </li>
               </ul>
@@ -277,7 +368,9 @@ export default function AccountDashboard() {
         {isLoading && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
             <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-green-600 flex-shrink-0"></div>
-            <p className="text-xs sm:text-sm text-blue-800">Loading dashboard data...</p>
+            <p className="text-xs sm:text-sm text-blue-800">
+              Loading dashboard data...
+            </p>
           </div>
         )}
 
@@ -286,12 +379,26 @@ export default function AccountDashboard() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
-                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 mt-0.5 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <div className="min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-red-800">Failed to load data</p>
-                  <p className="text-[10px] sm:text-xs text-red-700 mt-0.5 sm:mt-1 break-words">{error}</p>
+                  <p className="text-xs sm:text-sm font-medium text-red-800">
+                    Failed to load data
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-red-700 mt-0.5 sm:mt-1 break-words">
+                    {error}
+                  </p>
                 </div>
               </div>
               <button
@@ -315,19 +422,24 @@ export default function AccountDashboard() {
           <div className="space-y-4">
             {uniqueSwimmers.map((swimmer) => {
               const skills = skillsBySwimmer[swimmer.id] || [];
-              const acquiredCount = skills.filter((s) => s.progress === 4).length;
+              const acquiredCount = skills.filter(
+                (s) => s.progress === 4,
+              ).length;
               const pct = getOverallPct(skills);
               const isOpen = openSwimmerIds.includes(swimmer.id);
 
               return (
-                <div key={swimmer.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div
+                  key={swimmer.id}
+                  className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                >
                   <button
                     className="w-full p-5 text-left transition hover:bg-gray-50 sm:p-6"
                     onClick={() =>
                       setOpenSwimmerIds((current) =>
                         current.includes(swimmer.id)
                           ? current.filter((id) => id !== swimmer.id)
-                          : [...current, swimmer.id]
+                          : [...current, swimmer.id],
                       )
                     }
                   >
@@ -338,7 +450,9 @@ export default function AccountDashboard() {
                         </div>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {swimmer.name}
+                            </p>
                             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
                               {swimmer.level}
                             </span>
@@ -351,9 +465,14 @@ export default function AccountDashboard() {
                                 router.push(`/account/swimmers/${swimmer.id}`);
                               }}
                               onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
+                                if (
+                                  event.key === "Enter" ||
+                                  event.key === " "
+                                ) {
                                   event.stopPropagation();
-                                  router.push(`/account/swimmers/${swimmer.id}`);
+                                  router.push(
+                                    `/account/swimmers/${swimmer.id}`,
+                                  );
                                 }
                               }}
                             >
@@ -361,7 +480,9 @@ export default function AccountDashboard() {
                             </span>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span>{acquiredCount}/{skills.length} skills acquired</span>
+                            <span>
+                              {acquiredCount}/{skills.length} skills acquired
+                            </span>
                             <span>{pct}% complete</span>
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
                               {swimmer.nextSession}
@@ -376,13 +497,19 @@ export default function AccountDashboard() {
                       </div>
 
                       <svg
-                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''
-                          }`}
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
                       </svg>
                     </div>
                   </button>
@@ -395,7 +522,10 @@ export default function AccountDashboard() {
                           <span>{pct}%</span>
                         </div>
                         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                          <div className="h-full bg-blue-600" style={{ width: `${pct}%` }} />
+                          <div
+                            className="h-full bg-blue-600"
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                         {swimmer.classIds.length === 0 && (
                           <p className="mt-2 rounded px-2 py-1 text-xs text-amber-700 border border-amber-200 bg-amber-50">
@@ -405,7 +535,9 @@ export default function AccountDashboard() {
                       </div>
 
                       <div className="mt-4">
-                        <p className="mb-2 text-xs font-medium text-gray-500">Skills</p>
+                        <p className="mb-2 text-xs font-medium text-gray-500">
+                          Skills
+                        </p>
                         <div className="space-y-2">
                           {skills.length === 0 && (
                             <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
@@ -416,9 +548,14 @@ export default function AccountDashboard() {
                             const skillNotes = skill.notes ?? [];
 
                             return (
-                              <div key={skill.id} className="rounded-lg border border-gray-100 px-3 py-3">
+                              <div
+                                key={skill.id}
+                                className="rounded-lg border border-gray-100 px-3 py-3"
+                              >
                                 <div className="flex items-center justify-between gap-3">
-                                  <span className="min-w-0 text-xs text-gray-700">{skill.name}</span>
+                                  <span className="min-w-0 text-xs text-gray-700">
+                                    {skill.name}
+                                  </span>
                                   <div className="flex items-center gap-2 pl-2">
                                     {skill.dateAcquired && (
                                       <span className="whitespace-nowrap text-[11px] text-gray-500">
@@ -427,9 +564,18 @@ export default function AccountDashboard() {
                                     )}
                                     <span
                                       className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${getProgressBadgeClasses(skill.progress)}`}
-                                      title={PROFICIENCY_LABELS[skill.progress as SkillProgress]}
+                                      title={
+                                        PROFICIENCY_LABELS[
+                                          skill.progress as SkillProgress
+                                        ]
+                                      }
                                     >
-                                      {skill.progress} - {PROFICIENCY_LABELS[skill.progress as SkillProgress]}
+                                      {skill.progress} -{" "}
+                                      {
+                                        PROFICIENCY_LABELS[
+                                          skill.progress as SkillProgress
+                                        ]
+                                      }
                                     </span>
                                   </div>
                                 </div>
@@ -437,9 +583,16 @@ export default function AccountDashboard() {
                                 {skillNotes.length > 0 && (
                                   <div className="mt-2 space-y-2">
                                     {skillNotes.map((note) => (
-                                      <div key={note.id} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-2">
-                                        <p className="text-[11px] text-gray-500">{note.date} by {note.author}</p>
-                                        <p className="mt-1 text-xs text-gray-700">{note.content}</p>
+                                      <div
+                                        key={note.id}
+                                        className="rounded-md border border-gray-200 bg-gray-50 px-2 py-2"
+                                      >
+                                        <p className="text-[11px] text-gray-500">
+                                          {note.date} by {note.author}
+                                        </p>
+                                        <p className="mt-1 text-xs text-gray-700">
+                                          {note.content}
+                                        </p>
                                       </div>
                                     ))}
                                   </div>
