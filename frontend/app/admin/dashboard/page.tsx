@@ -945,8 +945,33 @@ export default function AdminDashboard() {
   };
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(true);
   const handleLogout = async () => {
     await logoutAndRedirect("/login");
+  };
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    if (isDesktop) {
+      setSidebarPinned(false);
+    }
+  };
+  const toggleSidebar = () => {
+    if (isDesktop) {
+      setSidebarPinned((prev) => !prev);
+      return;
+    }
+    setSidebarOpen((open) => !open);
   };
 
   const requestDeleteEntity = (type: EntityType, id: string) => {
@@ -998,19 +1023,19 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {sidebarOpen && (
+      {sidebarVisible && !isDesktop && (
         <button
           type="button"
           className="fixed inset-0 z-30 bg-gray-900/20 backdrop-blur-[1px]"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
           aria-label="Close menu overlay"
         />
       )}
 
       <aside
-        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "translate-x-full"
+        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "translate-x-full"
           }`}
-        aria-hidden={!sidebarOpen}
+        aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
           <div>
@@ -1018,7 +1043,7 @@ export default function AdminDashboard() {
             <p className="text-xs text-gray-500">Administrator tools</p>
           </div>
           <button
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
             className="rounded-full p-2 text-gray-500 hover:bg-gray-100 focus:outline-none"
             aria-label="Close menu"
           >
@@ -1033,7 +1058,9 @@ export default function AdminDashboard() {
               key={tab.id}
               onClick={() => {
                 setActiveTab(tab.id);
-                setSidebarOpen(false);
+                if (!isDesktop) {
+                  setSidebarOpen(false);
+                }
               }}
               className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
                 ? "bg-gray-100 text-gray-900"
@@ -1058,7 +1085,7 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-col">
+      <div className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pr-72" : ""}`}>
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -1095,16 +1122,24 @@ export default function AdminDashboard() {
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
                 {getInitials(userName)}
               </div>
-              <button
-                onClick={() => setSidebarOpen((open) => !open)}
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
-                title="Menu"
-                aria-label={sidebarOpen ? "Close menu" : "Open menu"}
-              >
-                <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
+              {(!isDesktop || !sidebarVisible) && (
+                <button
+                  onClick={toggleSidebar}
+                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
+                  title="Menu"
+                  aria-label={
+                    isDesktop
+                      ? "Open menu"
+                      : sidebarOpen
+                        ? "Close menu"
+                        : "Open menu"
+                  }
+                >
+                  <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </header>
