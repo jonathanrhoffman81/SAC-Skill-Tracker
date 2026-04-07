@@ -346,10 +346,6 @@ export default function ParentSwimmerDetail() {
               <h3 className="text-sm font-semibold text-gray-900">
                 Swimmer Profile
               </h3>
-              <p className="mt-1 text-xs text-gray-500">
-                Current swimmer details stay visible while you browse session
-                history.
-              </p>
             </div>
             <button
               onClick={() =>
@@ -393,10 +389,6 @@ export default function ParentSwimmerDetail() {
               <h3 className="text-sm font-semibold text-gray-900">
                 Session History
               </h3>
-              <p className="mt-1 text-xs text-gray-500">
-                Switch sessions without reloading. Each view shows notes dated
-                inside that session and skill progress as of the session end.
-              </p>
             </div>
 
             <div className="w-full lg:max-w-sm">
@@ -501,10 +493,6 @@ export default function ParentSwimmerDetail() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Skills</h3>
-              <p className="mt-1 text-xs text-gray-500">
-                Skill progress is shown as it stood by the end of the selected
-                session.
-              </p>
             </div>
             <div className="text-left sm:text-right">
               <p className="text-xs text-gray-500">Selected session</p>
