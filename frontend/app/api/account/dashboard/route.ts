@@ -8,6 +8,7 @@ import {
   AuthContextError,
   getCurrentPersonFromRequest,
 } from "@/lib/serverAuth";
+import { buildParentSwimmerProfiles, type SwimmerProfilePayload } from "@/lib/accountSwimmerProfiles";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
@@ -39,6 +40,7 @@ interface DashboardPayload {
       }>;
     }>
   >;
+  profilesBySwimmer?: Record<string, SwimmerProfilePayload>;
 }
 
 const ACCOUNT_ROUTE_ROLE_SET = new Set([
@@ -71,7 +73,10 @@ function formatDate(value?: string | null): string | null {
   });
 }
 
-async function resolveAccountEmail(request: NextRequest): Promise<string> {
+async function resolveAccountContext(request: NextRequest): Promise<{
+  email: string;
+  personId: string;
+}> {
   let sessionPerson = null;
   try {
     sessionPerson = await getCurrentPersonFromRequest(request);
@@ -97,7 +102,10 @@ async function resolveAccountEmail(request: NextRequest): Promise<string> {
       );
     }
 
-    return sessionPerson.email;
+    return {
+      email: sessionPerson.email,
+      personId: sessionPerson.personId,
+    };
   }
 
   const email = request.nextUrl.searchParams.get("email");
@@ -105,13 +113,31 @@ async function resolveAccountEmail(request: NextRequest): Promise<string> {
     throw new Error("Missing required query param: email");
   }
 
-  return email;
+  const supabaseAdmin = getSupabaseAdminClient();
+  const { data: person, error: personError } = await supabaseAdmin
+    .from("person")
+    .select("person_id")
+    .ilike("email", email)
+    .maybeSingle();
+
+  if (personError) {
+    throw new Error(`Failed to load account: ${personError.message}`);
+  }
+
+  if (!person) {
+    throw new Error(`No account found for email ${email}`);
+  }
+
+  return {
+    email,
+    personId: person.person_id,
+  };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdminClient();
-    const email = await resolveAccountEmail(request);
+    const { email, personId } = await resolveAccountContext(request);
 
     const { data, error } = await supabaseAdmin.rpc("get_parent_dashboard", {
       p_email: email,
@@ -142,7 +168,7 @@ export async function GET(request: NextRequest) {
     if (memberIds.length > 0) {
       const { data: memberSkillRows, error: memberSkillError } =
         await supabaseAdmin
-          .from("member_skill")
+          .from("member_skill_current")
           .select("member_id, skill_id, progress, date_acquired")
           .in("member_id", memberIds);
 
@@ -192,6 +218,9 @@ export async function GET(request: NextRequest) {
           ],
         ),
       );
+
+      const profileMap = await buildParentSwimmerProfiles(personId, memberIds);
+      payload.profilesBySwimmer = Object.fromEntries(profileMap.entries());
     }
 
     return NextResponse.json(payload);
