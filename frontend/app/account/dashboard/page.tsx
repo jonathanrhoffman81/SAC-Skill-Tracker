@@ -25,6 +25,7 @@ type SkillProgress = 0 | 1 | 2 | 3 | 4;
 const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
 
 const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:";
+const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v2:";
 
 interface SwimmerCard {
   id: string;
@@ -53,6 +54,46 @@ interface DashboardPayload {
   organizationName?: string;
   swimmers: Array<Omit<SwimmerCard, "classIds"> & { classIds?: string[] }>;
   skillsBySwimmer: Record<string, SkillItem[]>;
+  profilesBySwimmer?: Record<
+    string,
+    {
+      swimmer: {
+        id: string;
+        name: string;
+        age: number | null;
+        level: string;
+        enrollmentDate: string;
+        organization: string;
+      };
+      sessions: Array<{
+        id: string;
+        name: string;
+        startDate?: string;
+        endDate?: string;
+        isCurrent: boolean;
+        isSynthetic: boolean;
+        classes: Array<{
+          id: string;
+          name: string;
+          schedule: string;
+        }>;
+        skills: SkillItem[];
+        sessionNotes: Array<{
+          id: string;
+          author: string;
+          content: string;
+          date: string;
+        }>;
+        summary: {
+          progressPct: number;
+          masteredCount: number;
+          totalSkills: number;
+          noteCount: number;
+        };
+      }>;
+      defaultSessionId: string;
+    }
+  >;
 }
 
 function getInitials(name: string) {
@@ -109,6 +150,18 @@ export default function AccountDashboard() {
       ) as Record<string, SkillItem[]>;
     }
 
+    function seedProfileCaches(
+      authUserId: string,
+      payload: DashboardPayload,
+    ) {
+      Object.entries(payload.profilesBySwimmer ?? {}).forEach(
+        ([memberId, profile]) => {
+          const profileCacheKey = `${SWIMMER_PROFILE_CACHE_PREFIX}${authUserId}:${memberId}`;
+          sessionStorage.setItem(profileCacheKey, JSON.stringify(profile));
+        },
+      );
+    }
+
     function applyPayload(payload: DashboardPayload, fallbackName: string) {
       setUserName(payload.userName || fallbackName);
       setOrganizationName(payload.organizationName || "SAC Skill Tracker");
@@ -162,6 +215,7 @@ export default function AccountDashboard() {
 
         applyPayload(payload, localName);
         sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+        seedProfileCaches(identity.authUserId, payload);
       } catch (fetchError) {
         if (!isMounted) return;
         const message =
@@ -317,53 +371,6 @@ export default function AccountDashboard() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-2 px-3 py-4 sm:space-y-6 sm:px-6 sm:py-8">
-        {/* Proficiency Rating for Parents */}
-        <section className="mb-3">
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 pt-4">
-            <div>
-              <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
-                Proficiency Scale
-              </p>
-              <ul className="mt-3 space-y-2">
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    0
-                  </span>
-                  <span>Unable to attempt the skill</span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    1
-                  </span>
-                  <span>Unable to show skill without significant support</span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    2
-                  </span>
-                  <span>
-                    Inconsistently or with support is able to demonstrate the
-                    skill
-                  </span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    3
-                  </span>
-                  <span>
-                    Consistently demonstrates application of the skill
-                  </span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    4
-                  </span>
-                  <span>Demonstrates complete understanding of the skill</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </section>
         {/* Loading Banner */}
         {isLoading && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
@@ -434,7 +441,7 @@ export default function AccountDashboard() {
                   className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
                 >
                   <button
-                    className="w-full p-5 text-left transition hover:bg-gray-50 sm:p-6"
+                    className="w-full p-4 text-left transition hover:bg-gray-50 sm:p-6"
                     onClick={() =>
                       setOpenSwimmerIds((current) =>
                         current.includes(swimmer.id)
@@ -443,14 +450,14 @@ export default function AccountDashboard() {
                       )
                     }
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700">
+                    <div className="flex items-start justify-between gap-3 sm:gap-4">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700">
                           {getInitials(swimmer.name)}
                         </div>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-gray-900">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                            <p className="break-words text-sm font-semibold text-gray-900">
                               {swimmer.name}
                             </p>
                             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
@@ -459,7 +466,7 @@ export default function AccountDashboard() {
                             <span
                               role="button"
                               tabIndex={0}
-                              className="cursor-pointer text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
+                              className="cursor-pointer text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 router.push(`/account/swimmers/${swimmer.id}`);
@@ -479,12 +486,12 @@ export default function AccountDashboard() {
                               View full profile
                             </span>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
                             <span>
                               {acquiredCount}/{skills.length} skills acquired
                             </span>
                             <span>{pct}% complete</span>
-                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
+                            <span className="inline-flex max-w-full rounded-2xl bg-gray-100 px-2.5 py-1 text-[10px] leading-tight text-gray-600">
                               {swimmer.nextSession}
                             </span>
                             {swimmer.classIds.length === 0 && (
@@ -552,18 +559,18 @@ export default function AccountDashboard() {
                                 key={skill.id}
                                 className="rounded-lg border border-gray-100 px-3 py-3"
                               >
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="min-w-0 text-xs text-gray-700">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <span className="min-w-0 break-words text-xs text-gray-700 sm:max-w-[40%]">
                                     {skill.name}
                                   </span>
-                                  <div className="flex items-center gap-2 pl-2">
+                                  <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
                                     {skill.dateAcquired && (
-                                      <span className="whitespace-nowrap text-[11px] text-gray-500">
+                                      <span className="text-[11px] leading-tight text-gray-500">
                                         Updated: {skill.dateAcquired}
                                       </span>
                                     )}
                                     <span
-                                      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${getProgressBadgeClasses(skill.progress)}`}
+                                      className={`inline-flex max-w-full rounded-2xl px-2.5 py-1 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
                                       title={
                                         PROFICIENCY_LABELS[
                                           skill.progress as SkillProgress
@@ -614,6 +621,54 @@ export default function AccountDashboard() {
               No linked swimmers found for this account yet.
             </div>
           )}
+        </section>
+
+        {/* Proficiency Rating for Parents */}
+        <section className="pt-2">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 pt-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-900">
+                Proficiency Scale
+              </p>
+              <ul className="mt-3 space-y-2">
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    0
+                  </span>
+                  <span>Unable to attempt the skill</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    1
+                  </span>
+                  <span>Unable to show skill without significant support</span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    2
+                  </span>
+                  <span>
+                    Inconsistently or with support is able to demonstrate the
+                    skill
+                  </span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    3
+                  </span>
+                  <span>
+                    Consistently demonstrates application of the skill
+                  </span>
+                </li>
+                <li className="flex gap-3 text-sm text-gray-700">
+                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                    4
+                  </span>
+                  <span>Demonstrates complete understanding of the skill</span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </section>
       </main>
     </div>

@@ -5,6 +5,32 @@ import { useParams, useRouter } from "next/navigation";
 import { generateCertificate } from "@/components/generateCertificate";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
+interface SessionSkill {
+  id: string;
+  name: string;
+  mastered: boolean;
+  progress: number;
+  dateAcquired?: string;
+}
+
+interface SessionPayload {
+  id: string;
+  name: string;
+  skills: SessionSkill[];
+}
+
+interface SwimmerPayload {
+  swimmer?: {
+    name: string;
+    organization: string;
+  };
+  sessions?: SessionPayload[];
+}
+
+interface LogoResponse {
+  publicUrl?: string | null;
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -38,13 +64,47 @@ export default function CertificatePage() {
           headers,
         });
 
-        const data = await res.json();
+        const data = (await res.json()) as SwimmerPayload;
 
         if (data?.swimmer) {
           setSwimmer(data.swimmer);
+          const completedSkillMap = new Map<
+            string,
+            { id: string; name: string; dateAcquired?: string }
+          >();
 
-          const completedSkills = (data.skills || []).filter(
-            (s: any) => s.progress === 4,
+          (data.sessions ?? []).forEach((session: SessionPayload) => {
+            (session.skills ?? []).forEach((skill: SessionSkill) => {
+              const isCompleted = skill.progress === 4 || Boolean(skill.dateAcquired);
+              if (!isCompleted) return;
+
+              const existing = completedSkillMap.get(skill.id);
+              if (!existing) {
+                completedSkillMap.set(skill.id, {
+                  id: skill.id,
+                  name: skill.name,
+                  dateAcquired: skill.dateAcquired,
+                });
+                return;
+              }
+
+              if (
+                !existing.dateAcquired ||
+                (skill.dateAcquired &&
+                  new Date(skill.dateAcquired).getTime() <
+                    new Date(existing.dateAcquired).getTime())
+              ) {
+                completedSkillMap.set(skill.id, {
+                  id: skill.id,
+                  name: skill.name,
+                  dateAcquired: skill.dateAcquired,
+                });
+              }
+            });
+          });
+
+          const completedSkills = Array.from(completedSkillMap.values()).sort(
+            (a, b) => a.name.localeCompare(b.name),
           );
 
           setSkills(completedSkills);
@@ -72,7 +132,7 @@ export default function CertificatePage() {
           headers,
         });
 
-        const data = await res.json();
+        const data = (await res.json()) as LogoResponse;
 
         if (data.publicUrl) {
           setLogoUrl(data.publicUrl);
@@ -90,8 +150,9 @@ export default function CertificatePage() {
     async function generatePreview() {
       if (!swimmer || !selectedSkillId) return;
 
-      if (generatedForSkillRef.current === selectedSkillId) return;
-      generatedForSkillRef.current = selectedSkillId;
+      const generationKey = `${selectedSkillId}:${logoUrl ?? "no-logo"}`;
+      if (generatedForSkillRef.current === generationKey) return;
+      generatedForSkillRef.current = generationKey;
 
       setPreviewUrl(null);
 
@@ -110,7 +171,7 @@ export default function CertificatePage() {
     }
 
     generatePreview();
-  }, [selectedSkillId, swimmer, skills]);
+  }, [selectedSkillId, swimmer, skills, logoUrl]);
 
   const handleDownload = () => {
     if (!previewUrl || !swimmer || !selectedSkillId) return;
