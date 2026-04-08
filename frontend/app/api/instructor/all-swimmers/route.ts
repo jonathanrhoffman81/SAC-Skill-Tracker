@@ -19,7 +19,6 @@ interface DashboardSkillPayload {
 interface DashboardSwimmerPayload {
   id: string;
   name: string;
-  level: string;
   classes: DashboardClassPayload[];
   skills: DashboardSkillPayload[];
 }
@@ -209,7 +208,7 @@ export async function GET(request: NextRequest) {
 
     let pagedMembersQuery = supabaseAdmin
       .from('member')
-      .select('member_id, first_name, last_name, level')
+      .select('member_id, first_name, last_name')
       .eq('organization_id', organizationId)
       .order('first_name', { ascending: true })
       .order('last_name', { ascending: true })
@@ -364,7 +363,6 @@ export async function GET(request: NextRequest) {
       return {
         id: member.member_id,
         name: `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim() || 'Unnamed swimmer',
-        level: member.level ?? 'Unassigned level',
         classes: classesByMemberId.get(member.member_id) ?? [],
         skills: memberSkills,
       };

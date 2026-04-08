@@ -30,7 +30,6 @@ const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v2:";
 interface SwimmerCard {
   id: string;
   name: string;
-  level: string;
   nextSession: string;
   classIds: string[];
 }
@@ -61,7 +60,6 @@ interface DashboardPayload {
         id: string;
         name: string;
         age: number | null;
-        level: string;
         enrollmentDate: string;
         organization: string;
       };
@@ -293,7 +291,7 @@ export default function AccountDashboard() {
     return Math.round(
       (skills.reduce((sum, skill) => sum + skill.progress, 0) /
         (skills.length * 4)) *
-        100,
+      100,
     );
   }
 
@@ -460,9 +458,6 @@ export default function AccountDashboard() {
                             <p className="break-words text-sm font-semibold text-gray-900">
                               {swimmer.name}
                             </p>
-                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                              {swimmer.level}
-                            </span>
                             <span
                               role="button"
                               tabIndex={0}
@@ -504,9 +499,8 @@ export default function AccountDashboard() {
                       </div>
 
                       <svg
-                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
-                          isOpen ? "rotate-180" : ""
-                        }`}
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""
+                          }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -573,14 +567,14 @@ export default function AccountDashboard() {
                                       className={`inline-flex max-w-full rounded-2xl px-2.5 py-1 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
                                       title={
                                         PROFICIENCY_LABELS[
-                                          skill.progress as SkillProgress
+                                        skill.progress as SkillProgress
                                         ]
                                       }
                                     >
                                       {skill.progress} -{" "}
                                       {
                                         PROFICIENCY_LABELS[
-                                          skill.progress as SkillProgress
+                                        skill.progress as SkillProgress
                                         ]
                                       }
                                     </span>

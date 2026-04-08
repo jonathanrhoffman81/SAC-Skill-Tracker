@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
       console.warn('Instructor role not found; returning members/assignments without instructor list.');
     }
 
-    let rawMembers: Array<{ member_id: string; first_name?: string; last_name?: string; level?: string | null; slot?: number | null; date_of_birth?: string | null }> = [];
+    let rawMembers: Array<{ member_id: string; first_name?: string; last_name?: string; slot?: number | null; date_of_birth?: string | null }> = [];
     let classNameById = new Map<string, string>();
     let memberClassNames = new Map<string, string[]>();
 
@@ -195,7 +195,7 @@ export async function GET(request: NextRequest) {
         const memberIdChunk = memberIds.slice(i, i + chunkSize);
         const { data: memberChunk, error: membersError } = await supabase
           .from('member')
-          .select('member_id, first_name, last_name, level, slot, date_of_birth')
+          .select('member_id, first_name, last_name, slot, date_of_birth')
           .in('member_id', memberIdChunk)
           .order('first_name', { ascending: true })
           .order('last_name', { ascending: true });
@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ error: `Failed to load members: ${membersError.message}` }, { status: 500 });
         }
 
-        rawMembers.push(...((memberChunk || []) as Array<{ member_id: string; first_name?: string; last_name?: string; level?: string | null; slot?: number | null; date_of_birth?: string | null }>));
+        rawMembers.push(...((memberChunk || []) as Array<{ member_id: string; first_name?: string; last_name?: string; slot?: number | null; date_of_birth?: string | null }>));
       }
 
       for (const enrollment of allEnrollments) {
@@ -219,7 +219,7 @@ export async function GET(request: NextRequest) {
     } else {
       const { data: membersData, error: membersError } = await supabase
         .from('member')
-        .select('member_id, first_name, last_name, level, slot, date_of_birth')
+        .select('member_id, first_name, last_name, slot, date_of_birth')
         .eq('organization_id', organizationId)
         .order('first_name', { ascending: true })
         .order('last_name', { ascending: true });

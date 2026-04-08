@@ -27,7 +27,6 @@ interface DashboardSkill {
 interface DashboardSwimmer {
   id: string;
   name: string;
-  level: string;
   classes: DashboardClass[];
   skills: DashboardSkill[];
 }
@@ -369,9 +368,8 @@ export default function InstructorDashboard() {
                   setCurrentPage(1);
                   setOpenSwimmerId(null);
                 }}
-                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                  swimmerTab === 'my' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900'
-                }`}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${swimmerTab === 'my' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900'
+                  }`}
               >
                 My Swimmers
               </button>
@@ -381,9 +379,8 @@ export default function InstructorDashboard() {
                   setCurrentPage(1);
                   setOpenSwimmerId(null);
                 }}
-                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                  swimmerTab === 'all' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900'
-                }`}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${swimmerTab === 'all' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-900'
+                  }`}
               >
                 All Swimmers
               </button>
@@ -422,7 +419,6 @@ export default function InstructorDashboard() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
-                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">{swimmer.level}</span>
                             <button
                               type="button"
                               className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"

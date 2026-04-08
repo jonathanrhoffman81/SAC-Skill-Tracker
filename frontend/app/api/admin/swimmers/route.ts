@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
         const { data: members, error: membersError } = await supabase
             .from('member')
-            .select('member_id, first_name, last_name, level, created_at')
+            .select('member_id, first_name, last_name, created_at')
             .eq('organization_id', orgId);
 
         if (membersError) {

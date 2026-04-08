@@ -19,7 +19,6 @@ interface DashboardSkillPayload {
 interface DashboardSwimmerPayload {
   id: string;
   name: string;
-  level: string;
   classes: DashboardClassPayload[];
   skills: DashboardSkillPayload[];
 }
@@ -168,15 +167,15 @@ async function buildDashboardFallback(email: string, page: number, searchQuery: 
         .order('name', { ascending: true }),
       classIds.length
         ? supabaseAdmin
-            .from('class_entity')
-            .select('class_id, name, schedule')
-            .in('class_id', classIds)
+          .from('class_entity')
+          .select('class_id, name, schedule')
+          .in('class_id', classIds)
         : Promise.resolve({ data: [], error: null }),
       classIds.length
         ? supabaseAdmin
-            .from('enrollment')
-            .select('member_id, class_id')
-            .in('class_id', classIds)
+          .from('enrollment')
+          .select('member_id, class_id')
+          .in('class_id', classIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -227,7 +226,7 @@ async function buildDashboardFallback(email: string, page: number, searchQuery: 
 
   let pagedMembersQuery = supabaseAdmin
     .from('member')
-    .select('member_id, first_name, last_name, level')
+    .select('member_id, first_name, last_name')
     .in('member_id', memberIds)
     .order('first_name', { ascending: true })
     .order('last_name', { ascending: true })
@@ -340,7 +339,6 @@ async function buildDashboardFallback(email: string, page: number, searchQuery: 
       return {
         id: member.member_id,
         name: `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim() || 'Unnamed swimmer',
-        level: member.level ?? 'Unassigned level',
         classes: classesByMemberId.get(member.member_id) ?? [],
         skills: swimmerSkills,
       };
