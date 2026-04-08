@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     const { data: classes, error: classesError } = await supabase
       .from("class_entity")
-      .select("class_id, name, schedule, length_minutes, created_at")
+      .select("class_id, name, schedule, length_minutes, created_at, session_id")
       .eq("organization_id", orgId)
       .order("name", { ascending: true });
 
@@ -37,7 +37,44 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ classes: classes || [] });
+    const classRows = classes || [];
+    const sessionIds = Array.from(
+      new Set(classRows.map((row) => row.session_id).filter(Boolean))
+    ) as string[];
+
+    let sessionById = new Map<string, { name: string | null; start_date: string | null }>();
+    if (sessionIds.length > 0) {
+      const { data: sessionRows, error: sessionError } = await supabase
+        .from("organization_session")
+        .select("session_id, name, start_date")
+        .in("session_id", sessionIds)
+        .eq("organization_id", orgId);
+
+      if (sessionError) {
+        return NextResponse.json(
+          { error: "Failed to load sessions: " + sessionError.message },
+          { status: 500 },
+        );
+      }
+
+      for (const row of sessionRows || []) {
+        sessionById.set(row.session_id, {
+          name: row.name || null,
+          start_date: row.start_date || null,
+        });
+      }
+    }
+
+    const enrichedClasses = classRows.map((row) => {
+      const sessionInfo = row.session_id ? sessionById.get(row.session_id) : undefined;
+      return {
+        ...row,
+        session_name: sessionInfo?.name || null,
+        session_start_date: sessionInfo?.start_date || null,
+      };
+    });
+
+    return NextResponse.json({ classes: enrichedClasses });
   } catch (error) {
     console.error("Classes GET error:", error);
     return NextResponse.json(
@@ -61,6 +98,7 @@ export async function POST(request: NextRequest) {
     const name = body.name;
     const schedule = body.schedule;
     const length_minutes = body.length_minutes;
+    const sessionId = body.session_id;
 
     if (!name) {
       return NextResponse.json(
@@ -88,6 +126,10 @@ export async function POST(request: NextRequest) {
       organization_id: orgId,
       name: name.trim(),
     };
+
+    if (sessionId) {
+      insertData.session_id = sessionId;
+    }
 
     if (schedule && schedule.trim()) {
       insertData.schedule = schedule.trim();

@@ -1,27 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { getCurrentPersonFromRequest } from "@/lib/serverAuth";
+import { resolveAdminRequestContext } from "@/lib/adminQueries";
 
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseAdminClient();
 
-    const person = await getCurrentPersonFromRequest(req);
-    if (!person) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: personOrg, error } = await supabase
-      .from("person_organization")
-      .select("organization_id")
-      .eq("person_id", person.personId)
-      .maybeSingle();
-
-    if (error || !personOrg) {
-      return NextResponse.json({ publicUrl: null });
-    }
-
-    const orgId = personOrg.organization_id;
+    const adminContext = await resolveAdminRequestContext(
+      req,
+      supabase,
+      req.nextUrl.searchParams.get("email"),
+    );
+    const orgId = adminContext.organizationId;
     const filePath = `${orgId}/logo.png`;
 
     // Check if file exists
@@ -52,8 +42,18 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("Get logo error:", err);
+    const message = err instanceof Error ? err.message : "Internal server error";
+    if (message.startsWith("FORBIDDEN:")) {
+      return NextResponse.json({ error: message.replace("FORBIDDEN:", "") }, { status: 403 });
+    }
+    if (message.startsWith("UNAUTHORIZED:")) {
+      return NextResponse.json({ error: message.replace("UNAUTHORIZED:", "") }, { status: 401 });
+    }
+    if (message === "Missing admin email") {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message },
       { status: 500 },
     );
   }

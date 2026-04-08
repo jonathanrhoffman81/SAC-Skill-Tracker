@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
 export default function LogoManage({
   organizationId,
@@ -14,7 +15,9 @@ export default function LogoManage({
   useEffect(() => {
     const fetchLogo = async () => {
       try {
-        const res = await fetch("/api/admin/get-logo");
+        const res = await fetch("/api/admin/get-logo", {
+          headers: await createAuthenticatedHeaders(),
+        });
         const data = await res.json();
 
         if (data.publicUrl) {
@@ -89,7 +92,7 @@ export default function LogoManage({
           <img
             src={preview}
             alt="Logo preview"
-            className="w-32 h-32 object-cover rounded-lg border shadow-sm"
+            className="w-32 h-32 object-contain rounded-lg border shadow-sm"
           />
         ) : (
           <div className="w-32 h-32 flex items-center justify-center rounded-lg border border-gray-300 text-gray-400 bg-gray-50">
@@ -103,9 +106,8 @@ export default function LogoManage({
         {/* Choose File */}
         <label
           htmlFor="logoUpload"
-          className={`px-4 py-2 bg-gray-200 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-300 ${
-            loading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
+          className={`px-4 py-2 bg-gray-200 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-300 ${loading ? "opacity-50 cursor-not-allowed" : ""
+            }`}
         >
           Choose File
         </label>
