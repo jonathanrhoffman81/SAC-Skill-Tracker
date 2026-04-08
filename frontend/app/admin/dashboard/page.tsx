@@ -1132,14 +1132,16 @@ export default function AdminDashboard() {
                     }}
                   />
                 ) : null}
-                <svg
-                  className={`h-4 w-4 text-white sm:h-5 sm:w-5 ${logoUrl ? "absolute" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+                {!logoUrl && (
+                  <svg
+                    className="h-4 w-4 text-white sm:h-5 sm:w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                )}
               </div>
               <div className="min-w-0">
                 <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">{stats?.organizationName || "SAC Skill Tracker"}</p>
