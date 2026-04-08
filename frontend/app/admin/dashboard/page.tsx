@@ -987,6 +987,10 @@ export default function AdminDashboard() {
     return () => media.removeEventListener("change", update);
   }, []);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [isDesktop]);
+
   const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
   const closeSidebar = () => {
     setSidebarOpen(false);
