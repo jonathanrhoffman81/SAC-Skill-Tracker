@@ -70,17 +70,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseAdminClient();
     const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
     const organizationId = adminContext.organizationId;
-
-    const { data: rawMembers, error: membersError } = await supabase
-      .from('member')
-      .select('member_id, first_name, last_name, level')
-      .eq('organization_id', organizationId)
-      .order('first_name', { ascending: true })
-      .order('last_name', { ascending: true });
-
-    if (membersError) {
-      return NextResponse.json({ error: `Failed to load members: ${membersError.message}` }, { status: 500 });
-    }
+    const sessionId = request.nextUrl.searchParams.get('session_id');
 
     const chunkSize = 200;
 
@@ -153,58 +143,68 @@ export async function GET(request: NextRequest) {
       console.warn('Instructor role not found; returning members/assignments without instructor list.');
     }
 
-    const members = rawMembers ?? [];
-    const memberIds = members.map((m: any) => m.member_id);
-    const memberIdSet = new Set(memberIds);
+    let rawMembers: Array<{ member_id: string; first_name?: string; last_name?: string; level?: string | null; slot?: number | null; date_of_birth?: string | null }> = [];
+    let classNameById = new Map<string, string>();
+    let memberClassNames = new Map<string, string[]>();
 
-    // Load class tags for each member via enrollment -> class_entity.
-    // Use chunked IN queries to avoid oversized Supabase requests.
-    const memberClassNames = new Map<string, string[]>();
-    if (memberIds.length > 0) {
+    if (sessionId) {
+      const { data: classRows, error: classRowsError } = await supabase
+        .from('class_entity')
+        .select('class_id, name')
+        .eq('organization_id', organizationId)
+        .eq('session_id', sessionId);
+
+      if (classRowsError) {
+        return NextResponse.json({ error: `Failed to load classes: ${classRowsError.message}` }, { status: 500 });
+      }
+
+      for (const row of classRows ?? []) {
+        classNameById.set(row.class_id, row.name || 'Unnamed class');
+      }
+
+      const classIds = Array.from(classNameById.keys());
+      if (classIds.length === 0) {
+        return NextResponse.json({ members: [], instructors, assignments: [] });
+      }
+
       const allEnrollments: Array<{ member_id: string; class_id: string }> = [];
-
-      for (let i = 0; i < memberIds.length; i += chunkSize) {
-        const memberIdChunk = memberIds.slice(i, i + chunkSize);
+      for (let i = 0; i < classIds.length; i += chunkSize) {
+        const classIdChunk = classIds.slice(i, i + chunkSize);
         const { data: enrollmentChunk, error: enrollmentsError } = await supabase
           .from('enrollment')
           .select('member_id, class_id')
-          .in('member_id', memberIdChunk);
+          .in('class_id', classIdChunk);
 
         if (enrollmentsError) {
-          console.warn('Enrollment lookup for class tags failed:', enrollmentsError.message);
+          console.warn('Enrollment lookup for session classes failed:', enrollmentsError.message);
           continue;
         }
 
         allEnrollments.push(...((enrollmentChunk || []) as Array<{ member_id: string; class_id: string }>));
       }
 
-      const classIds = Array.from(
+      const memberIds = Array.from(
         new Set(
           allEnrollments
-            .map((enrollment: any) => enrollment.class_id)
-            .filter((id: string | null | undefined): id is string => Boolean(id))
+            .map((enrollment) => enrollment.member_id)
+            .filter((id): id is string => Boolean(id))
         )
       );
 
-      const classNameById = new Map<string, string>();
-      if (classIds.length > 0) {
-        for (let i = 0; i < classIds.length; i += chunkSize) {
-          const classIdChunk = classIds.slice(i, i + chunkSize);
-          const { data: classRows, error: classRowsError } = await supabase
-            .from('class_entity')
-            .select('class_id, name')
-            .in('class_id', classIdChunk)
-            .eq('organization_id', organizationId);
+      for (let i = 0; i < memberIds.length; i += chunkSize) {
+        const memberIdChunk = memberIds.slice(i, i + chunkSize);
+        const { data: memberChunk, error: membersError } = await supabase
+          .from('member')
+          .select('member_id, first_name, last_name, level, slot, date_of_birth')
+          .in('member_id', memberIdChunk)
+          .order('first_name', { ascending: true })
+          .order('last_name', { ascending: true });
 
-          if (classRowsError) {
-            console.warn('Class tag lookup failed:', classRowsError.message);
-            continue;
-          }
-
-          for (const row of classRows ?? []) {
-            classNameById.set(row.class_id, row.name || 'Unnamed class');
-          }
+        if (membersError) {
+          return NextResponse.json({ error: `Failed to load members: ${membersError.message}` }, { status: 500 });
         }
+
+        rawMembers.push(...((memberChunk || []) as Array<{ member_id: string; first_name?: string; last_name?: string; level?: string | null; slot?: number | null; date_of_birth?: string | null }>));
       }
 
       for (const enrollment of allEnrollments) {
@@ -216,7 +216,84 @@ export async function GET(request: NextRequest) {
           memberClassNames.set(enrollment.member_id, existing);
         }
       }
+    } else {
+      const { data: membersData, error: membersError } = await supabase
+        .from('member')
+        .select('member_id, first_name, last_name, level, slot, date_of_birth')
+        .eq('organization_id', organizationId)
+        .order('first_name', { ascending: true })
+        .order('last_name', { ascending: true });
+
+      if (membersError) {
+        return NextResponse.json({ error: `Failed to load members: ${membersError.message}` }, { status: 500 });
+      }
+
+      rawMembers = membersData || [];
+
+      // Load class tags for each member via enrollment -> class_entity.
+      // Use chunked IN queries to avoid oversized Supabase requests.
+      const memberIds = rawMembers.map((m: any) => m.member_id);
+      if (memberIds.length > 0) {
+        const allEnrollments: Array<{ member_id: string; class_id: string }> = [];
+
+        for (let i = 0; i < memberIds.length; i += chunkSize) {
+          const memberIdChunk = memberIds.slice(i, i + chunkSize);
+          const { data: enrollmentChunk, error: enrollmentsError } = await supabase
+            .from('enrollment')
+            .select('member_id, class_id')
+            .in('member_id', memberIdChunk);
+
+          if (enrollmentsError) {
+            console.warn('Enrollment lookup for class tags failed:', enrollmentsError.message);
+            continue;
+          }
+
+          allEnrollments.push(...((enrollmentChunk || []) as Array<{ member_id: string; class_id: string }>));
+        }
+
+        const classIds = Array.from(
+          new Set(
+            allEnrollments
+              .map((enrollment: any) => enrollment.class_id)
+              .filter((id: string | null | undefined): id is string => Boolean(id))
+          )
+        );
+
+        if (classIds.length > 0) {
+          for (let i = 0; i < classIds.length; i += chunkSize) {
+            const classIdChunk = classIds.slice(i, i + chunkSize);
+            const { data: classRows, error: classRowsError } = await supabase
+              .from('class_entity')
+              .select('class_id, name')
+              .in('class_id', classIdChunk)
+              .eq('organization_id', organizationId);
+
+            if (classRowsError) {
+              console.warn('Class tag lookup failed:', classRowsError.message);
+              continue;
+            }
+
+            for (const row of classRows ?? []) {
+              classNameById.set(row.class_id, row.name || 'Unnamed class');
+            }
+          }
+        }
+
+        for (const enrollment of allEnrollments) {
+          const className = classNameById.get(enrollment.class_id);
+          if (!className) continue;
+          const existing = memberClassNames.get(enrollment.member_id) || [];
+          if (!existing.includes(className)) {
+            existing.push(className);
+            memberClassNames.set(enrollment.member_id, existing);
+          }
+        }
+      }
     }
+
+    const members = rawMembers ?? [];
+    const memberIds = members.map((m: any) => m.member_id);
+    const memberIdSet = new Set(memberIds);
 
     const scopedAssignments: Array<{ instructor_person_id: string; member_id: string }> = [];
     if (memberIds.length > 0) {

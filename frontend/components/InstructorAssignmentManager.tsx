@@ -15,6 +15,8 @@ interface Student {
     first_name: string | null;
     last_name: string | null;
     class_names?: string[];
+    slot?: number | null;
+    date_of_birth?: string | null;
 }
 
 interface Assignment {
@@ -29,26 +31,68 @@ interface StudentAssignment {
     class_names: string[];
     instructor_ids: string[];
     instructor_names: string[];
+    slot?: number | null;
+    date_of_birth?: string | null;
 }
 
-interface ClassGroup {
-    className: string;
-    students: StudentAssignment[];
-    assignedToSelectedCount: number;
+interface SessionRecord {
+    session_id: string;
+    name: string;
+    start_date: string | null;
+    end_date: string | null;
 }
-
-interface InstructorAssignmentManagerProps {}
 
 interface TagColor {
     bg: string;
     text: string;
 }
 
-export default function InstructorAssignmentManager({}: InstructorAssignmentManagerProps) {
+export default function InstructorAssignmentManager() {
     const formatDisplayName = (firstName?: string | null, lastName?: string | null) => {
         const first = firstName?.trim() || '';
         const last = lastName?.trim() || '';
         return [first, last].filter(Boolean).join(' ') || 'Unnamed';
+    };
+
+    const formatSlotLabel = (slot?: number | null) => {
+        if (slot === null || slot === undefined) return 'Unassigned';
+        return `Slot ${slot}`;
+    };
+
+    const getDobTimestamp = (dob?: string | null) => {
+        if (!dob) return null;
+        const time = new Date(dob).getTime();
+        return Number.isNaN(time) ? null : time;
+    };
+
+    const sortStudentsByAge = (list: StudentAssignment[]) =>
+        [...list].sort((a, b) => {
+            const aDob = getDobTimestamp(a.date_of_birth);
+            const bDob = getDobTimestamp(b.date_of_birth);
+            if (aDob === null && bDob === null) {
+                return formatDisplayName(a.first_name, a.last_name).localeCompare(
+                    formatDisplayName(b.first_name, b.last_name)
+                );
+            }
+            if (aDob === null) return 1;
+            if (bDob === null) return -1;
+            if (aDob !== bDob) return bDob - aDob;
+            return formatDisplayName(a.first_name, a.last_name).localeCompare(
+                formatDisplayName(b.first_name, b.last_name)
+            );
+        });
+
+    const getAgeYears = (dob?: string | null) => {
+        const timestamp = getDobTimestamp(dob);
+        if (timestamp === null) return null;
+        const now = new Date();
+        const birthDate = new Date(timestamp);
+        let age = now.getFullYear() - birthDate.getFullYear();
+        const monthDiff = now.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
+            age -= 1;
+        }
+        return age;
     };
 
     const [instructors, setInstructors] = useState<Instructor[]>([]);
@@ -59,14 +103,20 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedInstructorId, setSelectedInstructorId] = useState('');
     const [classFilter, setClassFilter] = useState('all');
-    const [selectedClassNames, setSelectedClassNames] = useState<Set<string>>(new Set());
+    const [slotFilter, setSlotFilter] = useState('all');
     const [pendingStudentIds, setPendingStudentIds] = useState<Set<string>>(new Set());
-    const [assigningClasses, setAssigningClasses] = useState(false);
     const [showInstructorDropdown, setShowInstructorDropdown] = useState(false);
     const [showClassFilterDropdown, setShowClassFilterDropdown] = useState(false);
+    const [showSlotFilterDropdown, setShowSlotFilterDropdown] = useState(false);
+    const [showSessionDropdown, setShowSessionDropdown] = useState(false);
+    const [sessions, setSessions] = useState<SessionRecord[]>([]);
+    const [sessionsLoading, setSessionsLoading] = useState(false);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const instructorDropdownRef = useRef<HTMLDivElement>(null);
     const classFilterDropdownRef = useRef<HTMLDivElement>(null);
+    const slotFilterDropdownRef = useRef<HTMLDivElement>(null);
+    const sessionDropdownRef = useRef<HTMLDivElement>(null);
 
     const classTagPalette: TagColor[] = [
         { bg: 'bg-blue-100', text: 'text-blue-800' },
@@ -105,13 +155,66 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
         }, 2200);
     }, []);
 
+    const pickDefaultSession = (list: SessionRecord[]) => {
+        if (list.length === 0) return null;
+        const today = new Date();
+        const active = list.find((session) => {
+            if (!session.start_date || !session.end_date) return false;
+            const start = new Date(`${session.start_date}T00:00:00`);
+            const end = new Date(`${session.end_date}T23:59:59`);
+            return start <= today && today <= end;
+        });
+
+        if (active) return active.session_id;
+
+        const byStart = [...list].sort((a, b) => {
+            const aDate = a.start_date ? new Date(a.start_date).getTime() : 0;
+            const bDate = b.start_date ? new Date(b.start_date).getTime() : 0;
+            return bDate - aDate;
+        });
+        return byStart[0]?.session_id ?? null;
+    };
+
+    const fetchSessions = useCallback(async () => {
+        setSessionsLoading(true);
+        try {
+            const headers = await createAuthenticatedHeaders();
+            const response = await fetch('/api/admin/sessions', { headers });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load sessions');
+            }
+            const list = (data.sessions || []) as SessionRecord[];
+            setSessions(list);
+            setActiveSessionId((prev) => {
+                if (prev && list.some((session) => session.session_id === prev)) return prev;
+                return pickDefaultSession(list);
+            });
+        } catch (err) {
+            console.error('Error fetching sessions:', err);
+        } finally {
+            setSessionsLoading(false);
+        }
+    }, []);
+
     const fetchAssignmentData = useCallback(async () => {
+        if (!activeSessionId) {
+            setInstructors([]);
+            setStudents([]);
+            setSelectedInstructorId('');
+            setLoading(false);
+            setErrorMessage(null);
+            return;
+        }
         setLoading(true);
         setErrorMessage(null);
 
         try {
             const headers = await createAuthenticatedHeaders();
-            const response = await fetch('/api/admin/instructor-member-assignments', { headers });
+            const response = await fetch(
+                `/api/admin/instructor-member-assignments?session_id=${activeSessionId}`,
+                { headers }
+            );
             if (!response.ok) {
                 const errorPayload = await response.json().catch(() => ({}));
                 throw new Error(errorPayload?.error || 'Failed to load assignments');
@@ -149,6 +252,8 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                     instructor_names: instructorIds
                         .map((instructorId) => instructorNameById.get(instructorId))
                         .filter((name): name is string => Boolean(name)),
+                    slot: member.slot ?? null,
+                    date_of_birth: member.date_of_birth ?? null,
                 };
             });
 
@@ -165,7 +270,11 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [activeSessionId]);
+
+    useEffect(() => {
+        fetchSessions();
+    }, [fetchSessions]);
 
     useEffect(() => {
         fetchAssignmentData();
@@ -187,6 +296,12 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
             if (classFilterDropdownRef.current && !classFilterDropdownRef.current.contains(event.target as Node)) {
                 setShowClassFilterDropdown(false);
             }
+            if (slotFilterDropdownRef.current && !slotFilterDropdownRef.current.contains(event.target as Node)) {
+                setShowSlotFilterDropdown(false);
+            }
+            if (sessionDropdownRef.current && !sessionDropdownRef.current.contains(event.target as Node)) {
+                setShowSessionDropdown(false);
+            }
         };
 
         document.addEventListener('mousedown', handleClickOutside);
@@ -197,6 +312,16 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
 
     const selectedInstructor =
         instructors.find((inst) => inst.person_id === selectedInstructorId) || null;
+
+    const selectedSession = sessions.find((session) => session.session_id === activeSessionId) || null;
+    const selectedSessionLabel = selectedSession?.name || 'Select session';
+    const isActiveSession = (session: SessionRecord | null) => {
+        if (!session?.start_date || !session?.end_date) return false;
+        const today = new Date();
+        const start = new Date(`${session.start_date}T00:00:00`);
+        const end = new Date(`${session.end_date}T23:59:59`);
+        return start <= today && today <= end;
+    };
 
     const classFilterOptions = useMemo(
         () =>
@@ -223,47 +348,23 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
         [classFilter]
     );
 
-    const sortStudents = (list: StudentAssignment[]) =>
-        [...list].sort((a, b) =>
-            formatDisplayName(a.first_name, a.last_name).localeCompare(
-                formatDisplayName(b.first_name, b.last_name)
-            )
-        );
-
-    const classGroups = useMemo<ClassGroup[]>(() => {
-        const classToStudents = new Map<string, StudentAssignment[]>();
-
-        students.forEach((student) => {
-            const classes = student.class_names.length ? student.class_names : ['No class'];
-            classes.forEach((className) => {
-                if (!matchesClassFilter(className) || !matchesSearch(student)) return;
-                const existing = classToStudents.get(className) || [];
-                existing.push(student);
-                classToStudents.set(className, existing);
+    const slotFilterOptions = useMemo(() => {
+        const filteredByClass = classFilter === 'all'
+            ? students
+            : students.filter((student) => {
+                const classes = student.class_names.length ? student.class_names : ['No class'];
+                return classes.some((className) => className === classFilter);
             });
-        });
 
-        return Array.from(classToStudents.entries())
-            .map(([className, groupStudents]) => {
-                const sorted = sortStudents(groupStudents);
-                const assignedToSelectedCount = selectedInstructor
-                    ? sorted.filter((student) =>
-                        student.instructor_ids.includes(selectedInstructor.person_id)
-                    ).length
-                    : 0;
-                return {
-                    className,
-                    students: sorted,
-                    assignedToSelectedCount,
-                };
-            })
-            .sort((a, b) => a.className.localeCompare(b.className));
-    }, [students, matchesClassFilter, matchesSearch, selectedInstructor]);
+        return Array.from(
+            new Set(filteredByClass.map((student) => formatSlotLabel(student.slot ?? null)))
+        ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }, [students, classFilter]);
 
     const selectedInstructorStudents = useMemo(
         () =>
             selectedInstructor
-                ? sortStudents(
+                ? sortStudentsByAge(
                     students.filter((student) =>
                         student.instructor_ids.includes(selectedInstructor.person_id)
                     )
@@ -271,22 +372,6 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                 : [],
         [students, selectedInstructor]
     );
-
-    useEffect(() => {
-        setSelectedClassNames((prev) => {
-            const next = new Set(
-                Array.from(prev).filter((className) =>
-                    classGroups.some((group) => group.className === className)
-                )
-            );
-
-            if (next.size === prev.size) {
-                return prev;
-            }
-
-            return next;
-        });
-    }, [classGroups]);
 
     const setStudentPending = (memberIds: string[], pending: boolean) => {
         setPendingStudentIds((prev) => {
@@ -362,9 +447,9 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
             }
 
             if (action === 'assign') {
-                showToast(memberIds.length === 1 ? 'Swimmer assigned successfully' : 'Classes assigned successfully');
+                showToast(memberIds.length === 1 ? 'Swimmer assigned successfully' : 'Slots assigned successfully');
             } else {
-                showToast(memberIds.length === 1 ? 'Instructor access removed' : 'Class access removed');
+                showToast(memberIds.length === 1 ? 'Instructor access removed' : 'Slot access removed');
             }
         } catch (err) {
             console.error('Error updating assignments:', err);
@@ -385,63 +470,50 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
         await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'remove');
     };
 
-    const toggleClassSelection = (className: string) => {
-        setSelectedClassNames((prev) => {
-            const next = new Set(prev);
-            if (next.has(className)) {
-                next.delete(className);
-            } else {
-                next.add(className);
-            }
-            return next;
-        });
+    const matchesSlotFilter = (student: StudentAssignment) =>
+        slotFilter === 'all' || formatSlotLabel(student.slot ?? null) === slotFilter;
+
+    const matchesSelectedClass = (student: StudentAssignment) => {
+        const classes = student.class_names.length ? student.class_names : ['No class'];
+        return classFilter === 'all' || classes.some((className) => className === classFilter);
     };
 
-    const selectedClassGroups = useMemo(
-        () => classGroups.filter((group) => selectedClassNames.has(group.className)),
-        [classGroups, selectedClassNames]
-    );
-
-    const selectedClassMemberIds = useMemo(() => {
-        if (!selectedInstructor) return [];
-
-        return Array.from(
-            new Set(
-                selectedClassGroups.flatMap((group) =>
-                    group.students
-                        .filter((student) => !student.instructor_ids.includes(selectedInstructor.person_id))
-                        .map((student) => student.member_id)
-                )
-            )
-        );
-    }, [selectedClassGroups, selectedInstructor]);
-
-    const handleAssignSelectedClasses = async () => {
-        if (!selectedInstructor || selectedClassMemberIds.length === 0) return;
-
-        setAssigningClasses(true);
-        try {
-            await sendAssignmentRequest(selectedClassMemberIds, selectedInstructor.person_id, 'assign');
-        } finally {
-            setAssigningClasses(false);
-        }
+    const handleUnassignAll = async () => {
+        if (!selectedInstructor || selectedInstructorStudents.length === 0) return;
+        const memberIds = selectedInstructorStudents.map((student) => student.member_id);
+        await sendAssignmentRequest(memberIds, selectedInstructor.person_id, 'remove');
     };
 
     const manualAddStudents = useMemo(
         () =>
             selectedInstructor
-                ? sortStudents(
+                ? sortStudentsByAge(
                     students.filter(
                         (student) =>
                             !student.instructor_ids.includes(selectedInstructor.person_id) &&
-                            matchesSearch(student)
+                            matchesSearch(student) &&
+                            matchesSelectedClass(student) &&
+                            matchesSlotFilter(student)
                     )
                 )
                 : [],
-        [matchesSearch, selectedInstructor, students]
+        [matchesSearch, matchesSelectedClass, matchesSlotFilter, selectedInstructor, students]
     );
 
+    const handleAssignAllFiltered = async () => {
+        if (!selectedInstructor || manualAddStudents.length === 0) return;
+        const memberIds = manualAddStudents.map((student) => student.member_id);
+        await sendAssignmentRequest(memberIds, selectedInstructor.person_id, 'assign');
+    };
+
     const selectedClassFilterLabel = classFilter === 'all' ? 'All classes' : classFilter;
+    const selectedSlotFilterLabel = slotFilter === 'all' ? 'All slots' : slotFilter;
+
+    useEffect(() => {
+        if (slotFilter !== 'all' && !slotFilterOptions.includes(slotFilter)) {
+            setSlotFilter('all');
+        }
+    }, [slotFilter, slotFilterOptions]);
 
     return (
         <div className="space-y-4 relative">
@@ -460,10 +532,10 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
             <div className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 p-4 sm:p-5">
                 <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">Class Assignment</p>
                 <p className="text-sm font-semibold text-slate-900 sm:text-base">
-                    Pick an instructor and assign them to one or more classes.
+                    Filter by class and slot, then assign swimmers to instructors.
                 </p>
                 <p className="mt-2 text-xs text-slate-600 sm:text-sm">
-                    You can select multiple classes at once, then manually add swimmers below if needed.
+                    Swimmers are sorted by age (youngest first).
                 </p>
             </div>
 
@@ -471,8 +543,66 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                 <div className="space-y-4">
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 1</p>
-                        <p className="mb-1 text-sm font-semibold text-slate-900">Choose Instructor</p>
-                        <p className="mb-3 text-xs text-slate-500">Everything on this page updates for the selected instructor.</p>
+                        <p className="mb-1 text-sm font-semibold text-slate-900">Choose Session</p>
+                        <p className="mb-3 text-xs text-slate-500">Assignments update based on the selected session.</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            {sessionsLoading ? (
+                                <span className="text-xs text-slate-500">Loading sessions...</span>
+                            ) : sessions.length === 0 ? (
+                                <span className="text-xs text-slate-500">No sessions available</span>
+                            ) : (
+                                <div ref={sessionDropdownRef} className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSessionDropdown((prev) => !prev)}
+                                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
+                                    >
+                                        <span className="truncate text-left text-slate-900">{selectedSessionLabel}</span>
+                                        <svg
+                                            className={`h-4 w-4 text-slate-500 transition-transform ${showSessionDropdown ? 'rotate-180' : ''}`}
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+
+                                    {showSessionDropdown && (
+                                        <div className="absolute z-30 mt-1 max-h-64 w-60 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            {sessions.map((session) => {
+                                                const isActive = session.session_id === activeSessionId;
+                                                return (
+                                                    <button
+                                                        key={session.session_id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setActiveSessionId(session.session_id);
+                                                            setShowSessionDropdown(false);
+                                                        }}
+                                                        className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
+                                                            ? 'bg-sky-50 text-sky-700'
+                                                            : 'text-slate-900 hover:bg-slate-50'
+                                                            }`}
+                                                    >
+                                                        {session.name}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {isActiveSession(selectedSession) && (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                    Active session
+                                </span>
+                            )}
+                        </div>
+                        <div className="mt-4">
+                            <p className="mb-1 text-sm font-semibold text-slate-900">Choose Instructor</p>
+                            <p className="mb-3 text-xs text-slate-500">Everything on this page updates for the selected instructor.</p>
+                        </div>
                         <div ref={instructorDropdownRef} className="relative">
                             <button
                                 type="button"
@@ -524,151 +654,6 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                 </div>
                             )}
                         </div>
-                        {selectedInstructor && (
-                            <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2">
-                                <p className="text-xs text-slate-600">Working on</p>
-                                <p className="text-sm font-medium text-slate-900">
-                                    {formatDisplayName(selectedInstructor.first_name, selectedInstructor.last_name)}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                    {selectedClassNames.size} classes selected
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-3">
-                            <div>
-                                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
-                                <p className="text-sm font-semibold text-slate-900">Choose Classes</p>
-                                <p className="mt-1 text-xs text-slate-500">Click as many classes as you want, then assign them together.</p>
-                            </div>
-                            <div ref={classFilterDropdownRef} className="relative">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowClassFilterDropdown((prev) => !prev)}
-                                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
-                                >
-                                    <span className="truncate text-left text-slate-900">{selectedClassFilterLabel}</span>
-                                    <svg
-                                        className={`h-4 w-4 text-slate-500 transition-transform ${showClassFilterDropdown ? 'rotate-180' : ''}`}
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </button>
-
-                                {showClassFilterDropdown && (
-                                    <div className="absolute right-0 z-30 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setClassFilter('all');
-                                                setShowClassFilterDropdown(false);
-                                            }}
-                                            className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${classFilter === 'all'
-                                                ? 'bg-sky-50 text-sky-700'
-                                                : 'text-slate-900 hover:bg-slate-50'
-                                                }`}
-                                        >
-                                            All classes
-                                        </button>
-                                        {classFilterOptions.map((className) => {
-                                            const isActive = classFilter === className;
-                                            return (
-                                                <button
-                                                    key={className}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setClassFilter(className);
-                                                        setShowClassFilterDropdown(false);
-                                                    }}
-                                                    className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                        ? 'bg-sky-50 text-sky-700'
-                                                        : 'text-slate-900 hover:bg-slate-50'
-                                                        }`}
-                                                >
-                                                    {className}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                            {classGroups.length === 0 ? (
-                                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">
-                                    No classes match the current filters.
-                                </p>
-                            ) : (
-                                classGroups.map((group) => {
-                                    const isSelected = selectedClassNames.has(group.className);
-                                    return (
-                                        <button
-                                            key={group.className}
-                                            type="button"
-                                            onClick={() => toggleClassSelection(group.className)}
-                                            className={`w-full rounded-2xl border px-3 py-3 text-left transition ${isSelected
-                                                ? 'border-sky-300 bg-sky-50 shadow-sm'
-                                                : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                                                }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <p className={`truncate text-sm font-semibold ${isSelected ? 'text-sky-900' : 'text-slate-900'}`}>
-                                                        {group.className}
-                                                    </p>
-                                                    <p className="mt-1 text-xs text-slate-500">
-                                                        {group.students.length} swimmers
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className={`text-xs font-semibold ${isSelected ? 'text-sky-700' : 'text-slate-700'}`}>
-                                                        {group.assignedToSelectedCount}/{group.students.length}
-                                                    </p>
-                                                    <p className="text-[10px] text-slate-500">assigned</p>
-                                                </div>
-                                            </div>
-                                        </button>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
-                                <p className="text-sm font-semibold text-slate-900">Assign Selected Classes</p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                    Pick one or more classes on the left, then assign them together.
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    onClick={handleAssignSelectedClasses}
-                                    disabled={selectedClassNames.size === 0 || selectedClassMemberIds.length === 0 || assigningClasses}
-                                    className="rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:text-sm"
-                                >
-                                    {assigningClasses ? 'Assigning classes...' : 'Assign Selected Classes'}
-                                </button>
-                                <button
-                                    onClick={() => setSelectedClassNames(new Set())}
-                                    disabled={selectedClassNames.size === 0}
-                                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
-                                >
-                                    Clear
-                                </button>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -685,69 +670,135 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                 </div>
             )}
 
-            {!loading && selectedInstructor && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                    <p className="mb-3 text-xs font-semibold text-gray-900 sm:text-sm">
-                        Swimmers In {formatDisplayName(selectedInstructor.first_name, selectedInstructor.last_name)}'s Classes ({selectedInstructorStudents.length})
-                    </p>
-                    {selectedInstructorStudents.length === 0 ? (
-                        <p className="text-xs text-gray-500">No swimmers assigned to this instructor yet.</p>
-                    ) : (
-                        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                            {selectedInstructorStudents.map((student) => (
-                                <div
-                                    key={`assigned-${selectedInstructor.person_id}-${student.member_id}`}
-                                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 p-2"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-xs font-medium text-gray-900 sm:text-sm">
-                                            {formatDisplayName(student.first_name, student.last_name)}
-                                        </p>
-                                        <div className="mt-1 flex flex-wrap gap-1">
-                                            {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
-                                                const colors = getClassTagColors(className);
-                                                return (
-                                                    <span
-                                                        key={`assigned-tag-${student.member_id}-${className}`}
-                                                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${colors.bg} ${colors.text}`}
-                                                    >
-                                                        {className}
-                                                    </span>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => handleRemoveStudent(student)}
-                                        disabled={pendingStudentIds.has(student.member_id)}
-                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
-                                    >
-                                        {pendingStudentIds.has(student.member_id) ? 'Saving...' : 'Unassign'}
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
             {!loading && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                    <p className="text-sm font-semibold text-slate-900">Manual Add Swimmers</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                        Add swimmers one by one if they need access outside of their class assignment.
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">Assign Swimmers</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                        Filter by class and slot, then assign swimmers in age order.
                     </p>
 
                     {!selectedInstructor ? (
                         <p className="mt-4 text-xs text-slate-500">Select an instructor to begin.</p>
                     ) : (
                         <>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                                <div ref={classFilterDropdownRef} className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowClassFilterDropdown((prev) => !prev)}
+                                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
+                                    >
+                                        <span className="truncate text-left text-slate-900">{selectedClassFilterLabel}</span>
+                                        <svg
+                                            className={`h-4 w-4 text-slate-500 transition-transform ${showClassFilterDropdown ? 'rotate-180' : ''}`}
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+
+                                    {showClassFilterDropdown && (
+                                        <div className="absolute left-0 z-30 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setClassFilter('all');
+                                                    setShowClassFilterDropdown(false);
+                                                }}
+                                                className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${classFilter === 'all'
+                                                    ? 'bg-sky-50 text-sky-700'
+                                                    : 'text-slate-900 hover:bg-slate-50'
+                                                    }`}
+                                            >
+                                                All classes
+                                            </button>
+                                            {classFilterOptions.map((className) => {
+                                                const isActive = classFilter === className;
+                                                return (
+                                                    <button
+                                                        key={className}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setClassFilter(className);
+                                                            setShowClassFilterDropdown(false);
+                                                        }}
+                                                        className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
+                                                            ? 'bg-sky-50 text-sky-700'
+                                                            : 'text-slate-900 hover:bg-slate-50'
+                                                            }`}
+                                                    >
+                                                        {className}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                                <div ref={slotFilterDropdownRef} className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSlotFilterDropdown((prev) => !prev)}
+                                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
+                                    >
+                                        <span className="truncate text-left text-slate-900">{selectedSlotFilterLabel}</span>
+                                        <svg
+                                            className={`h-4 w-4 text-slate-500 transition-transform ${showSlotFilterDropdown ? 'rotate-180' : ''}`}
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+
+                                    {showSlotFilterDropdown && (
+                                        <div className="absolute left-0 z-30 mt-1 max-h-64 w-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSlotFilter('all');
+                                                    setShowSlotFilterDropdown(false);
+                                                }}
+                                                className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${slotFilter === 'all'
+                                                    ? 'bg-sky-50 text-sky-700'
+                                                    : 'text-slate-900 hover:bg-slate-50'
+                                                    }`}
+                                            >
+                                                All slots
+                                            </button>
+                                            {slotFilterOptions.map((slotLabel) => {
+                                                const isActive = slotFilter === slotLabel;
+                                                return (
+                                                    <button
+                                                        key={slotLabel}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSlotFilter(slotLabel);
+                                                            setShowSlotFilterDropdown(false);
+                                                        }}
+                                                        className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
+                                                            ? 'bg-sky-50 text-sky-700'
+                                                            : 'text-slate-900 hover:bg-slate-50'
+                                                            }`}
+                                                    >
+                                                        {slotLabel}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 placeholder="Search swimmers..."
-                                className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
+                                className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
                             />
 
                             {manualAddStudents.length === 0 ? (
@@ -766,6 +817,14 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                                     {formatDisplayName(student.first_name, student.last_name)}
                                                 </p>
                                                 <div className="mt-1 flex flex-wrap gap-1">
+                                                    {getAgeYears(student.date_of_birth) !== null && (
+                                                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+                                                            {getAgeYears(student.date_of_birth)} yrs
+                                                        </span>
+                                                    )}
+                                                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
+                                                        {formatSlotLabel(student.slot ?? null)}
+                                                    </span>
                                                     {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
                                                         const colors = getClassTagColors(className);
                                                         return (
@@ -790,7 +849,82 @@ export default function InstructorAssignmentManager({}: InstructorAssignmentMana
                                     ))}
                                 </div>
                             )}
+                            <div className="mt-3 flex items-center justify-end">
+                                <button
+                                    onClick={handleAssignAllFiltered}
+                                    disabled={manualAddStudents.length === 0 || pendingStudentIds.size > 0}
+                                    className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-medium text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
+                                >
+                                    Assign All
+                                </button>
+                            </div>
                         </>
+                    )}
+                </div>
+            )}
+
+            {!loading && selectedInstructor && (
+                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">
+                                Already Assigned ({selectedInstructorStudents.length})
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleUnassignAll}
+                            disabled={selectedInstructorStudents.length === 0}
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
+                        >
+                            Unassign All
+                        </button>
+                    </div>
+                    {selectedInstructorStudents.length === 0 ? (
+                        <p className="text-xs text-gray-500">No swimmers assigned to this instructor yet.</p>
+                    ) : (
+                        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                            {selectedInstructorStudents.map((student) => (
+                                <div
+                                    key={`assigned-${selectedInstructor.person_id}-${student.member_id}`}
+                                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 p-2"
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-medium text-gray-900 sm:text-sm">
+                                            {formatDisplayName(student.first_name, student.last_name)}
+                                        </p>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {getAgeYears(student.date_of_birth) !== null && (
+                                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+                                                    {getAgeYears(student.date_of_birth)} yrs
+                                                </span>
+                                            )}
+                                            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
+                                                {formatSlotLabel(student.slot ?? null)}
+                                            </span>
+                                            {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
+                                                const colors = getClassTagColors(className);
+                                                return (
+                                                    <span
+                                                        key={`assigned-tag-${student.member_id}-${className}`}
+                                                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${colors.bg} ${colors.text}`}
+                                                    >
+                                                        {className}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => handleRemoveStudent(student)}
+                                        disabled={pendingStudentIds.has(student.member_id)}
+                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
+                                    >
+                                        {pendingStudentIds.has(student.member_id) ? 'Saving...' : 'Unassign'}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
             )}

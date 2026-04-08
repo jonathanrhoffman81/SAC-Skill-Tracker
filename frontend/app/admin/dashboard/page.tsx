@@ -607,6 +607,7 @@ export default function AdminDashboard() {
     fetchLogo();
   }, []);
 
+
   const getInitials = (name: string) =>
     name
       .split(" ")
@@ -678,6 +679,7 @@ export default function AdminDashboard() {
       fetchStats();
     })();
   }, []);
+
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -1115,7 +1117,7 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="hidden text-right md:block">
+              <div className="hidden text-right lg:block">
                 <p className="text-sm font-medium text-gray-900">{userName}</p>
                 <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Administrator</span>
               </div>
