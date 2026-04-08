@@ -320,7 +320,7 @@ export default function InstructorManager({ onRefresh }: InstructorManagerProps)
 
     return (
         <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-            <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-3 sm:mb-4">Manage Instructors</p>
+            <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Manage Instructors</p>
 
             {/* Mode Toggle */}
             <div className="flex gap-2 mb-4 border-b border-gray-200 pb-3">
@@ -486,7 +486,7 @@ export default function InstructorManager({ onRefresh }: InstructorManagerProps)
 
             {/* Current Instructors List */}
             <div className="mt-6 pt-6 border-t border-gray-200">
-                <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-3">Current Instructors</p>
+                <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3">Current Instructors</p>
                 {instructorsLoading ? (
                     <div className="flex items-center justify-center py-6">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>

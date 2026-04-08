@@ -16,6 +16,7 @@ import ClassManager from "@/components/ClassManager";
 import InstructorAssignmentManager from "@/components/InstructorAssignmentManager";
 import ImportRoster from "@/components/ImportRoster";
 import LogoManage from "@/components/LogoManage";
+import SessionManager from "@/components/SessionManager";
 
 // Dashboard statistics from admin API
 interface AdminStats {
@@ -44,7 +45,7 @@ interface EntityState {
 }
 
 type EntityType = "skills" | "instructors" | "swimmers" | "parents" | "classes";
-type Tab = EntityType | "roster" | "admins" | "assignments" | "settings";
+type Tab = EntityType | "roster" | "admins" | "assignments" | "settings" | "sessions";
 
 interface OrgPerson {
   person_id: string;
@@ -257,8 +258,27 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
+    id: "sessions",
+    label: "Sessions",
+    icon: (
+      <svg
+        className="w-4 h-4"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+        />
+      </svg>
+    ),
+  },
+  {
     id: "roster",
-    label: "Roster Management",
+    label: "Import CSV",
     icon: (
       <svg
         className="w-4 h-4"
@@ -289,7 +309,13 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={2}
-          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
         />
       </svg>
     ),
@@ -358,7 +384,7 @@ function EntityEditor({
 
   return (
     <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-      <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-3 sm:mb-4">
+      <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
         Manage {config.pluralLabel}
       </p>
 
@@ -607,6 +633,7 @@ export default function AdminDashboard() {
     fetchLogo();
   }, []);
 
+
   const getInitials = (name: string) =>
     name
       .split(" ")
@@ -678,6 +705,7 @@ export default function AdminDashboard() {
       fetchStats();
     })();
   }, []);
+
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -945,8 +973,37 @@ export default function AdminDashboard() {
   };
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [sidebarPinned, setSidebarPinned] = useState(true);
   const handleLogout = async () => {
     await logoutAndRedirect("/login");
+  };
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [isDesktop]);
+
+  const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    if (isDesktop) {
+      setSidebarPinned(false);
+    }
+  };
+  const toggleSidebar = () => {
+    if (isDesktop) {
+      setSidebarPinned((prev) => !prev);
+      return;
+    }
+    setSidebarOpen((open) => !open);
   };
 
   const requestDeleteEntity = (type: EntityType, id: string) => {
@@ -998,19 +1055,19 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {sidebarOpen && (
+      {sidebarVisible && !isDesktop && (
         <button
           type="button"
           className="fixed inset-0 z-30 bg-gray-900/20 backdrop-blur-[1px]"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
           aria-label="Close menu overlay"
         />
       )}
 
       <aside
-        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "translate-x-full"
+        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "translate-x-full"
           }`}
-        aria-hidden={!sidebarOpen}
+        aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
           <div>
@@ -1018,7 +1075,7 @@ export default function AdminDashboard() {
             <p className="text-xs text-gray-500">Administrator tools</p>
           </div>
           <button
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
             className="rounded-full p-2 text-gray-500 hover:bg-gray-100 focus:outline-none"
             aria-label="Close menu"
           >
@@ -1033,7 +1090,9 @@ export default function AdminDashboard() {
               key={tab.id}
               onClick={() => {
                 setActiveTab(tab.id);
-                setSidebarOpen(false);
+                if (!isDesktop) {
+                  setSidebarOpen(false);
+                }
               }}
               className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
                 ? "bg-gray-100 text-gray-900"
@@ -1058,7 +1117,7 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-col">
+      <div className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pr-72" : ""}`}>
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -1073,14 +1132,16 @@ export default function AdminDashboard() {
                     }}
                   />
                 ) : null}
-                <svg
-                  className={`h-4 w-4 text-white sm:h-5 sm:w-5 ${logoUrl ? "absolute" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+                {!logoUrl && (
+                  <svg
+                    className="h-4 w-4 text-white sm:h-5 sm:w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                )}
               </div>
               <div className="min-w-0">
                 <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">{stats?.organizationName || "SAC Skill Tracker"}</p>
@@ -1088,23 +1149,31 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="hidden text-right md:block">
+              <div className="hidden text-right lg:block">
                 <p className="text-sm font-medium text-gray-900">{userName}</p>
                 <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Administrator</span>
               </div>
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
                 {getInitials(userName)}
               </div>
-              <button
-                onClick={() => setSidebarOpen((open) => !open)}
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
-                title="Menu"
-                aria-label={sidebarOpen ? "Close menu" : "Open menu"}
-              >
-                <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
+              {(!isDesktop || !sidebarVisible) && (
+                <button
+                  onClick={toggleSidebar}
+                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 sm:h-9 sm:w-9"
+                  title="Menu"
+                  aria-label={
+                    isDesktop
+                      ? "Open menu"
+                      : sidebarOpen
+                        ? "Close menu"
+                        : "Open menu"
+                  }
+                >
+                  <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -1152,7 +1221,7 @@ export default function AdminDashboard() {
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
                 <div className="p-4 sm:p-6 flex items-center justify-between border-b border-gray-100">
-                  <h2 className="text-sm sm:text-base font-semibold text-gray-900">
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                     Import from SportsEngine
                   </h2>
                 </div>
@@ -1168,7 +1237,7 @@ export default function AdminDashboard() {
           {activeTab === "settings" && stats?.organizationId && (
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                <h2 className="mb-4 text-sm font-semibold text-gray-900 sm:text-base">
+                <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
                 <LogoManage organizationId={stats.organizationId} />
@@ -1179,7 +1248,7 @@ export default function AdminDashboard() {
           {activeTab === "admins" && (
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                   Organization Admins
                 </h2>
 
@@ -1314,6 +1383,10 @@ export default function AdminDashboard() {
             />
           </div>
 
+          <div className={activeTab === "sessions" ? "w-full min-h-[60vh]" : "hidden"}>
+            <SessionManager onRefresh={fetchStats} />
+          </div>
+
           <div className={activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"}>
             <InstructorAssignmentManager />
           </div>
@@ -1322,6 +1395,7 @@ export default function AdminDashboard() {
             activeTab !== "admins" &&
             activeTab !== "instructors" &&
             activeTab !== "classes" &&
+            activeTab !== "sessions" &&
             activeTab !== "assignments" &&
             activeTab !== "settings" && (
               <div className="w-full min-h-[60vh]">
