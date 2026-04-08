@@ -543,7 +543,7 @@ export default function InstructorAssignmentManager() {
                 <div className="space-y-4">
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 1</p>
-                        <p className="mb-1 text-sm font-semibold text-slate-900">Choose Session</p>
+                        <p className="mb-1 text-base font-semibold text-slate-900 sm:text-lg">Choose Session</p>
                         <p className="mb-3 text-xs text-slate-500">Assignments update based on the selected session.</p>
                         <div className="flex flex-wrap items-center gap-2">
                             {sessionsLoading ? (
@@ -600,7 +600,7 @@ export default function InstructorAssignmentManager() {
                             )}
                         </div>
                         <div className="mt-4">
-                            <p className="mb-1 text-sm font-semibold text-slate-900">Choose Instructor</p>
+                            <p className="mb-1 text-base font-semibold text-slate-900 sm:text-lg">Choose Instructor</p>
                             <p className="mb-3 text-xs text-slate-500">Everything on this page updates for the selected instructor.</p>
                         </div>
                         <div ref={instructorDropdownRef} className="relative">
@@ -673,7 +673,7 @@ export default function InstructorAssignmentManager() {
             {!loading && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">Assign Swimmers</p>
+                    <p className="mt-1 text-base font-semibold text-slate-900 sm:text-lg">Assign Swimmers</p>
                     <p className="mt-2 text-xs text-slate-500">
                         Filter by class and slot, then assign swimmers in age order.
                     </p>
@@ -868,7 +868,7 @@ export default function InstructorAssignmentManager() {
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">
+                            <p className="mt-1 text-base font-semibold text-slate-900 sm:text-lg">
                                 Already Assigned ({selectedInstructorStudents.length})
                             </p>
                         </div>

@@ -358,7 +358,7 @@ function EntityEditor({
 
   return (
     <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-      <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-3 sm:mb-4">
+      <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
         Manage {config.pluralLabel}
       </p>
 
@@ -1189,7 +1189,7 @@ export default function AdminDashboard() {
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
                 <div className="p-4 sm:p-6 flex items-center justify-between border-b border-gray-100">
-                  <h2 className="text-sm sm:text-base font-semibold text-gray-900">
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                     Import from SportsEngine
                   </h2>
                 </div>
@@ -1205,7 +1205,7 @@ export default function AdminDashboard() {
           {activeTab === "settings" && stats?.organizationId && (
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                <h2 className="mb-4 text-sm font-semibold text-gray-900 sm:text-base">
+                <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
                 <LogoManage organizationId={stats.organizationId} />
@@ -1216,7 +1216,7 @@ export default function AdminDashboard() {
           {activeTab === "admins" && (
             <div className="w-full min-h-[60vh]">
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                   Organization Admins
                 </h2>
 

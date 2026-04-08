@@ -157,7 +157,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
 
     return (
         <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-            <p className="text-xs sm:text-sm font-semibold text-gray-900 mb-3 sm:mb-4">Manage Classes</p>
+            <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Manage Classes</p>
 
             {/* Classes List */}
             {loading ? (
