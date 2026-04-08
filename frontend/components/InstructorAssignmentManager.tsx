@@ -373,6 +373,16 @@ export default function InstructorAssignmentManager() {
         [students, selectedInstructor]
     );
 
+    const instructorAssignmentCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        students.forEach((student) => {
+            student.instructor_ids.forEach((instructorId) => {
+                counts.set(instructorId, (counts.get(instructorId) || 0) + 1);
+            });
+        });
+        return counts;
+    }, [students]);
+
     const setStudentPending = (memberIds: string[], pending: boolean) => {
         setPendingStudentIds((prev) => {
             const next = new Set(prev);
@@ -633,6 +643,7 @@ export default function InstructorAssignmentManager() {
                                     ) : (
                                         instructors.map((instructor) => {
                                             const isActive = instructor.person_id === selectedInstructorId;
+                                            const assignedCount = instructorAssignmentCounts.get(instructor.person_id) || 0;
                                             return (
                                                 <button
                                                     key={instructor.person_id}
@@ -641,12 +652,17 @@ export default function InstructorAssignmentManager() {
                                                         setSelectedInstructorId(instructor.person_id);
                                                         setShowInstructorDropdown(false);
                                                     }}
-                                                    className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
+                                                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
                                                         ? 'bg-blue-50 text-blue-700'
                                                         : 'text-gray-900 hover:bg-gray-50'
                                                         }`}
                                                 >
-                                                    {formatDisplayName(instructor.first_name, instructor.last_name)}
+                                                    <span className="truncate">
+                                                        {formatDisplayName(instructor.first_name, instructor.last_name)}
+                                                    </span>
+                                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+                                                        {assignedCount} kids
+                                                    </span>
                                                 </button>
                                             );
                                         })
