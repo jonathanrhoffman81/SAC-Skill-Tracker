@@ -28,12 +28,39 @@ interface DashboardPayload {
   userName: string;
   organizationName: string;
   swimmers: DashboardSwimmerPayload[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
 }
 
-interface RpcDashboardRow {
-  userName?: string;
-  organizationName?: string;
-  swimmers?: DashboardSwimmerPayload[];
+const PAGE_SIZE = 25;
+
+function parsePage(request: NextRequest): number {
+  const rawPage = Number(request.nextUrl.searchParams.get('page') ?? '1');
+  if (!Number.isFinite(rawPage) || rawPage < 1) return 1;
+  return Math.floor(rawPage);
+}
+
+function parseSearchQuery(request: NextRequest): string {
+  return (request.nextUrl.searchParams.get('q') ?? '').trim();
+}
+
+function buildPagination(page: number, pageSize: number, total: number) {
+  const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  return {
+    page: safePage,
+    pageSize,
+    total,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+    hasPreviousPage: safePage > 1,
+  };
 }
 
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
@@ -56,20 +83,7 @@ function normalizeProgress(value: number | null | undefined): 0 | 1 | 2 | 3 | 4 
   return 0;
 }
 
-function normalizeRpcPayload(data: RpcDashboardRow | RpcDashboardRow[] | null): DashboardPayload | null {
-  if (!data) return null;
-
-  const payload = Array.isArray(data) ? data[0] : data;
-  if (!payload) return null;
-
-  return {
-    userName: payload.userName || '',
-    organizationName: payload.organizationName || 'SAC Skill Tracker',
-    swimmers: Array.isArray(payload.swimmers) ? payload.swimmers : [],
-  };
-}
-
-async function buildDashboardFallback(email: string): Promise<DashboardPayload> {
+async function buildDashboardFallback(email: string, page: number, searchQuery: string): Promise<DashboardPayload> {
   const supabaseAdmin = getSupabaseAdminClient();
 
   const { data: person, error: personError } = await supabaseAdmin
@@ -124,6 +138,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
       userName,
       organizationName: 'SAC Skill Tracker',
       swimmers: [],
+      pagination: buildPagination(page, PAGE_SIZE, 0),
     };
   }
 
@@ -186,31 +201,95 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
       userName,
       organizationName: organization?.name || 'SAC Skill Tracker',
       swimmers: [],
+      pagination: buildPagination(page, PAGE_SIZE, 0),
     };
   }
 
-  const [{ data: members, error: membersError }, { data: memberSkillRows, error: memberSkillError }] =
-    await Promise.all([
-      supabaseAdmin
-        .from('member')
-        .select('member_id, first_name, last_name, level')
-        .in('member_id', memberIds),
-      supabaseAdmin
-        .from('member_skill')
-        .select('member_id, skill_id, progress, date_acquired')
-        .in('member_id', memberIds),
-    ]);
+  let memberCountQuery = supabaseAdmin
+    .from('member')
+    .select('member_id', { count: 'exact', head: true })
+    .in('member_id', memberIds);
 
+  if (searchQuery) {
+    memberCountQuery = memberCountQuery.or(
+      `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+    );
+  }
+
+  const { count: totalCount, error: memberCountError } = await memberCountQuery;
+  if (memberCountError) {
+    throw new Error(`Failed to count members: ${memberCountError.message}`);
+  }
+
+  const pagination = buildPagination(page, PAGE_SIZE, totalCount ?? 0);
+  const from = (pagination.page - 1) * pagination.pageSize;
+  const to = from + pagination.pageSize - 1;
+
+  let pagedMembersQuery = supabaseAdmin
+    .from('member')
+    .select('member_id, first_name, last_name, level')
+    .in('member_id', memberIds)
+    .order('first_name', { ascending: true })
+    .order('last_name', { ascending: true })
+    .range(from, to);
+
+  if (searchQuery) {
+    pagedMembersQuery = pagedMembersQuery.or(
+      `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+    );
+  }
+
+  const { data: members, error: membersError } = await pagedMembersQuery;
   if (membersError) {
     throw new Error(`Failed to load members: ${membersError.message}`);
   }
+
+  const pagedMemberIds = (members ?? []).map((member) => member.member_id);
+  if (pagedMemberIds.length === 0) {
+    return {
+      userName,
+      organizationName: organization?.name || 'SAC Skill Tracker',
+      swimmers: [],
+      pagination,
+    };
+  }
+
+  const { data: memberSkillRows, error: memberSkillError } = await supabaseAdmin
+    .from('member_skill')
+    .select('member_id, skill_id, progress, date_acquired')
+    .in('member_id', pagedMemberIds);
 
   if (memberSkillError) {
     throw new Error(`Failed to load member skills: ${memberSkillError.message}`);
   }
 
+  const { data: pagedEnrollments, error: pagedEnrollmentsError } = await supabaseAdmin
+    .from('enrollment')
+    .select('member_id, class_id')
+    .in('member_id', pagedMemberIds);
+
+  if (pagedEnrollmentsError) {
+    throw new Error(`Failed to load enrollments: ${pagedEnrollmentsError.message}`);
+  }
+
+  const pagedClassIds = Array.from(new Set((pagedEnrollments ?? []).map((row) => row.class_id)));
+  let pagedClasses: Array<{ class_id: string; name: string; schedule: string | null }> = [];
+
+  if (pagedClassIds.length > 0) {
+    const { data: classesData, error: classesError } = await supabaseAdmin
+      .from('class_entity')
+      .select('class_id, name, schedule')
+      .in('class_id', pagedClassIds);
+
+    if (classesError) {
+      throw new Error(`Failed to load classes: ${classesError.message}`);
+    }
+
+    pagedClasses = classesData ?? [];
+  }
+
   const classById = new Map<string, DashboardClassPayload>();
-  (classes ?? []).forEach((row) => {
+  pagedClasses.forEach((row) => {
     classById.set(row.class_id, {
       id: row.class_id,
       name: row.name,
@@ -219,7 +298,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
   });
 
   const classesByMemberId = new Map<string, DashboardClassPayload[]>();
-  (enrollments ?? []).forEach((row) => {
+  (pagedEnrollments ?? []).forEach((row) => {
     const classItem = classById.get(row.class_id);
     if (!classItem) return;
 
@@ -272,6 +351,7 @@ async function buildDashboardFallback(email: string): Promise<DashboardPayload> 
     userName,
     organizationName: organization?.name || 'SAC Skill Tracker',
     swimmers,
+    pagination,
   };
 }
 
@@ -312,23 +392,11 @@ async function resolveInstructorEmail(request: NextRequest): Promise<{ email: st
 
 export async function GET(request: NextRequest) {
   try {
+    const page = parsePage(request);
+    const searchQuery = parseSearchQuery(request);
     const { email } = await resolveInstructorEmail(request);
 
-    const supabaseAdmin = getSupabaseAdminClient();
-    const { data, error } = await supabaseAdmin.rpc('get_instructor_dashboard_payload', {
-      instructor_email: email,
-    });
-
-    if (!error) {
-      const payload = normalizeRpcPayload(data as RpcDashboardRow | RpcDashboardRow[] | null);
-      if (payload) {
-        return NextResponse.json(payload);
-      }
-    } else {
-      console.warn('Instructor dashboard RPC unavailable, using fallback:', error.message);
-    }
-
-    const fallbackPayload = await buildDashboardFallback(email);
+    const fallbackPayload = await buildDashboardFallback(email, page, searchQuery);
     return NextResponse.json(fallbackPayload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected server error';

@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
@@ -15,9 +17,12 @@ export default function LogoManage({
   useEffect(() => {
     const fetchLogo = async () => {
       try {
+        const headers = await createAuthenticatedHeaders();
+
         const res = await fetch("/api/admin/get-logo", {
-          headers: await createAuthenticatedHeaders(),
+          headers,
         });
+
         const data = await res.json();
 
         if (data.publicUrl) {
@@ -40,8 +45,11 @@ export default function LogoManage({
 
     setLoading(true);
     try {
+      const headers = await createAuthenticatedHeaders();
+
       const res = await fetch("/api/admin/upload-logo", {
         method: "DELETE",
+        headers,
       });
 
       const data = await res.json();
@@ -61,11 +69,14 @@ export default function LogoManage({
     try {
       setLoading(true);
 
+      const headers = await createAuthenticatedHeaders();
+
       const formData = new FormData();
       formData.append("file", file);
 
       const res = await fetch("/api/admin/upload-logo", {
         method: "POST",
+        headers,
         body: formData,
       });
 
