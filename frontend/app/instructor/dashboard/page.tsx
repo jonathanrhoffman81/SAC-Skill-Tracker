@@ -86,7 +86,7 @@ export default function InstructorDashboard() {
   const router = useRouter();
   const cacheRef = useRef<Map<string, CachedDashboardEntry>>(new Map());
 
-  const [organizationLogo] = useState<string | null>(null);
+  const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
   const [userName, setUserName] = useState('Guest User');
   const [organizationName, setOrganizationName] = useState('SAC Skill Tracker');
   const [swimmerTab, setSwimmerTab] = useState<'my' | 'all'>('my');
@@ -243,6 +243,27 @@ export default function InstructorDashboard() {
   }, [searchQuery]);
 
   useEffect(() => {
+    const fetchLogo = async () => {
+      try {
+        const headers = await createAuthenticatedHeaders();
+        const res = await fetch('/api/instructor/get-logo', { headers });
+        const data = await res.json();
+
+        if (data.publicUrl) {
+          setOrganizationLogo(data.publicUrl);
+        } else {
+          setOrganizationLogo(null);
+        }
+      } catch (err) {
+        console.error('Error fetching logo:', err);
+        setOrganizationLogo(null);
+      }
+    };
+
+    fetchLogo();
+  }, []);
+
+  useEffect(() => {
     loadDashboardData(swimmerTab, currentPage, debouncedSearchQuery);
   }, [swimmerTab, currentPage, debouncedSearchQuery]);
 
@@ -261,6 +282,9 @@ export default function InstructorDashboard() {
                   src={organizationLogo}
                   alt="Organization Logo"
                   className="h-full w-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
               ) : (
                 <svg className="h-4 w-4 text-gray-600 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
