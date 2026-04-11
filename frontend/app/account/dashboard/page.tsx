@@ -148,10 +148,7 @@ export default function AccountDashboard() {
       ) as Record<string, SkillItem[]>;
     }
 
-    function seedProfileCaches(
-      authUserId: string,
-      payload: DashboardPayload,
-    ) {
+    function seedProfileCaches(authUserId: string, payload: DashboardPayload) {
       Object.entries(payload.profilesBySwimmer ?? {}).forEach(
         ([memberId, profile]) => {
           const profileCacheKey = `${SWIMMER_PROFILE_CACHE_PREFIX}${authUserId}:${memberId}`;
@@ -264,19 +261,22 @@ export default function AccountDashboard() {
   useEffect(() => {
     async function fetchLogo() {
       try {
-        const headers = await createAuthenticatedHeaders();
+        // const identity = await getAuthenticatedSessionIdentity();
+        const identity = await getAuthenticatedSessionIdentity();
+        console.log("IDENTITY:", identity);
+        // const orgId = identity.organizationId;
 
-        const res = await fetch("/api/admin/get-logo", {
-          headers,
-        });
+        // const res = await fetch(
+        //   `/api/public/get-logo?orgId=${encodeURIComponent("123")}`,
+        // );
 
-        const data = await res.json();
+        // const data = await res.json();
 
-        if (data.publicUrl) {
-          setLogoUrl(data.publicUrl);
-        } else {
-          setLogoUrl(null);
-        }
+        // if (data.publicUrl) {
+        //   setLogoUrl(data.publicUrl);
+        // } else {
+        //   setLogoUrl(null);
+        // }
       } catch (err) {
         console.error("Failed to fetch logo", err);
         setLogoUrl(null);
@@ -291,7 +291,7 @@ export default function AccountDashboard() {
     return Math.round(
       (skills.reduce((sum, skill) => sum + skill.progress, 0) /
         (skills.length * 4)) *
-      100,
+        100,
     );
   }
 
@@ -499,8 +499,9 @@ export default function AccountDashboard() {
                       </div>
 
                       <svg
-                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""
-                          }`}
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -567,14 +568,14 @@ export default function AccountDashboard() {
                                       className={`inline-flex max-w-full rounded-2xl px-2.5 py-1 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
                                       title={
                                         PROFICIENCY_LABELS[
-                                        skill.progress as SkillProgress
+                                          skill.progress as SkillProgress
                                         ]
                                       }
                                     >
                                       {skill.progress} -{" "}
                                       {
                                         PROFICIENCY_LABELS[
-                                        skill.progress as SkillProgress
+                                          skill.progress as SkillProgress
                                         ]
                                       }
                                     </span>

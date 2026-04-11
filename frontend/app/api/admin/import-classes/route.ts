@@ -1,223 +1,261 @@
-import { NextRequest, NextResponse } from 'next/server';
-import Papa from 'papaparse';
-import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { getOrgIdByEmail } from '@/lib/adminQueries';
+import { NextRequest, NextResponse } from "next/server";
+import Papa from "papaparse";
+import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
-interface ParsedClassRow {
-    name: string;
-    schedule: string | null;
-    lengthMinutes: number | null;
-}
+// ----------------------
+// helpers
+// ----------------------
+const getString = (val: any): string => (val ?? "").toString().trim();
 
-function normalizeHeader(value: string): string {
-    return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
-}
+const splitName = (full: string) => {
+  const parts = full.split(",");
+  return {
+    last: parts[0]?.trim(),
+    first: parts[1]?.trim(),
+  };
+};
 
-function getFirstValue(row: Record<string, unknown>, keys: string[]): string {
-    for (const key of keys) {
-        const value = row[key];
-        if (typeof value === 'string' && value.trim()) {
-            return value.trim();
-        }
+const parseClass = (str: string) => {
+  const parts = str.split(" - ");
+  return {
+    level: parts[0]?.trim(),
+    session: parts.slice(1).join(" - ").trim(),
+  };
+};
+
+const parseSlot = (slot: string) => parseInt(slot.replace("#", "")) || 1;
+
+const parseLength = (length: string) => parseInt(length) || null;
+
+// ----------------------
+// API
+// ----------------------
+export async function POST(req: NextRequest) {
+  try {
+    const formData = await req.formData();
+
+    const file = formData.get("file") as File;
+    const orgId = formData.get("organization_id") as string;
+
+    if (!file || !orgId) {
+      return NextResponse.json(
+        { error: "Missing file or organization_id" },
+        { status: 400 },
+      );
     }
-    return '';
-}
 
-function parseCsvRows(text: string): { rows: ParsedClassRow[]; errors: string[] } {
-    const parsed = Papa.parse<Record<string, string>>(text, {
-        header: true,
-        skipEmptyLines: true,
+    // ✅ NEW STRUCTURED INPUTS
+    const sessions = JSON.parse(formData.get("sessions") as string);
+    const slotConfigs = JSON.parse(
+      formData.get("slotConfigs") as string,
+    ) as Record<
+      string,
+      {
+        slot: string;
+        days: string[];
+        time: string;
+      }
+    >;
+
+    const supabase = getSupabaseAdminClient();
+
+    const text = await file.text();
+    const parsed = Papa.parse(text, {
+      header: true,
+      skipEmptyLines: true,
     });
 
-    if (parsed.errors.length > 0) {
-        return {
-            rows: [],
-            errors: parsed.errors.map((err) => err.message).slice(0, 10),
-        };
+    const rows = parsed.data as any[];
+
+    // caches
+    const sessionMap = new Map<string, string>();
+    const classMap = new Map<string, string>();
+    const memberMap = new Map<string, string>();
+
+    // instructors
+    const { data: instructors } = await supabase
+      .from("person_org_role")
+      .select(`person:person_id (person_id)`)
+      .eq("role_id", 3);
+
+    const instructorIds: string[] =
+      instructors?.map((i: any) => i.person.person_id) || [];
+
+    let importedClasses = 0;
+    let importedEnrollments = 0;
+
+    for (const row of rows) {
+      const memberRaw = getString(row["Member"]);
+      const classRaw = getString(row["Registered Class"]);
+
+      const memberName = splitName(memberRaw);
+      const { level, session } = parseClass(classRaw);
+
+      const slot = parseSlot(getString(row["Slot"]));
+      const length = parseLength(getString(row["Class Length"]));
+      const dob = getString(row["Member DOB"]) || null;
+      const gender = getString(row["Gender"]) || null;
+
+      if (!memberName.first || !memberName.last || !level || !session) continue;
+
+      // -----------------------
+      // SESSION
+      // -----------------------
+      type SessionRow = { session_id: string };
+
+      let sessionId = sessionMap.get(session);
+
+      const sessionConfig = sessions.find((s: any) => s.name === session);
+
+      if (!sessionId) {
+        const { data, error } = await supabase
+          .from("organization_session")
+          .upsert(
+            {
+              organization_id: orgId,
+              name: session,
+              start_date: sessionConfig?.startDate,
+              end_date: sessionConfig?.endDate,
+            },
+            { onConflict: "organization_id,name" },
+          )
+          .select("session_id")
+          .single<SessionRow>();
+
+        if (error || !data) {
+          console.error("Session error:", error);
+          continue;
+        }
+
+        sessionId = data.session_id;
+        sessionMap.set(session, sessionId);
+      }
+
+      // -----------------------
+      // CLASS
+      // -----------------------
+      type ClassRow = { class_id: string };
+
+      const classKey = `${level}-${session}-${slot}`;
+      let classId = classMap.get(classKey);
+
+      const slotConfig = slotConfigs[`#${slot}`];
+
+      if (!classId) {
+        const { data, error } = await supabase
+          .from("class_entity")
+          .upsert(
+            {
+              organization_id: orgId,
+              name: level,
+              session_id: sessionId,
+
+              // ✅ structured schedule
+              schedule_days: slotConfig?.days || [],
+              schedule_time: slotConfig?.time || null,
+
+              // optional human readable
+              schedule: slotConfig
+                ? `${slotConfig.days.join(", ")} @ ${slotConfig.time}`
+                : `Slot ${slot}`,
+
+              length_minutes: length,
+            },
+            {
+              onConflict: "organization_id,name,session_id",
+            },
+          )
+          .select("class_id")
+          .single<ClassRow>();
+
+        if (error || !data) {
+          console.error("Class error:", error);
+          continue;
+        }
+
+        classId = data.class_id;
+        classMap.set(classKey, classId);
+        importedClasses++;
+
+        // assign instructor
+        if (instructorIds.length > 0) {
+          const instructorId =
+            instructorIds[Math.floor(Math.random() * instructorIds.length)];
+
+          await supabase.from("class_instructor").upsert({
+            person_id: instructorId,
+            class_id: classId,
+          });
+        }
+      }
+
+      // -----------------------
+      // MEMBER
+      // -----------------------
+      type MemberRow = { member_id: string };
+
+      const memberKey = `${memberName.first}-${memberName.last}-${dob}`;
+      let memberId = memberMap.get(memberKey);
+
+      if (!memberId) {
+        const { data: existing } = await supabase
+          .from("member")
+          .select("member_id")
+          .eq("organization_id", orgId)
+          .eq("first_name", memberName.first)
+          .eq("last_name", memberName.last)
+          .eq("date_of_birth", dob)
+          .maybeSingle<MemberRow>();
+
+        if (existing?.member_id) {
+          memberId = existing.member_id;
+        } else {
+          const { data, error } = await supabase
+            .from("member")
+            .insert({
+              organization_id: orgId,
+              first_name: memberName.first,
+              last_name: memberName.last,
+              date_of_birth: dob,
+              gender: gender,
+              slot: slot,
+              level: level,
+            })
+            .select("member_id")
+            .single<MemberRow>();
+
+          if (error || !data) {
+            console.error("Member error:", error);
+            continue;
+          }
+
+          memberId = data.member_id;
+        }
+
+        memberMap.set(memberKey, memberId);
+      }
+
+      // -----------------------
+      // ENROLLMENT
+      // -----------------------
+      const { error: enrollError } = await supabase.from("enrollment").upsert({
+        member_id: memberId,
+        class_id: classId,
+      });
+
+      if (!enrollError) importedEnrollments++;
     }
 
-    const rows: ParsedClassRow[] = [];
-    const errors: string[] = [];
-
-    (parsed.data || []).forEach((rawRow, index) => {
-        const rowNumber = index + 2;
-        const normalizedRow: Record<string, unknown> = {};
-
-        Object.entries(rawRow || {}).forEach(([key, value]) => {
-            normalizedRow[normalizeHeader(key)] = value;
-        });
-
-        const name = getFirstValue(normalizedRow, ['name', 'class_name', 'classname']);
-        const scheduleRaw = getFirstValue(normalizedRow, ['schedule']);
-        const lengthRaw = getFirstValue(normalizedRow, [
-            'length_minutes',
-            'length',
-            'duration',
-            'duration_minutes',
-        ]);
-
-        if (!name) {
-            errors.push(`Row ${rowNumber}: Missing class name (column 'name').`);
-            return;
-        }
-
-        let lengthMinutes: number | null = null;
-        if (lengthRaw) {
-            const parsedLength = Number.parseInt(lengthRaw, 10);
-            if (Number.isNaN(parsedLength) || parsedLength <= 0) {
-                errors.push(`Row ${rowNumber}: Invalid length_minutes '${lengthRaw}'.`);
-                return;
-            }
-            lengthMinutes = parsedLength;
-        }
-
-        rows.push({
-            name,
-            schedule: scheduleRaw || null,
-            lengthMinutes,
-        });
+    return NextResponse.json({
+      success: true,
+      importedClasses,
+      importedEnrollments,
     });
-
-    return { rows, errors };
-}
-
-export async function POST(request: NextRequest) {
-    try {
-        const formData = await request.formData();
-        const file = formData.get('file') as File | null;
-        const email = (formData.get('email') as string | null)?.trim();
-
-        if (!file || !email) {
-            return NextResponse.json(
-                { error: 'File and email are required.' },
-                { status: 400 }
-            );
-        }
-
-        const text = await file.text();
-        if (!text.trim()) {
-            return NextResponse.json(
-                { error: 'CSV file is empty.' },
-                { status: 400 }
-            );
-        }
-
-        const { rows, errors } = parseCsvRows(text);
-
-        if (errors.length > 0) {
-            return NextResponse.json(
-                {
-                    error: 'CSV validation failed.',
-                    errors: errors.slice(0, 20),
-                },
-                { status: 400 }
-            );
-        }
-
-        if (rows.length === 0) {
-            return NextResponse.json(
-                { error: 'No valid rows found in CSV.' },
-                { status: 400 }
-            );
-        }
-
-        const dedupedByName = new Map<string, ParsedClassRow>();
-        rows.forEach((row) => {
-            const key = row.name.trim().toLowerCase();
-            dedupedByName.set(key, row);
-        });
-
-        const uniqueRows = Array.from(dedupedByName.values());
-        const skippedRows = rows.length - uniqueRows.length;
-
-        const supabase = getSupabaseAdminClient();
-        const organizationId = await getOrgIdByEmail(supabase, email);
-
-        if (!organizationId) {
-            return NextResponse.json(
-                { error: 'Failed to resolve organization for this admin.' },
-                { status: 400 }
-            );
-        }
-
-        const { data: existingRows, error: existingError } = await supabase
-            .from('class_entity')
-            .select('class_id, name')
-            .eq('organization_id', organizationId);
-
-        if (existingError) {
-            return NextResponse.json(
-                { error: `Failed to load existing classes: ${existingError.message}` },
-                { status: 500 }
-            );
-        }
-
-        const existingByName = new Map<string, { class_id: string; name: string }>();
-        (existingRows || []).forEach((row) => {
-            existingByName.set(row.name.trim().toLowerCase(), row);
-        });
-
-        let insertedClasses = 0;
-        let updatedClasses = 0;
-
-        for (const row of uniqueRows) {
-            const key = row.name.trim().toLowerCase();
-            const existing = existingByName.get(key);
-
-            if (existing) {
-                const { error: updateError } = await supabase
-                    .from('class_entity')
-                    .update({
-                        name: row.name,
-                        schedule: row.schedule,
-                        length_minutes: row.lengthMinutes,
-                    })
-                    .eq('class_id', existing.class_id);
-
-                if (updateError) {
-                    return NextResponse.json(
-                        {
-                            error: `Failed to update class '${row.name}': ${updateError.message}`,
-                        },
-                        { status: 500 }
-                    );
-                }
-
-                updatedClasses += 1;
-                continue;
-            }
-
-            const { error: insertError } = await supabase.from('class_entity').insert({
-                organization_id: organizationId,
-                name: row.name,
-                schedule: row.schedule,
-                length_minutes: row.lengthMinutes,
-            });
-
-            if (insertError) {
-                return NextResponse.json(
-                    {
-                        error: `Failed to insert class '${row.name}': ${insertError.message}`,
-                    },
-                    { status: 500 }
-                );
-            }
-
-            insertedClasses += 1;
-        }
-
-        return NextResponse.json({
-            success: true,
-            insertedClasses,
-            updatedClasses,
-            totalProcessed: uniqueRows.length,
-            skippedRows,
-        });
-    } catch (error) {
-        console.error('Import classes error:', error);
-        return NextResponse.json(
-            { error: 'Internal server error' },
-            { status: 500 }
-        );
-    }
+  } catch (err) {
+    console.error("Import classes error:", err);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
 }

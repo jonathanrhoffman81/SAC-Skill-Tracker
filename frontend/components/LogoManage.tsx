@@ -19,7 +19,7 @@ export default function LogoManage({
       try {
         const headers = await createAuthenticatedHeaders();
 
-        const res = await fetch("/api/admin/get-logo", {
+        const res = await fetch("/api/public/get-logo", {
           headers,
         });
 
@@ -117,8 +117,9 @@ export default function LogoManage({
         {/* Choose File */}
         <label
           htmlFor="logoUpload"
-          className={`px-4 py-2 bg-gray-200 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-300 ${loading ? "opacity-50 cursor-not-allowed" : ""
-            }`}
+          className={`px-4 py-2 bg-gray-200 text-gray-700 rounded-lg cursor-pointer hover:bg-gray-300 ${
+            loading ? "opacity-50 cursor-not-allowed" : ""
+          }`}
         >
           Choose File
         </label>
