@@ -173,16 +173,15 @@ export default function ImportRoster({
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-lg sm:rounded-xl p-6 sm:p-10 flex flex-col items-center text-center mb-4 sm:mb-6 transition ${
-          isDragging ? "border-black bg-gray-50" : "border-gray-200"
-        }`}
+        className={`border-2 border-dashed rounded-lg sm:rounded-xl p-6 sm:p-10 flex flex-col items-center text-center mb-4 sm:mb-6 transition ${isDragging ? "border-black bg-gray-50" : "border-gray-200"
+          }`}
       >
         <p className="text-sm sm:text-base font-semibold text-gray-900 mb-1">
           Import Roster Data
         </p>
 
         <p className="text-xs sm:text-sm text-gray-500 mb-4 sm:mb-5">
-          Import swimmer roster, levels, and class assignments from SportsEngine
+          Import swimmer roster and class assignments from SportsEngine
         </p>
 
         <input
@@ -209,11 +208,10 @@ export default function ImportRoster({
           <button
             onClick={handleUpload}
             disabled={!selectedFile || isLoading}
-            className={`text-sm font-medium px-4 py-2 rounded-lg transition ${
-              selectedFile && !isLoading
+            className={`text-sm font-medium px-4 py-2 rounded-lg transition ${selectedFile && !isLoading
                 ? "bg-black text-white hover:opacity-90"
                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
-            }`}
+              }`}
           >
             {isLoading ? "Importing..." : "Import"}
           </button>
@@ -228,18 +226,18 @@ export default function ImportRoster({
         {(importedMemberCount > 0 ||
           importedInstructorCount > 0 ||
           importedAdminCount > 0) && (
-          <div>
-            <p className="mt-2 text-sm text-green-600">
-              Successfully imported {importedMemberCount} swimmers.
-            </p>
-            <p className="mt-2 text-sm text-green-600">
-              Successfully imported {importedInstructorCount} instructors.
-            </p>
-            <p className="mt-2 text-sm text-green-600">
-              Successfully imported {importedAdminCount} admins.
-            </p>
-          </div>
-        )}
+            <div>
+              <p className="mt-2 text-sm text-green-600">
+                Successfully imported {importedMemberCount} swimmers.
+              </p>
+              <p className="mt-2 text-sm text-green-600">
+                Successfully imported {importedInstructorCount} instructors.
+              </p>
+              <p className="mt-2 text-sm text-green-600">
+                Successfully imported {importedAdminCount} admins.
+              </p>
+            </div>
+          )}
 
         {errors.length > 0 && (
           <div className="mt-2 text-sm text-red-600 space-y-1">

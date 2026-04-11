@@ -46,7 +46,6 @@ export interface SwimmerProfilePayload {
     id: string;
     name: string;
     age: number | null;
-    level: string;
     enrollmentDate: string;
     organization: string;
   };
@@ -95,7 +94,6 @@ interface MemberRow {
   organization_id: string;
   first_name: string | null;
   last_name: string | null;
-  level: string | null;
   date_of_birth: string | null;
   created_at: string;
 }
@@ -308,7 +306,7 @@ export async function buildParentSwimmerProfiles(
     supabaseAdmin
       .from("member")
       .select(
-        "member_id, organization_id, first_name, last_name, level, date_of_birth, created_at",
+        "member_id, organization_id, first_name, last_name, date_of_birth, created_at",
       )
       .in("member_id", allowedMemberIds),
     supabaseAdmin
@@ -343,15 +341,21 @@ export async function buildParentSwimmerProfiles(
   }
 
   if (currentSkillsError) {
-    throw new Error(`Failed to load current skills: ${currentSkillsError.message}`);
+    throw new Error(
+      `Failed to load current skills: ${currentSkillsError.message}`,
+    );
   }
 
   if (skillHistoryError) {
-    throw new Error(`Failed to load skill history: ${skillHistoryError.message}`);
+    throw new Error(
+      `Failed to load skill history: ${skillHistoryError.message}`,
+    );
   }
 
   if (evaluationsError) {
-    throw new Error(`Failed to load swimmer notes: ${evaluationsError.message}`);
+    throw new Error(
+      `Failed to load swimmer notes: ${evaluationsError.message}`,
+    );
   }
 
   if (enrollmentError) {
@@ -381,7 +385,9 @@ export async function buildParentSwimmerProfiles(
         .order("start_date", { ascending: false }),
       (() => {
         const authorIds = Array.from(
-          new Set((evaluationRows ?? []).map((row) => row.instructor_person_id)),
+          new Set(
+            (evaluationRows ?? []).map((row) => row.instructor_person_id),
+          ),
         );
 
         if (authorIds.length === 0) {
@@ -396,7 +402,9 @@ export async function buildParentSwimmerProfiles(
     ]);
 
   if (organizationResult.error) {
-    throw new Error(`Failed to load organization: ${organizationResult.error.message}`);
+    throw new Error(
+      `Failed to load organization: ${organizationResult.error.message}`,
+    );
   }
 
   if (orgSkillResult.error) {
@@ -410,7 +418,9 @@ export async function buildParentSwimmerProfiles(
   }
 
   if (authorResult.error) {
-    throw new Error(`Failed to load note authors: ${authorResult.error.message}`);
+    throw new Error(
+      `Failed to load note authors: ${authorResult.error.message}`,
+    );
   }
 
   const classIds = Array.from(
@@ -436,7 +446,10 @@ export async function buildParentSwimmerProfiles(
   }
 
   const organizationNameById = new Map(
-    (organizationResult.data ?? []).map((row) => [row.organization_id, row.name]),
+    (organizationResult.data ?? []).map((row) => [
+      row.organization_id,
+      row.name,
+    ]),
   );
 
   const orgSkillsByOrganizationId = new Map<
@@ -480,7 +493,8 @@ export async function buildParentSwimmerProfiles(
   >();
   ((skillHistoryRows ?? []) as MemberSkillHistoryRow[]).forEach((row) => {
     const memberMap =
-      skillHistoryByMemberSkill.get(row.member_id) ?? new Map<string, MemberSkillHistoryRow[]>();
+      skillHistoryByMemberSkill.get(row.member_id) ??
+      new Map<string, MemberSkillHistoryRow[]>();
     const existing = memberMap.get(row.skill_id) ?? [];
     existing.push(row);
     memberMap.set(row.skill_id, existing);
@@ -524,7 +538,8 @@ export async function buildParentSwimmerProfiles(
   const todayIso = new Date().toISOString().slice(0, 10);
 
   members.forEach((member) => {
-    const orgSkills = orgSkillsByOrganizationId.get(member.organization_id) ?? [];
+    const orgSkills =
+      orgSkillsByOrganizationId.get(member.organization_id) ?? [];
     const orgSessions =
       (sessionsByOrganizationId.get(member.organization_id) ?? []).filter(
         (session) => session.start_date <= todayIso,
@@ -580,7 +595,8 @@ export async function buildParentSwimmerProfiles(
     );
 
     const hasCurrentRealSession = realSessions.some(
-      (session) => session.start_date <= todayIso && session.end_date >= todayIso,
+      (session) =>
+        session.start_date <= todayIso && session.end_date >= todayIso,
     );
 
     const buildSessionSkills = (options: {
@@ -605,7 +621,7 @@ export async function buildParentSwimmerProfiles(
         const currentSkill = currentSkillById.get(skill.skill_id);
         const snapshotRow =
           findLatestSkillStateBefore(history, options.cutoffMillis) ??
-          (options.fallbackToCurrent ? currentSkill ?? null : null);
+          (options.fallbackToCurrent ? (currentSkill ?? null) : null);
         const progress = snapshotRow?.progress ?? 0;
         const obtainedDate = findSkillObtainedDate(history);
         const visibleObtainedDate =
@@ -622,13 +638,13 @@ export async function buildParentSwimmerProfiles(
           dateAcquired: formatDate(visibleObtainedDate) ?? undefined,
           obtainedInSession: Boolean(
             visibleObtainedDate &&
-              options.sessionStartDate &&
-              options.sessionEndDate &&
-              isDateWithinSession(
-                visibleObtainedDate,
-                options.sessionStartDate,
-                options.sessionEndDate,
-              ),
+            options.sessionStartDate &&
+            options.sessionEndDate &&
+            isDateWithinSession(
+              visibleObtainedDate,
+              options.sessionStartDate,
+              options.sessionEndDate,
+            ),
           ),
           notes: skillNotesBySkillId.get(skill.skill_id) ?? [],
         };
@@ -645,7 +661,9 @@ export async function buildParentSwimmerProfiles(
       );
 
       const sessionNotes = noteRows
-        .filter((row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback))
+        .filter(
+          (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
+        )
         .map((row) => buildNoteEntry(row, authorNameById));
 
       const skills = buildSessionSkills({
@@ -687,7 +705,9 @@ export async function buildParentSwimmerProfiles(
       });
 
       const syntheticSessionNotes = syntheticNoteRows
-        .filter((row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback))
+        .filter(
+          (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
+        )
         .map((row) => buildNoteEntry(row, authorNameById));
 
       const syntheticSkills = buildSessionSkills({
@@ -721,7 +741,6 @@ export async function buildParentSwimmerProfiles(
         id: member.member_id,
         name: `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim(),
         age: calculateAge(member.date_of_birth),
-        level: member.level ?? "Unassigned level",
         enrollmentDate: formatDate(member.created_at) ?? "",
         organization: organizationNameById.get(member.organization_id) ?? "",
       },
@@ -737,6 +756,8 @@ export async function buildParentSwimmerProfile(
   accountPersonId: string,
   memberId: string,
 ): Promise<SwimmerProfilePayload | null> {
-  const profiles = await buildParentSwimmerProfiles(accountPersonId, [memberId]);
+  const profiles = await buildParentSwimmerProfiles(accountPersonId, [
+    memberId,
+  ]);
   return profiles.get(memberId) ?? null;
 }

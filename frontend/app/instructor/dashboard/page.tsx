@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import EvaluationForm from "@/components/EvaluationForm";
 import {
@@ -30,27 +30,9 @@ interface DashboardSkill {
 interface DashboardSwimmer {
   id: string;
   name: string;
-  level: string;
   classes: DashboardClass[];
   skills: DashboardSkill[];
 }
-
-interface DashboardPayload {
-  userName: string;
-  organizationName?: string;
-  swimmers: DashboardSwimmer[];
-  pagination?: {
-    page: number;
-    pageSize: number;
-    total: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-  };
-  error?: string;
-}
-
-const PAGE_SIZE = 25;
 
 interface PaginationState {
   page: number;
@@ -61,12 +43,22 @@ interface PaginationState {
   hasPreviousPage: boolean;
 }
 
+interface DashboardPayload {
+  userName: string;
+  organizationName?: string;
+  swimmers: DashboardSwimmer[];
+  pagination?: PaginationState;
+  error?: string;
+}
+
 interface CachedDashboardEntry {
   userName: string;
   organizationName: string;
   swimmers: DashboardSwimmer[];
   pagination: PaginationState;
 }
+
+const PAGE_SIZE = 25;
 
 function buildCacheKey(tab: "my" | "all", page: number, search: string) {
   return `${tab}|${page}|${search.toLowerCase()}`;
@@ -83,6 +75,7 @@ function getInitials(name: string) {
 
 function calculateAverageProficiency(skills: DashboardSkill[]): string {
   if (skills.length === 0) return "0";
+
   const proficiencyToPercentage = (level: 0 | 1 | 2 | 3 | 4): number => {
     const mapping: Record<number, number> = {
       0: 0,
@@ -93,6 +86,7 @@ function calculateAverageProficiency(skills: DashboardSkill[]): string {
     };
     return mapping[level];
   };
+
   const totalPercentage = skills.reduce(
     (sum, skill) => sum + proficiencyToPercentage(skill.progress),
     0,
@@ -175,29 +169,36 @@ export default function InstructorDashboard() {
         );
       }
 
-      setUserName((prev) => payload.userName || prev);
-      setOrganizationName(payload.organizationName || "SAC Skill Tracker");
-      setSwimmers(payload.swimmers ?? []);
-      const serverPagination = payload.pagination ?? {
+      const resolvedUserName = payload.userName || userName;
+      const resolvedOrganizationName =
+        payload.organizationName || "SAC Skill Tracker";
+      const resolvedSwimmers = payload.swimmers ?? [];
+      const resolvedPagination = payload.pagination ?? {
         page: activePage,
         pageSize: PAGE_SIZE,
-        total: payload.swimmers?.length ?? 0,
+        total: resolvedSwimmers.length,
         totalPages: 1,
         hasNextPage: false,
         hasPreviousPage: activePage > 1,
       };
-      setPagination(serverPagination);
+
+      setUserName((prev) => resolvedUserName || prev);
+      setOrganizationName(resolvedOrganizationName);
+      setSwimmers(resolvedSwimmers);
+      setPagination(resolvedPagination);
+
       cacheRef.current.set(cacheKey, {
-        userName: payload.userName || userName,
-        organizationName: payload.organizationName || "SAC Skill Tracker",
-        swimmers: payload.swimmers ?? [],
-        pagination: serverPagination,
+        userName: resolvedUserName,
+        organizationName: resolvedOrganizationName,
+        swimmers: resolvedSwimmers,
+        pagination: resolvedPagination,
       });
-      if (serverPagination.page !== activePage) {
-        setCurrentPage(serverPagination.page);
+
+      if (resolvedPagination.page !== activePage) {
+        setCurrentPage(resolvedPagination.page);
       }
 
-      // Warm the opposite tab's first page so tab switches are instant after initial load.
+      // Warm opposite tab page 1 for instant tab switching after initial load.
       if (!activeSearch && activePage === 1) {
         const oppositeTab: "my" | "all" = activeTab === "my" ? "all" : "my";
         const oppositeCacheKey = buildCacheKey(oppositeTab, 1, "");
@@ -213,28 +214,30 @@ export default function InstructorDashboard() {
           });
 
           fetch(`${oppositeEndpoint}?${oppositeParams.toString()}`, { headers })
-            .then(async (response) => {
-              if (!response.ok) return;
-              const oppositePayload =
-                (await response.json()) as DashboardPayload;
-              const oppositePagination = oppositePayload.pagination ?? {
+            .then(async (prefetchResponse) => {
+              if (!prefetchResponse.ok) return;
+              const prefetchPayload =
+                (await prefetchResponse.json()) as DashboardPayload;
+              const prefetchSwimmers = prefetchPayload.swimmers ?? [];
+              const prefetchPagination = prefetchPayload.pagination ?? {
                 page: 1,
                 pageSize: PAGE_SIZE,
-                total: oppositePayload.swimmers?.length ?? 0,
+                total: prefetchSwimmers.length,
                 totalPages: 1,
                 hasNextPage: false,
                 hasPreviousPage: false,
               };
+
               cacheRef.current.set(oppositeCacheKey, {
-                userName: oppositePayload.userName || userName,
+                userName: prefetchPayload.userName || resolvedUserName,
                 organizationName:
-                  oppositePayload.organizationName || "SAC Skill Tracker",
-                swimmers: oppositePayload.swimmers ?? [],
-                pagination: oppositePagination,
+                  prefetchPayload.organizationName || "SAC Skill Tracker",
+                swimmers: prefetchSwimmers,
+                pagination: prefetchPagination,
               });
             })
             .catch(() => {
-              // Silent prefetch failure is acceptable; regular fetch path still works.
+              // Ignore prefetch failures; normal fetch path still covers this.
             });
         }
       }
@@ -243,7 +246,6 @@ export default function InstructorDashboard() {
         fetchError instanceof Error
           ? fetchError.message
           : "Unexpected error loading dashboard.";
-
       setError(message);
       setSwimmers([]);
       setPagination({
@@ -260,35 +262,33 @@ export default function InstructorDashboard() {
   }
 
   useEffect(() => {
-    loadDashboardData();
-
-    const fetchLogo = async () => {
-      try {
-        const headers = await createAuthenticatedHeaders();
-
-        const res = await fetch("/api/admin/get-logo", {
-          headers,
-        });
-
-        const data = await res.json();
-
-        if (data.publicUrl) {
-          setOrganizationLogo(data.publicUrl);
-        }
-      } catch (err) {
-        console.error("Failed to load organization logo", err);
-      }
-    };
-
-    fetchLogo();
-  }, []);
-  useEffect(() => {
     const handle = window.setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.trim());
     }, 250);
 
     return () => window.clearTimeout(handle);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const fetchLogo = async () => {
+      try {
+        const headers = await createAuthenticatedHeaders();
+        const res = await fetch("/api/instructor/get-logo", { headers });
+        const data = await res.json();
+
+        if (data.publicUrl) {
+          setOrganizationLogo(data.publicUrl);
+        } else {
+          setOrganizationLogo(null);
+        }
+      } catch (err) {
+        console.error("Error fetching logo:", err);
+        setOrganizationLogo(null);
+      }
+    };
+
+    fetchLogo();
+  }, []);
 
   useEffect(() => {
     loadDashboardData(swimmerTab, currentPage, debouncedSearchQuery);
@@ -309,6 +309,9 @@ export default function InstructorDashboard() {
                   src={organizationLogo}
                   alt="Organization Logo"
                   className="h-full w-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
                 />
               ) : (
                 <svg
@@ -553,9 +556,6 @@ export default function InstructorDashboard() {
                             <p className="text-sm font-semibold text-gray-900">
                               {swimmer.name}
                             </p>
-                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                              {swimmer.level}
-                            </span>
                             <button
                               type="button"
                               className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
@@ -587,9 +587,7 @@ export default function InstructorDashboard() {
                       </div>
 
                       <svg
-                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
-                          isOpen ? "rotate-180" : ""
-                        }`}
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -615,9 +613,7 @@ export default function InstructorDashboard() {
                             swimmerTab,
                             currentPage,
                             debouncedSearchQuery,
-                            {
-                              forceRefresh: true,
-                            },
+                            { forceRefresh: true },
                           )
                         }
                       />

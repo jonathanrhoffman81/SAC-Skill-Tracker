@@ -8,7 +8,10 @@ import {
   AuthContextError,
   getCurrentPersonFromRequest,
 } from "@/lib/serverAuth";
-import { buildParentSwimmerProfiles, type SwimmerProfilePayload } from "@/lib/accountSwimmerProfiles";
+import {
+  buildParentSwimmerProfiles,
+  type SwimmerProfilePayload,
+} from "@/lib/accountSwimmerProfiles";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
@@ -20,7 +23,6 @@ interface DashboardPayload {
   swimmers: Array<{
     id: string;
     name: string;
-    level: string;
     nextSession: string;
     classIds?: string[];
   }>;

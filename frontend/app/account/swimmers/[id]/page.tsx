@@ -16,7 +16,6 @@ interface SwimmerDetail {
   id: string;
   name: string;
   age: number | null;
-  level: string;
   enrollmentDate: string;
 }
 
@@ -61,6 +60,24 @@ interface SessionView {
   };
 }
 
+interface SessionView {
+  id: string;
+  name: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent: boolean;
+  isSynthetic: boolean;
+  classes: SessionClass[];
+  skills: SessionSkill[];
+  sessionNotes: NoteItem[];
+  summary: {
+    progressPct: number;
+    masteredCount: number;
+    totalSkills: number;
+    noteCount: number;
+  };
+}
+
 interface SwimmerPayload {
   swimmer: SwimmerDetail;
   sessions: SessionView[];
@@ -72,7 +89,6 @@ interface DashboardCachePayload {
   swimmers: Array<{
     id: string;
     name: string;
-    level: string;
   }>;
   profilesBySwimmer?: Record<string, SwimmerPayload>;
 }
@@ -146,7 +162,9 @@ export default function ParentSwimmerDetail() {
 
         if (cachedProfileRaw) {
           try {
-            const cachedPayload = JSON.parse(cachedProfileRaw) as SwimmerPayload;
+            const cachedPayload = JSON.parse(
+              cachedProfileRaw,
+            ) as SwimmerPayload;
             if (isMounted && cachedPayload.swimmer) {
               setSwimmer(cachedPayload.swimmer);
               setSessions(cachedPayload.sessions ?? []);
@@ -201,7 +219,6 @@ export default function ParentSwimmerDetail() {
                 setSwimmer({
                   id: cachedSwimmer.id,
                   name: cachedSwimmer.name,
-                  level: cachedSwimmer.level,
                   age: null,
                   enrollmentDate: "",
                 });
@@ -230,7 +247,9 @@ export default function ParentSwimmerDetail() {
 
         setSwimmer(payload.swimmer ?? null);
         setSessions(payload.sessions ?? []);
-        setSelectedSessionId(payload.defaultSessionId ?? payload.sessions?.[0]?.id ?? "");
+        setSelectedSessionId(
+          payload.defaultSessionId ?? payload.sessions?.[0]?.id ?? "",
+        );
         sessionStorage.setItem(profileCacheKey, JSON.stringify(payload));
       } catch (fetchError) {
         if (!isMounted) return;
@@ -358,10 +377,6 @@ export default function ParentSwimmerDetail() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <p className="text-xs text-gray-500">Level</p>
-              <p className="text-sm text-gray-900">{swimmer?.level}</p>
-            </div>
             <div>
               <p className="text-xs text-gray-500">Age</p>
               <p className="text-sm text-gray-900">

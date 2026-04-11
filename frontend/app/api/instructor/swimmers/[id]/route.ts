@@ -28,7 +28,6 @@ interface SwimmerProfilePayload {
     id: string;
     name: string;
     age: number | null;
-    level: string;
     enrollmentDate: string;
     guardianName: string;
     guardianEmail: string;
@@ -320,7 +319,7 @@ async function buildSwimmerProfileFallback(email: string, memberId: string): Pro
 
   const { data: member, error: memberError } = await supabaseAdmin
     .from('member')
-    .select('member_id, organization_id, first_name, last_name, level, date_of_birth, created_at')
+    .select('member_id, organization_id, first_name, last_name, date_of_birth, created_at')
     .eq('member_id', memberId)
     .maybeSingle();
 
@@ -334,9 +333,9 @@ async function buildSwimmerProfileFallback(email: string, memberId: string): Pro
 
   const { data: classRows, error: classRowsError } = sharedClassIds.length
     ? await supabaseAdmin
-        .from('class_entity')
-        .select('class_id, name, schedule')
-        .in('class_id', sharedClassIds)
+      .from('class_entity')
+      .select('class_id, name, schedule')
+      .in('class_id', sharedClassIds)
     : { data: [], error: null };
 
   if (classRowsError) {
@@ -474,7 +473,6 @@ async function buildSwimmerProfileFallback(email: string, memberId: string): Pro
       id: member.member_id,
       name: `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim(),
       age: calculateAge(member.date_of_birth),
-      level: member.level ?? 'Unassigned level',
       enrollmentDate: formatDate(member.created_at) ?? '',
       guardianName: firstGuardian?.name ?? 'No guardian on file',
       guardianEmail: firstGuardian?.email ?? '',
@@ -521,8 +519,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         : errorMessage.startsWith('UNAUTHORIZED:')
           ? 401
           : errorMessage === 'Missing instructor email'
-          ? 400
-          : 400;
+            ? 400
+            : 400;
       return NextResponse.json(
         {
           error: errorMessage
@@ -789,15 +787,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       })),
       ...(trimmedNote
         ? [
-            {
-              instructor_person_id: instructor.person_id,
-              member_id: memberId,
-              class_id: classId ?? null,
-              skill_id: null,
-              feedback: trimmedNote,
-              evaluation_date: evaluationDate,
-            },
-          ]
+          {
+            instructor_person_id: instructor.person_id,
+            member_id: memberId,
+            class_id: classId ?? null,
+            skill_id: null,
+            feedback: trimmedNote,
+            evaluation_date: evaluationDate,
+          },
+        ]
         : []),
     ];
 

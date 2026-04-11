@@ -36,8 +36,7 @@ as $$
   member_base as (
     select
       m.member_id,
-      trim(concat_ws(' ', m.first_name, m.last_name)) as name,
-      coalesce(m.level, 'Unassigned level') as level
+      trim(concat_ws(' ', m.first_name, m.last_name)) as name
     from linked_members lm
     join member m on m.member_id = lm.member_id
   ),
@@ -64,7 +63,6 @@ as $$
         jsonb_build_object(
           'id', mb.member_id,
           'name', mb.name,
-          'level', mb.level,
           'nextSession', coalesce(mns.next_session, 'No upcoming session'),
           'classIds', coalesce(to_jsonb(mci.class_ids), '[]'::jsonb)
         )

@@ -30,7 +30,6 @@ const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v2:";
 interface SwimmerCard {
   id: string;
   name: string;
-  level: string;
   nextSession: string;
   classIds: string[];
 }
@@ -61,7 +60,6 @@ interface DashboardPayload {
         id: string;
         name: string;
         age: number | null;
-        level: string;
         enrollmentDate: string;
         organization: string;
       };
@@ -150,10 +148,7 @@ export default function AccountDashboard() {
       ) as Record<string, SkillItem[]>;
     }
 
-    function seedProfileCaches(
-      authUserId: string,
-      payload: DashboardPayload,
-    ) {
+    function seedProfileCaches(authUserId: string, payload: DashboardPayload) {
       Object.entries(payload.profilesBySwimmer ?? {}).forEach(
         ([memberId, profile]) => {
           const profileCacheKey = `${SWIMMER_PROFILE_CACHE_PREFIX}${authUserId}:${memberId}`;
@@ -460,9 +455,6 @@ export default function AccountDashboard() {
                             <p className="break-words text-sm font-semibold text-gray-900">
                               {swimmer.name}
                             </p>
-                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                              {swimmer.level}
-                            </span>
                             <span
                               role="button"
                               tabIndex={0}
