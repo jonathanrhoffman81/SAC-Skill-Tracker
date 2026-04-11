@@ -15,6 +15,7 @@ import InstructorManager from "@/components/InstructorManager";
 import ClassManager from "@/components/ClassManager";
 import InstructorAssignmentManager from "@/components/InstructorAssignmentManager";
 import ImportRoster from "@/components/ImportRoster";
+import ImportClasses from "@/components/ImportClasses";
 import LogoManage from "@/components/LogoManage";
 import SessionManager from "@/components/SessionManager";
 
@@ -45,7 +46,13 @@ interface EntityState {
 }
 
 type EntityType = "skills" | "instructors" | "swimmers" | "parents" | "classes";
-type Tab = EntityType | "roster" | "admins" | "assignments" | "settings" | "sessions";
+type Tab =
+  | EntityType
+  | "roster"
+  | "admins"
+  | "assignments"
+  | "settings"
+  | "sessions";
 
 interface OrgPerson {
   person_id: string;
@@ -365,21 +372,21 @@ function EntityEditor({
   const deduplicatedList =
     type === "swimmers"
       ? Array.from(
-        new Map(
-          state.list.map((item) => {
-            const displayName = config.displayName(item);
-            return [displayName.toLowerCase(), item];
-          }),
-        ).values(),
-      )
+          new Map(
+            state.list.map((item) => {
+              const displayName = config.displayName(item);
+              return [displayName.toLowerCase(), item];
+            }),
+          ).values(),
+        )
       : state.list;
 
   // Filter list by name if searching
   const filteredList = searchFilter.trim()
     ? deduplicatedList.filter((item) => {
-      const displayName = config.displayName(item).toLowerCase();
-      return displayName.includes(searchFilter.toLowerCase());
-    })
+        const displayName = config.displayName(item).toLowerCase();
+        return displayName.includes(searchFilter.toLowerCase());
+      })
     : deduplicatedList;
 
   return (
@@ -588,6 +595,7 @@ export default function AdminDashboard() {
   const [demotingAdmin, setDemotingAdmin] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [importTab, setImportTab] = useState<"roster" | "classes">("roster");
   const [demoteConfirmDialog, setDemoteConfirmDialog] = useState<{
     show: boolean;
     personId: string | null;
@@ -613,7 +621,7 @@ export default function AdminDashboard() {
       try {
         const headers = await createAuthenticatedHeaders();
 
-        const res = await fetch(`/api/admin/get-logo`, {
+        const res = await fetch(`/api/public/get-logo`, {
           headers,
         });
 
@@ -632,7 +640,6 @@ export default function AdminDashboard() {
 
     fetchLogo();
   }, []);
-
 
   const getInitials = (name: string) =>
     name
@@ -701,11 +708,10 @@ export default function AdminDashboard() {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
-      } catch { }
+      } catch {}
       fetchStats();
     })();
   }, []);
-
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -1065,8 +1071,9 @@ export default function AdminDashboard() {
       )}
 
       <aside
-        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "translate-x-full"
-          }`}
+        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${
+          sidebarVisible ? "translate-x-0" : "translate-x-full"
+        }`}
         aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
@@ -1079,8 +1086,18 @@ export default function AdminDashboard() {
             className="rounded-full p-2 text-gray-500 hover:bg-gray-100 focus:outline-none"
             aria-label="Close menu"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -1094,10 +1111,11 @@ export default function AdminDashboard() {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
-                ? "bg-gray-100 text-gray-900"
-                : "text-gray-700 hover:bg-gray-50"
-                }`}
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${
+                activeTab === tab.id
+                  ? "bg-gray-100 text-gray-900"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
               <span>{tab.label}</span>
@@ -1109,15 +1127,27 @@ export default function AdminDashboard() {
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
             <span>Log out</span>
           </button>
         </div>
       </aside>
 
-      <div className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pr-72" : ""}`}>
+      <div
+        className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pr-72" : ""}`}
+      >
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -1139,19 +1169,30 @@ export default function AdminDashboard() {
                     stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                    />
                   </svg>
                 )}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">{stats?.organizationName || "SAC Skill Tracker"}</p>
-                <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">Administrator Dashboard</p>
+                <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
+                  {stats?.organizationName || "SAC Skill Tracker"}
+                </p>
+                <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">
+                  Administrator Dashboard
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="hidden text-right lg:block">
                 <p className="text-sm font-medium text-gray-900">{userName}</p>
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Administrator</span>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                  Administrator
+                </span>
               </div>
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
                 {getInitials(userName)}
@@ -1169,8 +1210,18 @@ export default function AdminDashboard() {
                         : "Open menu"
                   }
                 >
-                  <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  <svg
+                    className="h-4 w-4 sm:h-5 sm:w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 6h16M4 12h16M4 18h16"
+                    />
                   </svg>
                 </button>
               )}
@@ -1192,26 +1243,54 @@ export default function AdminDashboard() {
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
-                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 mt-0.5 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                   <div className="min-w-0">
-                    <p className="text-xs sm:text-sm font-medium text-red-800">Failed to load statistics</p>
-                    <p className="text-[10px] sm:text-xs text-red-700 mt-0.5 sm:mt-1 break-words">{error}</p>
+                    <p className="text-xs sm:text-sm font-medium text-red-800">
+                      Failed to load statistics
+                    </p>
+                    <p className="text-[10px] sm:text-xs text-red-700 mt-0.5 sm:mt-1 break-words">
+                      {error}
+                    </p>
                   </div>
                 </div>
-                <button onClick={() => window.location.reload()} className="text-[10px] sm:text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition-colors whitespace-nowrap flex-shrink-0">Retry</button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="text-[10px] sm:text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition-colors whitespace-nowrap flex-shrink-0"
+                >
+                  Retry
+                </button>
               </div>
             </div>
           )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 md:gap-4">
             {statCards.map((stat) => (
-              <div key={stat.label} className="bg-white rounded-lg sm:rounded-xl border border-gray-200 p-3 sm:p-4 md:p-5 shadow-sm">
-                <p className="text-[10px] sm:text-xs md:text-sm text-gray-500 mb-1 truncate">{stat.label}</p>
+              <div
+                key={stat.label}
+                className="bg-white rounded-lg sm:rounded-xl border border-gray-200 p-3 sm:p-4 md:p-5 shadow-sm"
+              >
+                <p className="text-[10px] sm:text-xs md:text-sm text-gray-500 mb-1 truncate">
+                  {stat.label}
+                </p>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-1 sm:gap-2">
-                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900">{stat.value}</p>
-                  <div className="[&>svg]:w-6 [&>svg]:h-6 sm:[&>svg]:w-7 sm:[&>svg]:h-7 md:[&>svg]:w-8 md:[&>svg]:h-8 lg:[&>svg]:w-9 lg:[&>svg]:h-9 flex-shrink-0">{stat.icon}</div>
+                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900">
+                    {stat.value}
+                  </p>
+                  <div className="[&>svg]:w-6 [&>svg]:h-6 sm:[&>svg]:w-7 sm:[&>svg]:h-7 md:[&>svg]:w-8 md:[&>svg]:h-8 lg:[&>svg]:w-9 lg:[&>svg]:h-9 flex-shrink-0">
+                    {stat.icon}
+                  </div>
                 </div>
               </div>
             ))}
@@ -1219,18 +1298,61 @@ export default function AdminDashboard() {
 
           {activeTab === "roster" && (
             <div className="w-full min-h-[60vh]">
-              <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
-                <div className="p-4 sm:p-6 flex items-center justify-between border-b border-gray-100">
-                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">
-                    Import from SportsEngine
-                  </h2>
-                </div>
+              {/* Tabs */}
+              <div className="flex border-b border-gray-200 mb-4">
+                <button
+                  onClick={() => setImportTab("roster")}
+                  className={`px-4 py-2 text-sm font-medium ${
+                    importTab === "roster"
+                      ? "border-b-2 border-blue-600 text-blue-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  Import Roster
+                </button>
 
-                <ImportRoster
-                  organizationId={stats?.organizationId}
-                  onImportComplete={() => fetchStats()}
-                />
+                <button
+                  onClick={() => setImportTab("classes")}
+                  className={`px-4 py-2 text-sm font-medium ${
+                    importTab === "classes"
+                      ? "border-b-2 border-blue-600 text-blue-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  Import Classes
+                </button>
               </div>
+
+              {/* Content */}
+              {importTab === "roster" && (
+                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                  <div className="p-4 sm:p-6 border-b border-gray-100">
+                    <h2 className="text-base sm:text-lg font-semibold text-gray-900">
+                      Import from SportsEngine
+                    </h2>
+                  </div>
+
+                  <ImportRoster
+                    organizationId={stats?.organizationId}
+                    onImportComplete={() => fetchStats()}
+                  />
+                </div>
+              )}
+
+              {importTab === "classes" && (
+                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                  <div className="p-4 sm:p-6 border-b border-gray-100">
+                    <h2 className="text-base sm:text-lg font-semibold text-gray-900">
+                      Import Classes
+                    </h2>
+                  </div>
+
+                  <ImportClasses
+                    organizationId={stats?.organizationId}
+                    onImportComplete={() => fetchStats()}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -1259,7 +1381,9 @@ export default function AdminDashboard() {
                   <div className="flex gap-2">
                     <select
                       value={selectedAdminCandidate}
-                      onChange={(e) => setSelectedAdminCandidate(e.target.value)}
+                      onChange={(e) =>
+                        setSelectedAdminCandidate(e.target.value)
+                      }
                       className="flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     >
                       <option value="">Select an instructor...</option>
@@ -1279,7 +1403,8 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                   <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5 sm:mt-2">
-                    Promoting keeps instructor permissions and adds admin permissions.
+                    Promoting keeps instructor permissions and adds admin
+                    permissions.
                   </p>
                 </div>
 
@@ -1319,7 +1444,9 @@ export default function AdminDashboard() {
                             className="px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                             title="Demote to instructor"
                           >
-                            {demotingAdmin === person.person_id ? "Demoting..." : "Demote"}
+                            {demotingAdmin === person.person_id
+                              ? "Demoting..."
+                              : "Demote"}
                           </button>
                         </div>
                       ))}
@@ -1337,7 +1464,8 @@ export default function AdminDashboard() {
                       <span className="font-medium">
                         {demoteConfirmDialog.personName}
                       </span>
-                      ? They will keep instructor permissions but lose admin access.
+                      ? They will keep instructor permissions but lose admin
+                      access.
                     </p>
                     <div className="mt-3 flex justify-end gap-2">
                       <button
@@ -1365,7 +1493,11 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          <div className={activeTab === "instructors" ? "w-full min-h-[60vh]" : "hidden"}>
+          <div
+            className={
+              activeTab === "instructors" ? "w-full min-h-[60vh]" : "hidden"
+            }
+          >
             <InstructorManager
               onRefresh={() => {
                 fetchStats();
@@ -1374,7 +1506,11 @@ export default function AdminDashboard() {
             />
           </div>
 
-          <div className={activeTab === "classes" ? "w-full min-h-[60vh]" : "hidden"}>
+          <div
+            className={
+              activeTab === "classes" ? "w-full min-h-[60vh]" : "hidden"
+            }
+          >
             <ClassManager
               onRefresh={() => {
                 fetchStats();
@@ -1383,11 +1519,19 @@ export default function AdminDashboard() {
             />
           </div>
 
-          <div className={activeTab === "sessions" ? "w-full min-h-[60vh]" : "hidden"}>
+          <div
+            className={
+              activeTab === "sessions" ? "w-full min-h-[60vh]" : "hidden"
+            }
+          >
             <SessionManager onRefresh={fetchStats} />
           </div>
 
-          <div className={activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"}>
+          <div
+            className={
+              activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"
+            }
+          >
             <InstructorAssignmentManager />
           </div>
 
@@ -1414,7 +1558,9 @@ export default function AdminDashboard() {
                         ...prev[activeTab as EntityType],
                         editingId: item.id,
                         editingName:
-                          ENTITY_CONFIG[activeTab as EntityType].displayName(item),
+                          ENTITY_CONFIG[activeTab as EntityType].displayName(
+                            item,
+                          ),
                       },
                     }))
                   }
@@ -1454,10 +1600,11 @@ export default function AdminDashboard() {
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${toast.type === "success"
-                  ? "bg-green-50 border-green-200 text-green-800"
-                  : "bg-red-50 border-red-200 text-red-800"
-                  }`}
+                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
+                  toast.type === "success"
+                    ? "bg-green-50 border-green-200 text-green-800"
+                    : "bg-red-50 border-red-200 text-red-800"
+                }`}
               >
                 {toast.message}
               </div>

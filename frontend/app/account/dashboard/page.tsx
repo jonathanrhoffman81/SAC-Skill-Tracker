@@ -261,19 +261,22 @@ export default function AccountDashboard() {
   useEffect(() => {
     async function fetchLogo() {
       try {
-        const headers = await createAuthenticatedHeaders();
+        // const identity = await getAuthenticatedSessionIdentity();
+        const identity = await getAuthenticatedSessionIdentity();
+        console.log("IDENTITY:", identity);
+        // const orgId = identity.organizationId;
 
-        const res = await fetch("/api/admin/get-logo", {
-          headers,
-        });
+        // const res = await fetch(
+        //   `/api/public/get-logo?orgId=${encodeURIComponent("123")}`,
+        // );
 
-        const data = await res.json();
+        // const data = await res.json();
 
-        if (data.publicUrl) {
-          setLogoUrl(data.publicUrl);
-        } else {
-          setLogoUrl(null);
-        }
+        // if (data.publicUrl) {
+        //   setLogoUrl(data.publicUrl);
+        // } else {
+        //   setLogoUrl(null);
+        // }
       } catch (err) {
         console.error("Failed to fetch logo", err);
         setLogoUrl(null);

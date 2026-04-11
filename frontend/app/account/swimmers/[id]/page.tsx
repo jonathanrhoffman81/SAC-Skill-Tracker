@@ -1,8 +1,3 @@
-/**
- * Parent swimmer detail page
- * Purpose: display swimmer details and session-based progress history for a parent view.
- */
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -11,12 +6,14 @@ import {
   createAuthenticatedHeaders,
   getAuthenticatedSessionIdentity,
 } from "@/lib/clientAuth";
+import CertificatePage from "@/components/CertificateLayout";
 
 interface SwimmerDetail {
   id: string;
   name: string;
   age: number | null;
   enrollmentDate: string;
+  organization: string;
 }
 
 interface NoteItem {
@@ -124,15 +121,10 @@ function getProgressStageLabel(progress: number) {
 
 function getSessionWindowLabel(session: SessionView | null) {
   if (!session) return "";
-  if (session.startDate && session.endDate) {
+  if (session.startDate && session.endDate)
     return `${session.startDate} - ${session.endDate}`;
-  }
-  if (session.endDate) {
-    return `Through ${session.endDate}`;
-  }
-  if (session.startDate) {
-    return `After ${session.startDate}`;
-  }
+  if (session.endDate) return `Through ${session.endDate}`;
+  if (session.startDate) return `After ${session.startDate}`;
   return "Current snapshot";
 }
 
@@ -199,7 +191,6 @@ export default function ParentSwimmerDetail() {
                     cachedProfile.sessions?.[0]?.id ??
                     "",
                 );
-                const profileCacheKey = `${SWIMMER_PROFILE_CACHE_PREFIX}${identity.authUserId}:${swimmerId}`;
                 sessionStorage.setItem(
                   profileCacheKey,
                   JSON.stringify(cachedProfile),
@@ -208,9 +199,7 @@ export default function ParentSwimmerDetail() {
                 setIsLoading(false);
               }
 
-              if (hasCachedData) {
-                return;
-              }
+              if (hasCachedData) return;
 
               const cachedSwimmer = (dashboardCache.swimmers ?? []).find(
                 (item) => item.id === swimmerId,
@@ -221,6 +210,7 @@ export default function ParentSwimmerDetail() {
                   name: cachedSwimmer.name,
                   age: null,
                   enrollmentDate: "",
+                  organization: "",
                 });
                 setSessions([]);
                 setSelectedSessionId("");
@@ -253,7 +243,6 @@ export default function ParentSwimmerDetail() {
         sessionStorage.setItem(profileCacheKey, JSON.stringify(payload));
       } catch (fetchError) {
         if (!isMounted) return;
-
         const message =
           fetchError instanceof Error ? fetchError.message : "Unexpected error";
         if (!hasCachedData) {
@@ -263,26 +252,51 @@ export default function ParentSwimmerDetail() {
           setSelectedSessionId("");
         }
       } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        if (isMounted) setIsLoading(false);
       }
     }
 
     loadSwimmerData();
-
     return () => {
       isMounted = false;
     };
   }, [swimmerId]);
 
-  const selectedSession = useMemo(() => {
-    return (
-      sessions.find((session) => session.id === selectedSessionId) ??
-      sessions[0] ??
-      null
+  const selectedSession = useMemo(
+    () =>
+      sessions.find((s) => s.id === selectedSessionId) ?? sessions[0] ?? null,
+    [selectedSessionId, sessions],
+  );
+
+  const masteredSkills = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; dateAcquired: string }
+    >();
+    sessions.forEach((session) => {
+      session.skills.forEach((skill) => {
+        const done = skill.progress === 4 || Boolean(skill.dateAcquired);
+        if (!done) return;
+        const ex = map.get(skill.id);
+        if (
+          !ex ||
+          (!ex.dateAcquired && skill.dateAcquired) ||
+          (ex.dateAcquired &&
+            skill.dateAcquired &&
+            new Date(skill.dateAcquired) < new Date(ex.dateAcquired))
+        ) {
+          map.set(skill.id, {
+            id: skill.id,
+            name: skill.name,
+            dateAcquired: skill.dateAcquired ?? "",
+          });
+        }
+      });
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
     );
-  }, [selectedSessionId, sessions]);
+  }, [sessions]);
 
   const sessionSkills = selectedSession?.skills ?? [];
   const sessionNotes = selectedSession?.sessionNotes ?? [];
@@ -361,19 +375,9 @@ export default function ParentSwimmerDetail() {
       <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
         <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Swimmer Profile
-              </h3>
-            </div>
-            <button
-              onClick={() =>
-                router.push(`/account/swimmers/${swimmerId}/certificate`)
-              }
-              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
-            >
-              View Certificate
-            </button>
+            <h3 className="text-sm font-semibold text-gray-900">
+              Swimmer Profile
+            </h3>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -396,6 +400,20 @@ export default function ParentSwimmerDetail() {
               </p>
             </div>
           </div>
+
+          <div className="mt-8">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-500">
+                Skill Certificates
+              </p>
+              <p className="text-xs text-gray-400">Click a badge to download</p>
+            </div>
+            <CertificatePage
+              swimmerName={swimmer?.name ?? ""}
+              organization={swimmer?.organization ?? ""}
+              initialSkills={masteredSkills}
+            />
+          </div>
         </section>
 
         <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
@@ -405,7 +423,6 @@ export default function ParentSwimmerDetail() {
                 Session History
               </h3>
             </div>
-
             <div className="w-full lg:max-w-sm">
               <label
                 htmlFor="session-select"
@@ -416,7 +433,7 @@ export default function ParentSwimmerDetail() {
               <select
                 id="session-select"
                 value={selectedSession?.id ?? ""}
-                onChange={(event) => setSelectedSessionId(event.target.value)}
+                onChange={(e) => setSelectedSessionId(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {sessions.map((session) => (
@@ -477,7 +494,6 @@ export default function ParentSwimmerDetail() {
                     </span>
                   )}
                 </div>
-
                 <div className="mt-3 flex flex-wrap gap-2">
                   {sessionClasses.length > 0 ? (
                     sessionClasses.map((classItem) => (
@@ -506,9 +522,7 @@ export default function ParentSwimmerDetail() {
 
         <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">Skills</h3>
-            </div>
+            <h3 className="text-sm font-semibold text-gray-900">Skills</h3>
             <div className="text-left sm:text-right">
               <p className="text-xs text-gray-500">Selected session</p>
               <p className="text-sm font-semibold text-gray-900">
@@ -520,7 +534,6 @@ export default function ParentSwimmerDetail() {
           <div className="mt-5 space-y-4">
             {sessionSkills.map((skill) => {
               const skillNotes = skill.notes ?? [];
-
               return (
                 <article
                   key={skill.id}
@@ -537,7 +550,7 @@ export default function ParentSwimmerDetail() {
                         <span
                           className={`rounded-full px-2 py-0.5 ${getProgressBadgeClass(skill.progress)}`}
                         >
-                          {skill.progress} -{" "}
+                          {skill.progress} —{" "}
                           {getProgressStageLabel(skill.progress)}
                         </span>
                         {skill.dateAcquired && (
@@ -602,7 +615,6 @@ export default function ParentSwimmerDetail() {
               General notes recorded during the selected session.
             </p>
           </div>
-
           <div className="mt-4 space-y-3">
             {sessionNotes.length > 0 ? (
               sessionNotes.map((entry) => (

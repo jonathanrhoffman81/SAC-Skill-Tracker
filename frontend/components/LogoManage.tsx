@@ -19,7 +19,7 @@ export default function LogoManage({
       try {
         const headers = await createAuthenticatedHeaders();
 
-        const res = await fetch("/api/admin/get-logo", {
+        const res = await fetch("/api/public/get-logo", {
           headers,
         });
 
