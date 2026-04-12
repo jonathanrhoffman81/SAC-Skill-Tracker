@@ -4,41 +4,17 @@ import { useEffect, useState } from "react";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
 export default function LogoManage({
-  organizationId,
+  organizationLogoUrl,
 }: {
-  organizationId: string;
+  organizationLogoUrl?: string | null;
 }) {
-  const [preview, setPreview] = useState<string | null>(null);
   const [fileSelected, setFileSelected] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [logoExists, setLogoExists] = useState(false);
 
-  // Load existing logo
-  useEffect(() => {
-    const fetchLogo = async () => {
-      try {
-        const headers = await createAuthenticatedHeaders();
-
-        const res = await fetch("/api/public/get-logo", {
-          headers,
-        });
-
-        const data = await res.json();
-
-        if (data.publicUrl) {
-          setPreview(data.publicUrl);
-          setLogoExists(true);
-        } else {
-          setPreview(null);
-          setLogoExists(false);
-        }
-      } catch (err) {
-        console.error("Failed to fetch logo", err);
-      }
-    };
-
-    fetchLogo();
-  }, []);
+  const preview = fileSelected
+    ? URL.createObjectURL(fileSelected)
+    : organizationLogoUrl || null;
 
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete the logo?")) return;
@@ -55,7 +31,6 @@ export default function LogoManage({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      setPreview(null);
       setFileSelected(null);
       setLogoExists(false);
     } catch (err) {
@@ -84,7 +59,6 @@ export default function LogoManage({
       if (!res.ok) throw new Error(data.error);
 
       if (data.publicUrl) {
-        setPreview(data.publicUrl);
         setFileSelected(null);
         setLogoExists(true);
       }
@@ -138,7 +112,6 @@ export default function LogoManage({
                 return;
               }
               setFileSelected(file);
-              setPreview(URL.createObjectURL(file));
             }
           }}
         />

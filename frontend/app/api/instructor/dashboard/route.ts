@@ -30,6 +30,7 @@ interface DashboardPayload {
   userName: string;
   organizationName: string;
   swimmers: DashboardSwimmerPayload[];
+  organizationLogoUrl: string | null;
   pagination: {
     page: number;
     pageSize: number;
@@ -63,6 +64,15 @@ function buildPagination(page: number, pageSize: number, total: number) {
     hasNextPage: safePage < totalPages,
     hasPreviousPage: safePage > 1,
   };
+}
+
+function getOrganizationLogoUrl(organizationId: string | undefined) {
+  if (!organizationId) return null;
+
+  const baseUrl =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  return `${baseUrl}/storage/v1/object/public/organization-logos/${organizationId}/logo.png`;
 }
 
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set([
@@ -160,6 +170,7 @@ async function buildDashboardFallback(
     return {
       userName,
       organizationName: "SAC Skill Tracker",
+      organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination: buildPagination(page, PAGE_SIZE, 0),
     };
@@ -231,6 +242,7 @@ async function buildDashboardFallback(
     return {
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination: buildPagination(page, PAGE_SIZE, 0),
     };
@@ -280,6 +292,7 @@ async function buildDashboardFallback(
     return {
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination,
     };
@@ -397,6 +410,7 @@ async function buildDashboardFallback(
   return {
     userName,
     organizationName: organization?.name || "SAC Skill Tracker",
+    organizationLogoUrl: getOrganizationLogoUrl(organizationId),
     swimmers,
     pagination,
   };

@@ -27,6 +27,7 @@ interface AdminStats {
   skillLevels: number;
   organizationName: string;
   organizationId: string;
+  organizationLogoUrl?: string | null;
 }
 
 // Generic entity with normalized id field for consistent handling
@@ -594,7 +595,6 @@ export default function AdminDashboard() {
   const [promotingAdmin, setPromotingAdmin] = useState(false);
   const [demotingAdmin, setDemotingAdmin] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [importTab, setImportTab] = useState<"roster" | "classes">("roster");
   const [demoteConfirmDialog, setDemoteConfirmDialog] = useState<{
     show: boolean;
@@ -615,31 +615,6 @@ export default function AdminDashboard() {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 3500);
   };
-
-  useEffect(() => {
-    const fetchLogo = async () => {
-      try {
-        const headers = await createAuthenticatedHeaders();
-
-        const res = await fetch(`/api/public/get-logo`, {
-          headers,
-        });
-
-        const data = await res.json();
-
-        if (data.publicUrl) {
-          setLogoUrl(data.publicUrl);
-        } else {
-          setLogoUrl(null);
-        }
-      } catch (err) {
-        console.error("Error fetching logo:", err);
-        setLogoUrl(null);
-      }
-    };
-
-    fetchLogo();
-  }, []);
 
   const getInitials = (name: string) =>
     name
@@ -1152,9 +1127,9 @@ export default function AdminDashboard() {
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-600 sm:h-9 sm:w-9 sm:rounded-xl">
-                {logoUrl ? (
+                {stats?.organizationLogoUrl ? (
                   <img
-                    src={logoUrl}
+                    src={stats.organizationLogoUrl}
                     alt="Organization Logo"
                     className="h-full w-full object-contain"
                     onError={(e) => {
@@ -1162,7 +1137,7 @@ export default function AdminDashboard() {
                     }}
                   />
                 ) : null}
-                {!logoUrl && (
+                {!stats?.organizationLogoUrl && (
                   <svg
                     className="h-4 w-4 text-white sm:h-5 sm:w-5"
                     fill="none"
@@ -1362,7 +1337,7 @@ export default function AdminDashboard() {
                 <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
-                <LogoManage organizationId={stats.organizationId} />
+                <LogoManage organizationLogoUrl={stats.organizationLogoUrl} />
               </div>
             </div>
           )}
