@@ -23,7 +23,7 @@ interface DashboardPayload {
   swimmers: Array<{
     id: string;
     name: string;
-    nextSession: string;
+    nextClass: string;
     classIds?: string[];
   }>;
   skillsBySwimmer: Record<

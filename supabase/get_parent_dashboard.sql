@@ -1,3 +1,22 @@
+drop view if exists public.member_skill_current;
+
+create view public.member_skill_current as
+select distinct on (ms.member_id, ms.skill_id)
+  ms.member_id,
+  ms.skill_id,
+  ms.progress,
+  ms.date_acquired,
+  ms.updated_by_person_id,
+  ms.updated_at,
+  ms.member_skill_id,
+  ms.evaluation_id
+from public.member_skill ms
+order by
+  ms.member_id,
+  ms.skill_id,
+  ms.updated_at desc,
+  ms.member_skill_id desc;
+
 create or replace function public.get_parent_dashboard(p_email text)
 returns jsonb
 language sql
@@ -40,14 +59,60 @@ as $$
     from linked_members lm
     join member m on m.member_id = lm.member_id
   ),
-  member_next_session as (
-    select distinct on (e.member_id)
+  member_class_candidates as (
+    select
       e.member_id,
-      ce.name || ': ' || coalesce(ce.schedule, 'Schedule TBD') as next_session
+      ce.class_id,
+      ce.name,
+      ce.start_date,
+      ce.end_date,
+      coalesce(
+        nullif(ce.schedule, ''),
+        nullif(
+          trim(
+            concat_ws(
+              ' ',
+              nullif(array_to_string(ce.schedule_days, '/'), ''),
+              nullif(ce.schedule_time, '')
+            )
+          ),
+          ''
+        ),
+        'Schedule TBD'
+      ) as schedule_label
     from enrollment e
     join class_entity ce on ce.class_id = e.class_id
     join member_base mb on mb.member_id = e.member_id
-    order by e.member_id, ce.name, ce.class_id
+  ),
+  member_next_class as (
+    select distinct on (mcc.member_id)
+      mcc.member_id,
+      mcc.name || ': ' || mcc.schedule_label as next_class
+    from member_class_candidates mcc
+    order by
+      mcc.member_id,
+      case
+        when mcc.start_date is not null
+          and mcc.end_date is not null
+          and current_date between mcc.start_date and mcc.end_date
+          then 0
+        when mcc.start_date is not null
+          and mcc.start_date > current_date
+          then 1
+        when mcc.end_date is not null
+          and mcc.end_date < current_date
+          then 2
+        else 3
+      end,
+      case
+        when mcc.start_date is not null
+          and mcc.start_date > current_date
+          then mcc.start_date
+      end asc nulls last,
+      mcc.end_date desc nulls last,
+      mcc.start_date desc nulls last,
+      mcc.name asc,
+      mcc.class_id
   ),
   member_class_ids as (
     select
@@ -63,7 +128,7 @@ as $$
         jsonb_build_object(
           'id', mb.member_id,
           'name', mb.name,
-          'nextSession', coalesce(mns.next_session, 'No upcoming session'),
+          'nextClass', coalesce(mnc.next_class, 'No class enrollment'),
           'classIds', coalesce(to_jsonb(mci.class_ids), '[]'::jsonb)
         )
         order by mb.name asc
@@ -71,7 +136,7 @@ as $$
       '[]'::jsonb
     ) as swimmers
     from member_base mb
-    left join member_next_session mns on mns.member_id = mb.member_id
+    left join member_next_class mnc on mnc.member_id = mb.member_id
     left join member_class_ids mci on mci.member_id = mb.member_id
   ),
   skill_notes_grouped as (
@@ -95,29 +160,31 @@ as $$
   ),
   skills_grouped as (
     select
-      ms.member_id,
+      msc.member_id,
       jsonb_agg(
         jsonb_build_object(
-          'id', ms.skill_id,
+          'id', msc.skill_id,
           'name', coalesce(s.name, 'Unknown skill'),
-          'progress', ms.progress,
+          'progress', msc.progress,
           'mastered', (
-            ms.progress = 4
-            or ms.date_acquired is not null
+            msc.progress = 4
+            or msc.date_acquired is not null
           ),
           'dateAcquired', case
-            when ms.date_acquired is null then null
-            else to_char(ms.date_acquired, 'Mon FMDD, YYYY')
+            when msc.date_acquired is null then null
+            else to_char(msc.date_acquired, 'Mon FMDD, YYYY')
           end,
           'notes', coalesce(sng.notes, '[]'::jsonb)
         )
-        order by ms.progress desc, s.name asc
+        order by msc.progress desc, s.name asc
       ) as skills
-    from member_skill ms
-    left join skill s on s.skill_id = ms.skill_id
-    left join skill_notes_grouped sng on sng.member_id = ms.member_id and sng.skill_id = ms.skill_id
-    join member_base mb on mb.member_id = ms.member_id
-    group by ms.member_id
+    from member_skill_current msc
+    left join skill s on s.skill_id = msc.skill_id
+    left join skill_notes_grouped sng
+      on sng.member_id = msc.member_id
+      and sng.skill_id = msc.skill_id
+    join member_base mb on mb.member_id = msc.member_id
+    group by msc.member_id
   ),
   skills_by_swimmer_json as (
     select coalesce(
