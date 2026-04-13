@@ -103,6 +103,7 @@ export default function InstructorDashboard() {
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [swimmerTab, setSwimmerTab] = useState<"my" | "all">("my");
   const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
+  const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
@@ -412,58 +413,85 @@ export default function InstructorDashboard() {
         )}
 
         {!isLoading && !error && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 sm:p-6">
-            <p className="text-sm font-semibold text-gray-900">
-              Proficiency Rating Instructions
-            </p>
-            <p className="mt-2 text-sm text-gray-700">
-              For each of the skills listed, provide a proficiency rating and
-              comments for the student's progress. To evaluate a swimmer, click
-              on their row to see the dropdown evaluation form.
-            </p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50">
+            <button
+              onClick={() => setIsInstructionsOpen(!isInstructionsOpen)}
+              className="w-full p-4 text-left transition hover:bg-blue-100 sm:p-6"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-gray-900">
+                  Proficiency Rating Instructions
+                </p>
+                <svg
+                  className={`h-5 w-5 flex-shrink-0 transform text-gray-600 transition-transform ${
+                    isInstructionsOpen ? "rotate-180" : ""
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </div>
+            </button>
 
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
-                Proficiency Scale
-              </p>
-              <ul className="mt-3 space-y-2">
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    0
-                  </span>
-                  <span>Unable to attempt the skill</span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    1
-                  </span>
-                  <span>Unable to show skill without significant support</span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    2
-                  </span>
-                  <span>
-                    Inconsistently or with support is able to demonstrate the
-                    skill
-                  </span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    3
-                  </span>
-                  <span>
-                    Consistently demonstrates application of the skill
-                  </span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    4
-                  </span>
-                  <span>Demonstrates complete understanding of the skill</span>
-                </li>
-              </ul>
-            </div>
+            {isInstructionsOpen && (
+              <div className="border-t border-blue-200 px-4 py-4 sm:px-6 sm:py-5">
+                <p className="text-sm text-gray-700">
+                  For each of the skills listed, provide a proficiency rating and
+                  comments for the student's progress. To evaluate a swimmer, click
+                  on their row to see the dropdown evaluation form.
+                </p>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
+                    Proficiency Scale
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    <li className="flex gap-3 text-sm text-gray-700">
+                      <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                        0
+                      </span>
+                      <span>Unable to attempt the skill</span>
+                    </li>
+                    <li className="flex gap-3 text-sm text-gray-700">
+                      <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                        1
+                      </span>
+                      <span>Unable to show skill without significant support</span>
+                    </li>
+                    <li className="flex gap-3 text-sm text-gray-700">
+                      <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                        2
+                      </span>
+                      <span>
+                        Inconsistently or with support is able to demonstrate the
+                        skill
+                      </span>
+                    </li>
+                    <li className="flex gap-3 text-sm text-gray-700">
+                      <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                        3
+                      </span>
+                      <span>
+                        Consistently demonstrates application of the skill
+                      </span>
+                    </li>
+                    <li className="flex gap-3 text-sm text-gray-700">
+                      <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                        4
+                      </span>
+                      <span>Demonstrates complete understanding of the skill</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
