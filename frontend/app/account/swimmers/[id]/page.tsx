@@ -23,50 +23,35 @@ interface NoteItem {
   author: string;
 }
 
-interface SessionClass {
+interface ProgressHistoryItem {
   id: string;
-  name: string;
-  schedule: string;
+  date: string;
+  progress: number;
+  dateAcquired?: string;
 }
 
-interface SessionSkill {
+interface ClassHistorySkill {
   id: string;
   name: string;
   mastered: boolean;
   progress: number;
   dateAcquired?: string;
-  obtainedInSession?: boolean;
+  obtainedInClass?: boolean;
   notes?: NoteItem[];
+  progressHistory?: ProgressHistoryItem[];
 }
 
-interface SessionView {
+interface ClassHistoryView {
   id: string;
+  classId: string | null;
   name: string;
+  schedule: string;
   startDate?: string;
   endDate?: string;
   isCurrent: boolean;
-  isSynthetic: boolean;
-  classes: SessionClass[];
-  skills: SessionSkill[];
-  sessionNotes: NoteItem[];
-  summary: {
-    progressPct: number;
-    masteredCount: number;
-    totalSkills: number;
-    noteCount: number;
-  };
-}
-
-interface SessionView {
-  id: string;
-  name: string;
-  startDate?: string;
-  endDate?: string;
-  isCurrent: boolean;
-  isSynthetic: boolean;
-  classes: SessionClass[];
-  skills: SessionSkill[];
-  sessionNotes: NoteItem[];
+  isGeneral: boolean;
+  skills: ClassHistorySkill[];
+  classNotes: NoteItem[];
   summary: {
     progressPct: number;
     masteredCount: number;
@@ -77,8 +62,8 @@ interface SessionView {
 
 interface SwimmerPayload {
   swimmer: SwimmerDetail;
-  sessions: SessionView[];
-  defaultSessionId: string;
+  classHistories: ClassHistoryView[];
+  defaultClassHistoryId: string;
   error?: string;
 }
 
@@ -90,8 +75,8 @@ interface DashboardCachePayload {
   profilesBySwimmer?: Record<string, SwimmerPayload>;
 }
 
-const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v2:";
-const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:";
+const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v3:";
+const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v3:";
 
 function getInitials(name: string) {
   return name
@@ -119,13 +104,14 @@ function getProgressStageLabel(progress: number) {
   return "Unable to attempt the skill";
 }
 
-function getSessionWindowLabel(session: SessionView | null) {
-  if (!session) return "";
-  if (session.startDate && session.endDate)
-    return `${session.startDate} - ${session.endDate}`;
-  if (session.endDate) return `Through ${session.endDate}`;
-  if (session.startDate) return `After ${session.startDate}`;
-  return "Current snapshot";
+function getClassWindowLabel(classHistory: ClassHistoryView | null) {
+  if (!classHistory) return "";
+  if (classHistory.startDate && classHistory.endDate) {
+    return `${classHistory.startDate} - ${classHistory.endDate}`;
+  }
+  if (classHistory.endDate) return `Through ${classHistory.endDate}`;
+  if (classHistory.startDate) return `After ${classHistory.startDate}`;
+  return classHistory.isGeneral ? "General history" : "Dates TBD";
 }
 
 export default function ParentSwimmerDetail() {
@@ -134,8 +120,8 @@ export default function ParentSwimmerDetail() {
   const swimmerId = params.id as string;
 
   const [swimmer, setSwimmer] = useState<SwimmerDetail | null>(null);
-  const [sessions, setSessions] = useState<SessionView[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [classHistories, setClassHistories] = useState<ClassHistoryView[]>([]);
+  const [selectedClassHistoryId, setSelectedClassHistoryId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -159,10 +145,10 @@ export default function ParentSwimmerDetail() {
             ) as SwimmerPayload;
             if (isMounted && cachedPayload.swimmer) {
               setSwimmer(cachedPayload.swimmer);
-              setSessions(cachedPayload.sessions ?? []);
-              setSelectedSessionId(
-                cachedPayload.defaultSessionId ??
-                  cachedPayload.sessions?.[0]?.id ??
+              setClassHistories(cachedPayload.classHistories ?? []);
+              setSelectedClassHistoryId(
+                cachedPayload.defaultClassHistoryId ??
+                  cachedPayload.classHistories?.[0]?.id ??
                   "",
               );
               hasCachedData = true;
@@ -185,10 +171,10 @@ export default function ParentSwimmerDetail() {
                 dashboardCache.profilesBySwimmer?.[swimmerId] ?? null;
               if (isMounted && cachedProfile?.swimmer) {
                 setSwimmer(cachedProfile.swimmer);
-                setSessions(cachedProfile.sessions ?? []);
-                setSelectedSessionId(
-                  cachedProfile.defaultSessionId ??
-                    cachedProfile.sessions?.[0]?.id ??
+                setClassHistories(cachedProfile.classHistories ?? []);
+                setSelectedClassHistoryId(
+                  cachedProfile.defaultClassHistoryId ??
+                    cachedProfile.classHistories?.[0]?.id ??
                     "",
                 );
                 sessionStorage.setItem(
@@ -212,8 +198,8 @@ export default function ParentSwimmerDetail() {
                   enrollmentDate: "",
                   organization: "",
                 });
-                setSessions([]);
-                setSelectedSessionId("");
+                setClassHistories([]);
+                setSelectedClassHistoryId("");
                 hasCachedData = true;
                 setIsLoading(false);
               }
@@ -236,9 +222,9 @@ export default function ParentSwimmerDetail() {
         if (!isMounted) return;
 
         setSwimmer(payload.swimmer ?? null);
-        setSessions(payload.sessions ?? []);
-        setSelectedSessionId(
-          payload.defaultSessionId ?? payload.sessions?.[0]?.id ?? "",
+        setClassHistories(payload.classHistories ?? []);
+        setSelectedClassHistoryId(
+          payload.defaultClassHistoryId ?? payload.classHistories?.[0]?.id ?? "",
         );
         sessionStorage.setItem(profileCacheKey, JSON.stringify(payload));
       } catch (fetchError) {
@@ -248,8 +234,8 @@ export default function ParentSwimmerDetail() {
         if (!hasCachedData) {
           setError(message);
           setSwimmer(null);
-          setSessions([]);
-          setSelectedSessionId("");
+          setClassHistories([]);
+          setSelectedClassHistoryId("");
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -262,10 +248,12 @@ export default function ParentSwimmerDetail() {
     };
   }, [swimmerId]);
 
-  const selectedSession = useMemo(
+  const selectedClassHistory = useMemo(
     () =>
-      sessions.find((s) => s.id === selectedSessionId) ?? sessions[0] ?? null,
-    [selectedSessionId, sessions],
+      classHistories.find((item) => item.id === selectedClassHistoryId) ??
+      classHistories[0] ??
+      null,
+    [selectedClassHistoryId, classHistories],
   );
 
   const masteredSkills = useMemo(() => {
@@ -273,8 +261,8 @@ export default function ParentSwimmerDetail() {
       string,
       { id: string; name: string; dateAcquired: string }
     >();
-    sessions.forEach((session) => {
-      session.skills.forEach((skill) => {
+    classHistories.forEach((classHistory) => {
+      classHistory.skills.forEach((skill) => {
         const done = skill.progress === 4 || Boolean(skill.dateAcquired);
         if (!done) return;
         const ex = map.get(skill.id);
@@ -296,12 +284,11 @@ export default function ParentSwimmerDetail() {
     return Array.from(map.values()).sort((a, b) =>
       a.name.localeCompare(b.name),
     );
-  }, [sessions]);
+  }, [classHistories]);
 
-  const sessionSkills = selectedSession?.skills ?? [];
-  const sessionNotes = selectedSession?.sessionNotes ?? [];
-  const sessionClasses = selectedSession?.classes ?? [];
-  const sessionSummary = selectedSession?.summary ?? {
+  const classSkills = selectedClassHistory?.skills ?? [];
+  const classNotes = selectedClassHistory?.classNotes ?? [];
+  const classSummary = selectedClassHistory?.summary ?? {
     progressPct: 0,
     masteredCount: 0,
     totalSkills: 0,
@@ -394,9 +381,9 @@ export default function ParentSwimmerDetail() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Session Progress</p>
+              <p className="text-xs text-gray-500">Class Progress</p>
               <p className="text-sm font-semibold text-gray-900">
-                {sessionSummary.progressPct}%
+                {classSummary.progressPct}%
               </p>
             </div>
           </div>
@@ -420,33 +407,33 @@ export default function ParentSwimmerDetail() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-gray-900">
-                Session History
+                Class History
               </h3>
             </div>
             <div className="w-full lg:max-w-sm">
               <label
-                htmlFor="session-select"
+                htmlFor="class-history-select"
                 className="mb-1 block text-xs font-medium text-gray-700"
               >
-                Select session
+                Select class
               </label>
               <select
-                id="session-select"
-                value={selectedSession?.id ?? ""}
-                onChange={(e) => setSelectedSessionId(e.target.value)}
+                id="class-history-select"
+                value={selectedClassHistory?.id ?? ""}
+                onChange={(e) => setSelectedClassHistoryId(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name}
-                    {session.isCurrent ? " (Current)" : ""}
+                {classHistories.map((classHistory) => (
+                  <option key={classHistory.id} value={classHistory.id}>
+                    {classHistory.name}
+                    {classHistory.isCurrent ? " (Current)" : ""}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {selectedSession && (
+          {selectedClassHistory && (
             <>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
@@ -454,7 +441,7 @@ export default function ParentSwimmerDetail() {
                     Window
                   </p>
                   <p className="mt-1 text-sm text-gray-900">
-                    {getSessionWindowLabel(selectedSession)}
+                    {getClassWindowLabel(selectedClassHistory)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
@@ -462,7 +449,7 @@ export default function ParentSwimmerDetail() {
                     Skills Acquired
                   </p>
                   <p className="mt-1 text-sm font-semibold text-gray-900">
-                    {sessionSummary.masteredCount}/{sessionSummary.totalSkills}
+                    {classSummary.masteredCount}/{classSummary.totalSkills}
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
@@ -470,7 +457,7 @@ export default function ParentSwimmerDetail() {
                     Progress
                   </p>
                   <p className="mt-1 text-sm font-semibold text-gray-900">
-                    {sessionSummary.progressPct}%
+                    {classSummary.progressPct}%
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
@@ -478,7 +465,7 @@ export default function ParentSwimmerDetail() {
                     Notes
                   </p>
                   <p className="mt-1 text-sm font-semibold text-gray-900">
-                    {sessionSummary.noteCount}
+                    {classSummary.noteCount}
                   </p>
                 </div>
               </div>
@@ -486,34 +473,21 @@ export default function ParentSwimmerDetail() {
               <div className="mt-5">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="text-sm font-semibold text-gray-900">
-                    Classes in this session
+                    Class details
                   </h4>
-                  {selectedSession.isSynthetic && (
+                  {selectedClassHistory.isGeneral && (
                     <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                      Current snapshot
+                      General history
                     </span>
                   )}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {sessionClasses.length > 0 ? (
-                    sessionClasses.map((classItem) => (
-                      <div
-                        key={classItem.id}
-                        className="rounded-full border border-gray-200 bg-gray-50 px-3 py-2"
-                      >
-                        <p className="text-xs font-medium text-gray-900">
-                          {classItem.name}
-                        </p>
-                        <p className="text-[11px] text-gray-500">
-                          {classItem.schedule}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-gray-500">
-                      No classes are linked to this session yet.
-                    </p>
-                  )}
+                <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
+                  <p className="text-xs font-medium text-gray-900">
+                    {selectedClassHistory.name}
+                  </p>
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    {selectedClassHistory.schedule}
+                  </p>
                 </div>
               </div>
             </>
@@ -524,16 +498,17 @@ export default function ParentSwimmerDetail() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Skills</h3>
             <div className="text-left sm:text-right">
-              <p className="text-xs text-gray-500">Selected session</p>
+              <p className="text-xs text-gray-500">Selected class</p>
               <p className="text-sm font-semibold text-gray-900">
-                {selectedSession?.name ?? "No session selected"}
+                {selectedClassHistory?.name ?? "No class selected"}
               </p>
             </div>
           </div>
 
           <div className="mt-5 space-y-4">
-            {sessionSkills.map((skill) => {
+            {classSkills.map((skill) => {
               const skillNotes = skill.notes ?? [];
+              const progressHistory = skill.progressHistory ?? [];
               return (
                 <article
                   key={skill.id}
@@ -558,12 +533,59 @@ export default function ParentSwimmerDetail() {
                             Obtained on {skill.dateAcquired}
                           </span>
                         )}
-                        {skill.obtainedInSession && (
+                        {skill.obtainedInClass && (
                           <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">
-                            Obtained in this session
+                            {selectedClassHistory?.isGeneral
+                              ? "Obtained in general history"
+                              : "Obtained in this class"}
                           </span>
                         )}
                       </div>
+                      <details className="group mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-gray-700">
+                          <span>
+                            Progress history ({progressHistory.length})
+                          </span>
+                          <span className="text-[11px] font-medium text-blue-600 group-open:hidden">
+                            Show
+                          </span>
+                          <span className="hidden text-[11px] font-medium text-blue-600 group-open:inline">
+                            Hide
+                          </span>
+                        </summary>
+
+                        <div className="mt-3 space-y-2">
+                          {progressHistory.length > 0 ? (
+                            progressHistory.map((entry) => (
+                              <div
+                                key={entry.id}
+                                className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
+                              >
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 ${getProgressBadgeClass(entry.progress)}`}
+                                  >
+                                    {entry.progress} -{" "}
+                                    {getProgressStageLabel(entry.progress)}
+                                  </span>
+                                  <span className="text-gray-500">
+                                    {entry.date}
+                                  </span>
+                                  {entry.dateAcquired && (
+                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                                      Obtained on {entry.dateAcquired}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-500">
+                              No progress changes recorded for this skill yet.
+                            </p>
+                          )}
+                        </div>
+                      </details>
                     </div>
                   </div>
 
@@ -589,7 +611,7 @@ export default function ParentSwimmerDetail() {
                         ))
                       ) : (
                         <p className="text-sm text-gray-500">
-                          No notes for this skill in the selected session.
+                          No notes for this skill in the selected class.
                         </p>
                       )}
                     </div>
@@ -598,9 +620,9 @@ export default function ParentSwimmerDetail() {
               );
             })}
 
-            {sessionSkills.length === 0 && (
+            {classSkills.length === 0 && (
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
-                No skills are available for this session yet.
+                No skills are available for this class yet.
               </div>
             )}
           </div>
@@ -609,15 +631,15 @@ export default function ParentSwimmerDetail() {
         <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
           <div>
             <h4 className="text-sm font-semibold text-gray-900">
-              Session Notes
+              Class Notes
             </h4>
             <p className="mt-1 text-xs text-gray-500">
-              General notes recorded during the selected session.
+              General notes recorded for the selected class.
             </p>
           </div>
           <div className="mt-4 space-y-3">
-            {sessionNotes.length > 0 ? (
-              sessionNotes.map((entry) => (
+            {classNotes.length > 0 ? (
+              classNotes.map((entry) => (
                 <div
                   key={entry.id}
                   className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3"
@@ -633,7 +655,7 @@ export default function ParentSwimmerDetail() {
               ))
             ) : (
               <p className="text-sm text-gray-500">
-                No general session notes recorded for this session.
+                No general notes recorded for this class.
               </p>
             )}
           </div>
