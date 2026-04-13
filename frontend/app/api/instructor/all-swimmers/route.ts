@@ -24,6 +24,7 @@ interface DashboardSwimmerPayload {
   name: string;
   classes: DashboardClassPayload[];
   skills: DashboardSkillPayload[];
+  needsEvaluation?: boolean; // determined by if a class is over
 }
 
 interface DashboardPayload {
@@ -191,6 +192,14 @@ export async function GET(request: NextRequest) {
       } as DashboardPayload);
     }
 
+    // GET INSTRUCTOR'S GROUPS
+    const { data: instructorGroups } = await supabaseAdmin
+      .from("group_instructor")
+      .select("group_id")
+      .eq("instructor_person_id", person.person_id);
+
+    const instructorGroupIds = new Set(instructorGroups?.map(g => g.group_id) || []);
+
     // Get organization info
     const { data: organization, error: organizationError } = await supabaseAdmin
       .from("organization")
@@ -334,7 +343,7 @@ export async function GET(request: NextRequest) {
       try {
         enrollments = await batchQuery(
           "enrollment",
-          "member_id, class_id",
+          "member_id, class_id, group_id", // Add group_id here
           memberIds,
           "member_id",
         );
@@ -363,7 +372,7 @@ export async function GET(request: NextRequest) {
       try {
         classes = await batchQuery(
           "class_entity",
-          "class_id, name, schedule",
+          "class_id, name, schedule, end_date",
           classIds,
           "class_id",
         );
@@ -413,6 +422,29 @@ export async function GET(request: NextRequest) {
     });
 
     const swimmers: DashboardSwimmerPayload[] = members.map((member) => {
+      
+      // 1. Get enrollments specific to THIS swimmer
+      const memberEnrollments = enrollments.filter(e => e.member_id === member.member_id);
+
+      // 2. Determine if the swimmer needs an evaluation
+      const needsEvaluation = memberEnrollments.some(enrol => {
+        const classData = classes.find(c => c.class_id === enrol.class_id);
+        
+        // Safety check: Is the instructor authorized for this specific group?
+        const isMySection = instructorGroupIds.has(enrol.group_id);
+        
+        if (!classData?.end_date || !isMySection) return false;
+
+        // Date Calculation logic
+        const endDate = new Date(classData.end_date);
+        const today = new Date();
+        const diffTime = endDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        // True if class ends in 3 days or ended in the last 7 days
+        return diffDays <= 3 && diffDays >= -7;
+      });
+
       const memberSkills: DashboardSkillPayload[] = (orgSkills ?? []).map(
         (skill) => {
           const memberSkill = memberSkillByKey.get(
@@ -429,7 +461,7 @@ export async function GET(request: NextRequest) {
           };
         },
       );
-
+ 
       return {
         id: member.member_id,
         name:
@@ -437,6 +469,7 @@ export async function GET(request: NextRequest) {
           "Unnamed swimmer",
         classes: classesByMemberId.get(member.member_id) ?? [],
         skills: memberSkills,
+        needsEvaluation,
       };
     });
 
