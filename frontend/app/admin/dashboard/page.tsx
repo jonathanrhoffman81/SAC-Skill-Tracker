@@ -17,7 +17,6 @@ import InstructorAssignmentManager from "@/components/InstructorAssignmentManage
 import ImportRoster from "@/components/ImportRoster";
 import ImportClasses from "@/components/ImportClasses";
 import LogoManage from "@/components/LogoManage";
-import SessionManager from "@/components/SessionManager";
 
 // Dashboard statistics from admin API
 interface AdminStats {
@@ -51,8 +50,7 @@ type Tab =
   | "roster"
   | "admins"
   | "assignments"
-  | "settings"
-  | "sessions";
+  | "settings";
 
 interface OrgPerson {
   person_id: string;
@@ -265,25 +263,6 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
-    id: "sessions",
-    label: "Sessions",
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-        />
-      </svg>
-    ),
-  },
-  {
     id: "roster",
     label: "Import CSV",
     icon: (
@@ -372,21 +351,21 @@ function EntityEditor({
   const deduplicatedList =
     type === "swimmers"
       ? Array.from(
-          new Map(
-            state.list.map((item) => {
-              const displayName = config.displayName(item);
-              return [displayName.toLowerCase(), item];
-            }),
-          ).values(),
-        )
+        new Map(
+          state.list.map((item) => {
+            const displayName = config.displayName(item);
+            return [displayName.toLowerCase(), item];
+          }),
+        ).values(),
+      )
       : state.list;
 
   // Filter list by name if searching
   const filteredList = searchFilter.trim()
     ? deduplicatedList.filter((item) => {
-        const displayName = config.displayName(item).toLowerCase();
-        return displayName.includes(searchFilter.toLowerCase());
-      })
+      const displayName = config.displayName(item).toLowerCase();
+      return displayName.includes(searchFilter.toLowerCase());
+    })
     : deduplicatedList;
 
   return (
@@ -618,20 +597,17 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const fetchLogo = async () => {
+      if (!stats?.organizationId) {
+        setLogoUrl(null);
+        return;
+      }
+
       try {
-        const headers = await createAuthenticatedHeaders();
-
-        const res = await fetch(`/api/public/get-logo`, {
-          headers,
-        });
-
+        const res = await fetch(
+          `/api/public/get-logo?orgId=${encodeURIComponent(stats.organizationId)}`,
+        );
         const data = await res.json();
-
-        if (data.publicUrl) {
-          setLogoUrl(data.publicUrl);
-        } else {
-          setLogoUrl(null);
-        }
+        setLogoUrl(data?.publicUrl || null);
       } catch (err) {
         console.error("Error fetching logo:", err);
         setLogoUrl(null);
@@ -639,7 +615,7 @@ export default function AdminDashboard() {
     };
 
     fetchLogo();
-  }, []);
+  }, [stats?.organizationId]);
 
   const getInitials = (name: string) =>
     name
@@ -708,7 +684,7 @@ export default function AdminDashboard() {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
-      } catch {}
+      } catch { }
       fetchStats();
     })();
   }, []);
@@ -1071,9 +1047,8 @@ export default function AdminDashboard() {
       )}
 
       <aside
-        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${
-          sidebarVisible ? "translate-x-0" : "translate-x-full"
-        }`}
+        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "translate-x-full"
+          }`}
         aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
@@ -1111,11 +1086,10 @@ export default function AdminDashboard() {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${
-                activeTab === tab.id
-                  ? "bg-gray-100 text-gray-900"
-                  : "text-gray-700 hover:bg-gray-50"
-              }`}
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
+                ? "bg-gray-100 text-gray-900"
+                : "text-gray-700 hover:bg-gray-50"
+                }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
               <span>{tab.label}</span>
@@ -1151,20 +1125,17 @@ export default function AdminDashboard() {
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-600 sm:h-9 sm:w-9 sm:rounded-xl">
+              <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
                 {logoUrl ? (
                   <img
                     src={logoUrl}
                     alt="Organization Logo"
                     className="h-full w-full object-contain"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
+                    onError={() => setLogoUrl(null)}
                   />
-                ) : null}
-                {!logoUrl && (
+                ) : (
                   <svg
-                    className="h-4 w-4 text-white sm:h-5 sm:w-5"
+                    className="h-4 w-4 text-gray-600 sm:h-5 sm:w-5"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1302,22 +1273,20 @@ export default function AdminDashboard() {
               <div className="flex border-b border-gray-200 mb-4">
                 <button
                   onClick={() => setImportTab("roster")}
-                  className={`px-4 py-2 text-sm font-medium ${
-                    importTab === "roster"
-                      ? "border-b-2 border-blue-600 text-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
+                  className={`px-4 py-2 text-sm font-medium ${importTab === "roster"
+                    ? "border-b-2 border-blue-600 text-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                    }`}
                 >
                   Import Roster
                 </button>
 
                 <button
                   onClick={() => setImportTab("classes")}
-                  className={`px-4 py-2 text-sm font-medium ${
-                    importTab === "classes"
-                      ? "border-b-2 border-blue-600 text-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
+                  className={`px-4 py-2 text-sm font-medium ${importTab === "classes"
+                    ? "border-b-2 border-blue-600 text-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                    }`}
                 >
                   Import Classes
                 </button>
@@ -1521,14 +1490,6 @@ export default function AdminDashboard() {
 
           <div
             className={
-              activeTab === "sessions" ? "w-full min-h-[60vh]" : "hidden"
-            }
-          >
-            <SessionManager onRefresh={fetchStats} />
-          </div>
-
-          <div
-            className={
               activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"
             }
           >
@@ -1539,7 +1500,6 @@ export default function AdminDashboard() {
             activeTab !== "admins" &&
             activeTab !== "instructors" &&
             activeTab !== "classes" &&
-            activeTab !== "sessions" &&
             activeTab !== "assignments" &&
             activeTab !== "settings" && (
               <div className="w-full min-h-[60vh]">
@@ -1600,11 +1560,10 @@ export default function AdminDashboard() {
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
-                  toast.type === "success"
-                    ? "bg-green-50 border-green-200 text-green-800"
-                    : "bg-red-50 border-red-200 text-red-800"
-                }`}
+                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${toast.type === "success"
+                  ? "bg-green-50 border-green-200 text-green-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+                  }`}
               >
                 {toast.message}
               </div>

@@ -1,14 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { getCurrentPersonFromRequest } from "@/lib/serverAuth";
+
+async function resolveOrgIdFromRequest(req: NextRequest, orgId: string | null) {
+  if (orgId) return orgId;
+
+  const person = await getCurrentPersonFromRequest(req);
+  if (!person?.personId) return null;
+
+  const supabase = getSupabaseAdminClient();
+  const { data: personOrg, error } = await supabase
+    .from("person_organization")
+    .select("organization_id")
+    .eq("person_id", person.personId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error resolving organization for logo:", error);
+    return null;
+  }
+
+  return personOrg?.organization_id ?? null;
+}
 
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseAdminClient();
 
-    const orgId = req.nextUrl.searchParams.get("orgId");
+    const requestedOrgId = req.nextUrl.searchParams.get("orgId");
+    const orgId = await resolveOrgIdFromRequest(req, requestedOrgId);
 
     if (!orgId) {
-      return NextResponse.json({ error: "Missing orgId" }, { status: 400 });
+      return NextResponse.json({ publicUrl: null }, { status: 200 });
     }
 
     const filePath = `${orgId}/logo.png`;

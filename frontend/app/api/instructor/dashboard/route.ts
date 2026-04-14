@@ -119,8 +119,7 @@ async function buildDashboardFallback(
 
   const [
     { data: personOrg, error: personOrgError },
-    { data: classAssignments, error: classAssignmentsError },
-    { data: directAssignments, error: directAssignmentsError },
+    { data: instructorGroups, error: instructorGroupsError },
   ] = await Promise.all([
     supabaseAdmin
       .from("person_organization")
@@ -128,12 +127,8 @@ async function buildDashboardFallback(
       .eq("person_id", person.person_id)
       .maybeSingle(),
     supabaseAdmin
-      .from("class_instructor")
-      .select("class_id")
-      .eq("person_id", person.person_id),
-    supabaseAdmin
-      .from("instructor_member_assignment")
-      .select("member_id")
+      .from("group_instructor")
+      .select("group_id")
       .eq("instructor_person_id", person.person_id),
   ]);
 
@@ -143,15 +138,9 @@ async function buildDashboardFallback(
     );
   }
 
-  if (classAssignmentsError) {
+  if (instructorGroupsError) {
     throw new Error(
-      `Failed to load instructor classes: ${classAssignmentsError.message}`,
-    );
-  }
-
-  if (directAssignmentsError) {
-    throw new Error(
-      `Failed to load direct instructor assignments: ${directAssignmentsError.message}`,
+      `Failed to load instructor groups: ${instructorGroupsError.message}`,
     );
   }
 
@@ -177,34 +166,24 @@ async function buildDashboardFallback(
     );
   }
 
-  const classIds = Array.from(
-    new Set((classAssignments ?? []).map((row) => row.class_id)),
-  );
-  const directMemberIds = Array.from(
-    new Set((directAssignments ?? []).map((row) => row.member_id)),
+  const groupIds = Array.from(
+    new Set((instructorGroups ?? []).map((row) => row.group_id)),
   );
 
   const [
     { data: orgSkills, error: orgSkillsError },
-    { data: classes, error: classesError },
-    { data: enrollments, error: enrollmentsError },
+    { data: groupRows, error: groupRowsError },
   ] = await Promise.all([
     supabaseAdmin
       .from("skill")
       .select("skill_id, name")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true }),
-    classIds.length
+    groupIds.length
       ? supabaseAdmin
-          .from("class_entity")
-          .select("class_id, name, schedule")
-          .in("class_id", classIds)
-      : Promise.resolve({ data: [], error: null }),
-    classIds.length
-      ? supabaseAdmin
-          .from("enrollment")
-          .select("member_id, class_id")
-          .in("class_id", classIds)
+        .from("class_group")
+        .select("group_id, class_id, name")
+        .in("group_id", groupIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
@@ -212,19 +191,67 @@ async function buildDashboardFallback(
     throw new Error(`Failed to load skills: ${orgSkillsError.message}`);
   }
 
-  if (classesError) {
-    throw new Error(`Failed to load classes: ${classesError.message}`);
+  if (groupRowsError) {
+    throw new Error(`Failed to load class groups: ${groupRowsError.message}`);
   }
+
+  const allowedSlotsByClassId = new Map<string, Set<number>>();
+  (groupRows ?? []).forEach((row) => {
+    const slotMatch = (row.name ?? "").match(/slot\s*(\d+)/i);
+    if (!slotMatch) return;
+    const slotNumber = Number(slotMatch[1]);
+    if (!Number.isFinite(slotNumber)) return;
+    const existing = allowedSlotsByClassId.get(row.class_id) ?? new Set<number>();
+    existing.add(slotNumber);
+    allowedSlotsByClassId.set(row.class_id, existing);
+  });
+
+  const classIds = Array.from(allowedSlotsByClassId.keys());
+
+  const { data: enrollments, error: enrollmentsError } = classIds.length
+    ? await supabaseAdmin
+      .from("enrollment")
+      .select("member_id, class_id")
+      .in("class_id", classIds)
+    : { data: [], error: null };
 
   if (enrollmentsError) {
     throw new Error(`Failed to load enrollments: ${enrollmentsError.message}`);
   }
 
+  const enrollmentMemberIds = Array.from(
+    new Set((enrollments ?? []).map((row) => row.member_id).filter(Boolean)),
+  );
+
+  const { data: enrollmentMembers, error: enrollmentMembersError } =
+    enrollmentMemberIds.length > 0
+      ? await supabaseAdmin
+        .from("member")
+        .select("member_id, slot")
+        .in("member_id", enrollmentMemberIds)
+      : { data: [], error: null };
+
+  if (enrollmentMembersError) {
+    throw new Error(
+      `Failed to load member slots: ${enrollmentMembersError.message}`,
+    );
+  }
+
+  const slotByMemberId = new Map(
+    (enrollmentMembers ?? []).map((row) => [row.member_id, row.slot]),
+  );
+
+  const accessibleEnrollments = (enrollments ?? []).filter((row) => {
+    if (!row.class_id) return false;
+    const allowedSlots = allowedSlotsByClassId.get(row.class_id);
+    if (!allowedSlots) return false;
+    const memberSlot = slotByMemberId.get(row.member_id);
+    if (memberSlot === null || memberSlot === undefined) return false;
+    return allowedSlots.has(memberSlot);
+  });
+
   const memberIds = Array.from(
-    new Set([
-      ...(enrollments ?? []).map((row) => row.member_id),
-      ...directMemberIds,
-    ]),
+    new Set(accessibleEnrollments.map((row) => row.member_id)),
   );
 
   if (memberIds.length === 0) {
@@ -296,11 +323,13 @@ async function buildDashboardFallback(
     );
   }
 
-  const { data: pagedEnrollments, error: pagedEnrollmentsError } =
-    await supabaseAdmin
+  const { data: pagedEnrollments, error: pagedEnrollmentsError } = classIds.length
+    ? await supabaseAdmin
       .from("enrollment")
       .select("member_id, class_id")
-      .in("member_id", pagedMemberIds);
+      .in("member_id", pagedMemberIds)
+      .in("class_id", classIds)
+    : { data: [], error: null };
 
   if (pagedEnrollmentsError) {
     throw new Error(
@@ -308,8 +337,35 @@ async function buildDashboardFallback(
     );
   }
 
+  const { data: pagedMemberSlots, error: pagedMemberSlotsError } =
+    pagedMemberIds.length > 0
+      ? await supabaseAdmin
+        .from("member")
+        .select("member_id, slot")
+        .in("member_id", pagedMemberIds)
+      : { data: [], error: null };
+
+  if (pagedMemberSlotsError) {
+    throw new Error(
+      `Failed to load member slots: ${pagedMemberSlotsError.message}`,
+    );
+  }
+
+  const pagedSlotByMemberId = new Map(
+    (pagedMemberSlots ?? []).map((row) => [row.member_id, row.slot]),
+  );
+
+  const filteredPagedEnrollments = (pagedEnrollments ?? []).filter((row) => {
+    if (!row.class_id) return false;
+    const allowedSlots = allowedSlotsByClassId.get(row.class_id);
+    if (!allowedSlots) return false;
+    const memberSlot = pagedSlotByMemberId.get(row.member_id);
+    if (memberSlot === null || memberSlot === undefined) return false;
+    return allowedSlots.has(memberSlot);
+  });
+
   const pagedClassIds = Array.from(
-    new Set((pagedEnrollments ?? []).map((row) => row.class_id)),
+    new Set(filteredPagedEnrollments.map((row) => row.class_id)),
   );
   let pagedClasses: Array<{
     class_id: string;
@@ -340,7 +396,7 @@ async function buildDashboardFallback(
   });
 
   const classesByMemberId = new Map<string, DashboardClassPayload[]>();
-  (pagedEnrollments ?? []).forEach((row) => {
+  filteredPagedEnrollments.forEach((row) => {
     const classItem = classById.get(row.class_id);
     if (!classItem) return;
 

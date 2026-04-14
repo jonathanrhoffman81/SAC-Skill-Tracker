@@ -42,28 +42,10 @@ export async function GET(request: NextRequest) {
     if (instructorsError)
       throw new Error("instructors error: " + instructorsError.message);
 
-    // Fetch class assignments, but only for classes that belong to this organization
-    const { data: classLinks, error: classLinksError } = await supabase
-      .from("class_instructor")
-      .select("person_id, class_id, class_entity!inner(organization_id)")
-      .in("person_id", instructorPersonIds)
-      .eq("class_entity.organization_id", orgId);
-
-    if (classLinksError)
-      throw new Error("class links error: " + classLinksError.message);
-
-    const classIdsByPersonId = new Map<string, string[]>();
-    for (const row of classLinks || []) {
-      const existing = classIdsByPersonId.get(row.person_id) || [];
-      existing.push(row.class_id);
-      classIdsByPersonId.set(row.person_id, existing);
-    }
-
     const normalized = (instructors || []).map((inst: any) => ({
       ...inst,
       first_name: inst.first_name || "",
       last_name: inst.last_name || "",
-      class_ids: classIdsByPersonId.get(inst.person_id) || [],
     }));
 
     return NextResponse.json({ instructors: normalized });
@@ -86,7 +68,6 @@ export async function POST(request: NextRequest) {
     const last_name = body.last_name;
     const newEmail = body.new_email || body.email;
     const member_id = body.member_id;
-    const class_ids = body.class_ids;
 
     const supabase = getSupabaseAdminClient();
     const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
@@ -242,22 +223,7 @@ export async function POST(request: NextRequest) {
       targetPersonId = newPerson.person_id;
     }
 
-    // Assign classes if provided
-    if (class_ids && class_ids.length > 0) {
-      const classAssignments = class_ids.map((class_id: string) => ({
-        person_id: targetPersonId,
-        class_id,
-      }));
-
-      const { error: classError } = await supabase
-        .from("class_instructor")
-        .insert(classAssignments);
-
-      if (classError) {
-        console.error("Failed to assign classes:", classError);
-        // Don't fail the whole request, just log it
-      }
-    }
+    // Instructor access is handled via group assignments (group_instructor).
 
     // Fetch and return the created/updated instructor
     const { data: instructor } = await supabase
@@ -339,111 +305,6 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH: Update class assignments for an existing instructor
-export async function PATCH(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const person_id = body.person_id;
-    const class_ids = Array.isArray(body.class_ids) ? body.class_ids : [];
-
-    if (!person_id) {
-      return NextResponse.json(
-        { error: "person_id required" },
-        { status: 400 },
-      );
-    }
-
-    const supabase = getSupabaseAdminClient();
-    const adminContext = await resolveAdminRequestContext(request, supabase, body.admin_email || body.email);
-    const orgId = adminContext.organizationId;
-    if (!orgId)
-      return NextResponse.json(
-        { error: "Failed to find organization" },
-        { status: 500 },
-      );
-
-    const { data: personOrg } = await supabase
-      .from("person_organization")
-      .select("person_organization_id")
-      .eq("person_id", person_id)
-      .eq("organization_id", orgId)
-      .eq("status", "active")
-      .single();
-
-    if (!personOrg) {
-      return NextResponse.json(
-        { error: "Instructor not found in this organization" },
-        { status: 404 },
-      );
-    }
-
-    if (class_ids.length > 0) {
-      const { data: validClasses, error: validClassesError } = await supabase
-        .from("class_entity")
-        .select("class_id")
-        .eq("organization_id", orgId)
-        .in("class_id", class_ids);
-
-      if (validClassesError) {
-        return NextResponse.json(
-          { error: "Failed validating classes: " + validClassesError.message },
-          { status: 500 },
-        );
-      }
-
-      const validIds = new Set(
-        (validClasses || []).map((c: any) => c.class_id),
-      );
-      const invalidIds = class_ids.filter((id: string) => !validIds.has(id));
-
-      if (invalidIds.length > 0) {
-        return NextResponse.json(
-          { error: "One or more classes do not belong to this organization" },
-          { status: 400 },
-        );
-      }
-    }
-
-    const { error: deleteError } = await supabase
-      .from("class_instructor")
-      .delete()
-      .eq("person_id", person_id);
-
-    if (deleteError) {
-      return NextResponse.json(
-        { error: "Failed to clear class assignments: " + deleteError.message },
-        { status: 500 },
-      );
-    }
-
-    if (class_ids.length > 0) {
-      const rows = class_ids.map((class_id: string) => ({
-        person_id,
-        class_id,
-      }));
-      const { error: insertError } = await supabase
-        .from("class_instructor")
-        .insert(rows);
-
-      if (insertError) {
-        return NextResponse.json(
-          {
-            error: "Failed to update class assignments: " + insertError.message,
-          },
-          { status: 500 },
-        );
-      }
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Instructors PATCH error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
-  }
-}
 
 // DELETE: Delete an instructor
 export async function DELETE(request: NextRequest) {

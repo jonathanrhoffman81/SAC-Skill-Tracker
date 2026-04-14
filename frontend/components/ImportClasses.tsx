@@ -1,12 +1,6 @@
 import { useState } from "react";
 import Papa from "papaparse";
 
-type SessionConfig = {
-  name: string;
-  startDate: string;
-  endDate: string;
-};
-
 type SlotConfig = {
   slot: string;
   days: string[];
@@ -25,10 +19,7 @@ export default function ImportClasses({
   const [isLoading, setIsLoading] = useState(false);
 
   const [rows, setRows] = useState<any[]>([]);
-  const [sessions, setSessions] = useState<string[]>([]);
   const [slots, setSlots] = useState<string[]>([]);
-
-  const [sessionConfigs, setSessionConfigs] = useState<SessionConfig[]>([]);
   const [slotConfigs, setSlotConfigs] = useState<Record<string, SlotConfig>>(
     {},
   );
@@ -53,23 +44,10 @@ export default function ImportClasses({
       complete: (results) => {
         const data = results.data as any[];
 
-        const uniqueSessions = Array.from(
-          new Set(data.map((r) => r["Registered Class"])),
-        );
-
         const uniqueSlots = Array.from(new Set(data.map((r) => r["Slot"])));
 
         setRows(data);
-        setSessions(uniqueSessions);
         setSlots(uniqueSlots);
-
-        setSessionConfigs(
-          uniqueSessions.map((s) => ({
-            name: s,
-            startDate: "",
-            endDate: "",
-          })),
-        );
 
         const initialSlotConfigs: Record<string, SlotConfig> = {};
         uniqueSlots.forEach((slot) => {
@@ -112,14 +90,6 @@ export default function ImportClasses({
   const handleUpload = async () => {
     if (!selectedFile || !organizationId) return;
 
-    // basic validation
-    for (const s of sessionConfigs) {
-      if (!s.startDate || !s.endDate) {
-        setErrors([`Missing dates for session: ${s.name}`]);
-        return;
-      }
-    }
-
     setIsLoading(true);
 
     try {
@@ -127,7 +97,6 @@ export default function ImportClasses({
       formData.append("file", selectedFile);
       formData.append("organization_id", organizationId);
 
-      formData.append("sessions", JSON.stringify(sessionConfigs));
       formData.append("slotConfigs", JSON.stringify(slotConfigs));
 
       const res = await fetch("/api/admin/import-classes", {
@@ -175,9 +144,8 @@ export default function ImportClasses({
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-lg sm:rounded-xl p-6 sm:p-10 flex flex-col items-center text-center mb-4 sm:mb-6 transition ${
-            isDragging ? "border-black bg-gray-50" : "border-gray-200"
-          }`}
+          className={`border-2 border-dashed rounded-lg sm:rounded-xl p-6 sm:p-10 flex flex-col items-center text-center mb-4 sm:mb-6 transition ${isDragging ? "border-black bg-gray-50" : "border-gray-200"
+            }`}
         >
           <p className="font-semibold mb-2">Import Classes</p>
 
@@ -198,34 +166,6 @@ export default function ImportClasses({
 
       {step === "configure" && (
         <div className="space-y-6">
-          <p className="font-semibold text-lg">Configure Sessions</p>
-
-          {sessionConfigs.map((s, i) => (
-            <div key={i} className="border p-4 rounded">
-              <p className="font-medium">{s.name}</p>
-
-              <input
-                type="date"
-                value={s.startDate}
-                onChange={(e) => {
-                  const updated = [...sessionConfigs];
-                  updated[i].startDate = e.target.value;
-                  setSessionConfigs(updated);
-                }}
-              />
-
-              <input
-                type="date"
-                value={s.endDate}
-                onChange={(e) => {
-                  const updated = [...sessionConfigs];
-                  updated[i].endDate = e.target.value;
-                  setSessionConfigs(updated);
-                }}
-              />
-            </div>
-          ))}
-
           <p className="font-semibold text-lg">Configure Class Schedules</p>
 
           {slots.map((slot) => {
@@ -240,9 +180,8 @@ export default function ImportClasses({
                     <button
                       key={day}
                       onClick={() => toggleDay(slot, day)}
-                      className={`px-2 py-1 border rounded ${
-                        config.days.includes(day) ? "bg-black text-white" : ""
-                      }`}
+                      className={`px-2 py-1 border rounded ${config.days.includes(day) ? "bg-black text-white" : ""
+                        }`}
                     >
                       {day}
                     </button>

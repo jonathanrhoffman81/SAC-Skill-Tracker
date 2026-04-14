@@ -1,7 +1,7 @@
 /**
  * InstructorManager Component
  * Purpose: Manage instructors - grant role to existing persons or create new instructors
- * Features: Dual mode (existing/new), class assignment, inline editing
+ * Features: Dual mode (existing/new), inline editing
  */
 
 'use client';

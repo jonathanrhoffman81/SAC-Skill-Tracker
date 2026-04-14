@@ -81,13 +81,6 @@ interface EvaluationRow {
   class_id: string | null;
 }
 
-interface SessionRow {
-  session_id: string;
-  organization_id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-}
 
 interface MemberRow {
   member_id: string;
@@ -102,10 +95,10 @@ function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(
-        Number(value.slice(0, 4)),
-        Number(value.slice(5, 7)) - 1,
-        Number(value.slice(8, 10)),
-      )
+      Number(value.slice(0, 4)),
+      Number(value.slice(5, 7)) - 1,
+      Number(value.slice(8, 10)),
+    )
     : new Date(value);
 
   return parsed.toLocaleDateString("en-US", {
@@ -119,10 +112,10 @@ function calculateAge(dateOfBirth?: string | null): number | null {
   if (!dateOfBirth) return null;
   const dob = /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)
     ? new Date(
-        Number(dateOfBirth.slice(0, 4)),
-        Number(dateOfBirth.slice(5, 7)) - 1,
-        Number(dateOfBirth.slice(8, 10)),
-      )
+      Number(dateOfBirth.slice(0, 4)),
+      Number(dateOfBirth.slice(5, 7)) - 1,
+      Number(dateOfBirth.slice(8, 10)),
+    )
     : new Date(dateOfBirth);
   const now = new Date();
   let age = now.getFullYear() - dob.getFullYear();
@@ -175,10 +168,10 @@ function computeSummary(
     totalSkills === 0
       ? 0
       : Math.round(
-          (skills.reduce((total, skill) => total + skill.progress, 0) /
-            (totalSkills * 4)) *
-            100,
-        );
+        (skills.reduce((total, skill) => total + skill.progress, 0) /
+          (totalSkills * 4)) *
+        100,
+      );
   const noteCount =
     sessionNotes.length +
     skills.reduce((total, skill) => total + skill.notes.length, 0);
@@ -367,7 +360,7 @@ export async function buildParentSwimmerProfiles(
     new Set(members.map((member) => member.organization_id)),
   );
 
-  const [organizationResult, orgSkillResult, sessionResult, authorResult] =
+  const [organizationResult, orgSkillResult, authorResult] =
     await Promise.all([
       supabaseAdmin
         .from("organization")
@@ -378,11 +371,6 @@ export async function buildParentSwimmerProfiles(
         .select("skill_id, organization_id, name")
         .in("organization_id", organizationIds)
         .order("name", { ascending: true }),
-      supabaseAdmin
-        .from("organization_session")
-        .select("session_id, organization_id, name, start_date, end_date")
-        .in("organization_id", organizationIds)
-        .order("start_date", { ascending: false }),
       (() => {
         const authorIds = Array.from(
           new Set(
@@ -413,10 +401,6 @@ export async function buildParentSwimmerProfiles(
     );
   }
 
-  if (sessionResult.error) {
-    throw new Error(`Failed to load sessions: ${sessionResult.error.message}`);
-  }
-
   if (authorResult.error) {
     throw new Error(
       `Failed to load note authors: ${authorResult.error.message}`,
@@ -428,18 +412,17 @@ export async function buildParentSwimmerProfiles(
   );
   const { data: classRows, error: classRowsError } = classIds.length
     ? await supabaseAdmin
-        .from("class_entity")
-        .select("class_id, name, schedule, session_id")
-        .in("class_id", classIds)
+      .from("class_entity")
+      .select("class_id, name, schedule")
+      .in("class_id", classIds)
     : {
-        data: [] as Array<{
-          class_id: string;
-          name: string;
-          schedule: string | null;
-          session_id: string | null;
-        }>,
-        error: null,
-      };
+      data: [] as Array<{
+        class_id: string;
+        name: string;
+        schedule: string | null;
+      }>,
+      error: null,
+    };
 
   if (classRowsError) {
     throw new Error(`Failed to load class history: ${classRowsError.message}`);
@@ -460,13 +443,6 @@ export async function buildParentSwimmerProfiles(
     const existing = orgSkillsByOrganizationId.get(row.organization_id) ?? [];
     existing.push({ skill_id: row.skill_id, name: row.name });
     orgSkillsByOrganizationId.set(row.organization_id, existing);
-  });
-
-  const sessionsByOrganizationId = new Map<string, SessionRow[]>();
-  ((sessionResult.data ?? []) as SessionRow[]).forEach((row) => {
-    const existing = sessionsByOrganizationId.get(row.organization_id) ?? [];
-    existing.push(row);
-    sessionsByOrganizationId.set(row.organization_id, existing);
   });
 
   const authorNameById = new Map<string, string>();
@@ -518,7 +494,6 @@ export async function buildParentSwimmerProfiles(
       id: string;
       name: string;
       schedule: string;
-      sessionId: string | null;
     }>
   >();
   (enrollments ?? []).forEach((row) => {
@@ -530,75 +505,19 @@ export async function buildParentSwimmerProfiles(
       id: classRow.class_id,
       name: classRow.name,
       schedule: classRow.schedule ?? "Schedule TBD",
-      sessionId: classRow.session_id,
     });
     classesByMemberId.set(row.member_id, existing);
   });
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-
   members.forEach((member) => {
     const orgSkills =
       orgSkillsByOrganizationId.get(member.organization_id) ?? [];
-    const orgSessions =
-      (sessionsByOrganizationId.get(member.organization_id) ?? []).filter(
-        (session) => session.start_date <= todayIso,
-      ) ?? [];
     const currentSkillById =
       currentSkillByMemberSkill.get(member.member_id) ?? new Map();
     const skillHistoryById =
       skillHistoryByMemberSkill.get(member.member_id) ?? new Map();
     const memberEvaluations = evaluationsByMemberId.get(member.member_id) ?? [];
     const enrolledClasses = classesByMemberId.get(member.member_id) ?? [];
-
-    const classesBySessionId = new Map<string, SessionClassItem[]>();
-    const unassignedClasses: SessionClassItem[] = [];
-    enrolledClasses.forEach((classItem) => {
-      if (classItem.sessionId) {
-        const existing = classesBySessionId.get(classItem.sessionId) ?? [];
-        existing.push({
-          id: classItem.id,
-          name: classItem.name,
-          schedule: classItem.schedule,
-        });
-        classesBySessionId.set(classItem.sessionId, existing);
-      } else {
-        unassignedClasses.push({
-          id: classItem.id,
-          name: classItem.name,
-          schedule: classItem.schedule,
-        });
-      }
-    });
-    classesBySessionId.forEach((classes) =>
-      classes.sort((a, b) => a.name.localeCompare(b.name)),
-    );
-    unassignedClasses.sort((a, b) => a.name.localeCompare(b.name));
-
-    const realSessions = [...orgSessions].sort((a, b) => {
-      const aIsCurrent =
-        a.start_date <= todayIso && a.end_date >= todayIso ? 1 : 0;
-      const bIsCurrent =
-        b.start_date <= todayIso && b.end_date >= todayIso ? 1 : 0;
-
-      if (aIsCurrent !== bIsCurrent) {
-        return bIsCurrent - aIsCurrent;
-      }
-
-      return b.start_date.localeCompare(a.start_date);
-    });
-
-    const latestSessionEndDate = realSessions.reduce<string | null>(
-      (latest, session) =>
-        !latest || session.end_date > latest ? session.end_date : latest,
-      null,
-    );
-
-    const hasCurrentRealSession = realSessions.some(
-      (session) =>
-        session.start_date <= todayIso && session.end_date >= todayIso,
-    );
-
     const buildSessionSkills = (options: {
       cutoffMillis?: number;
       sessionStartDate?: string;
@@ -626,7 +545,7 @@ export async function buildParentSwimmerProfiles(
         const obtainedDate = findSkillObtainedDate(history);
         const visibleObtainedDate =
           obtainedDate &&
-          (!options.sessionEndDate || obtainedDate <= options.sessionEndDate)
+            (!options.sessionEndDate || obtainedDate <= options.sessionEndDate)
             ? obtainedDate
             : null;
 
@@ -651,90 +570,41 @@ export async function buildParentSwimmerProfiles(
       });
     };
 
-    const sessions: SessionPayload[] = realSessions.map((session) => {
-      const noteRows = memberEvaluations.filter((row) =>
-        isDateWithinSession(
-          row.evaluation_date,
-          session.start_date,
-          session.end_date,
-        ),
-      );
+    const classItems = enrolledClasses
+      .map((classItem) => ({
+        id: classItem.id,
+        name: classItem.name,
+        schedule: classItem.schedule,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
-      const sessionNotes = noteRows
-        .filter(
-          (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
-        )
-        .map((row) => buildNoteEntry(row, authorNameById));
+    const sessionNotes = memberEvaluations
+      .filter(
+        (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
+      )
+      .map((row) => buildNoteEntry(row, authorNameById));
 
-      const skills = buildSessionSkills({
-        cutoffMillis: toUtcEndOfDayMillis(session.end_date),
-        sessionStartDate: session.start_date,
-        sessionEndDate: session.end_date,
-        noteRows,
-      });
-
-      const matchingClasses = classesBySessionId.get(session.session_id) ?? [];
-      const fallbackClasses =
-        matchingClasses.length === 0 &&
-        session.start_date <= todayIso &&
-        session.end_date >= todayIso
-          ? unassignedClasses
-          : [];
-      const classes =
-        matchingClasses.length > 0 ? matchingClasses : fallbackClasses;
-
-      return {
-        id: session.session_id,
-        name: session.name,
-        startDate: formatDate(session.start_date),
-        endDate: formatDate(session.end_date),
-        isCurrent:
-          session.start_date <= todayIso && session.end_date >= todayIso,
-        isSynthetic: false,
-        classes,
-        skills,
-        sessionNotes,
-        summary: computeSummary(skills, sessionNotes),
-      };
+    const skills = buildSessionSkills({
+      noteRows: memberEvaluations,
+      fallbackToCurrent: true,
     });
 
-    if (!hasCurrentRealSession) {
-      const syntheticNoteRows = memberEvaluations.filter((row) => {
-        if (!latestSessionEndDate) return true;
-        return row.evaluation_date > latestSessionEndDate;
-      });
-
-      const syntheticSessionNotes = syntheticNoteRows
-        .filter(
-          (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
-        )
-        .map((row) => buildNoteEntry(row, authorNameById));
-
-      const syntheticSkills = buildSessionSkills({
-        noteRows: syntheticNoteRows,
-        fallbackToCurrent: true,
-      });
-
-      sessions.unshift({
-        id: "current-snapshot",
-        name: latestSessionEndDate ? "Current Snapshot" : "Current Progress",
-        startDate: latestSessionEndDate
-          ? formatDate(latestSessionEndDate)
-          : undefined,
+    const sessions: SessionPayload[] = [
+      {
+        id: "current-progress",
+        name: "Current Progress",
+        startDate: undefined,
         endDate: undefined,
         isCurrent: true,
         isSynthetic: true,
-        classes: unassignedClasses,
-        skills: syntheticSkills,
-        sessionNotes: syntheticSessionNotes,
-        summary: computeSummary(syntheticSkills, syntheticSessionNotes),
-      });
-    }
+        classes: classItems,
+        skills,
+        sessionNotes,
+        summary: computeSummary(skills, sessionNotes),
+      },
+    ];
 
-    const defaultSessionId =
-      sessions.find((session) => session.isCurrent)?.id ??
-      sessions[0]?.id ??
-      "current-snapshot";
+    const defaultSessionId = "current-progress";
 
     profileByMemberId.set(member.member_id, {
       swimmer: {

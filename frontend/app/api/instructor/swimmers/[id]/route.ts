@@ -212,19 +212,49 @@ async function instructorCanAccessMember(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabaseAdmin = getSupabaseAdminClient();
 
-  const { data: taughtClasses, error: taughtClassesError } = await supabaseAdmin
-    .from('class_instructor')
-    .select('class_id')
-    .eq('person_id', instructorPersonId);
+  const { data: instructorGroups, error: instructorGroupsError } = await supabaseAdmin
+    .from('group_instructor')
+    .select('group_id')
+    .eq('instructor_person_id', instructorPersonId);
 
-  if (taughtClassesError) {
+  if (instructorGroupsError) {
     return {
       ok: false,
-      error: `Failed to load instructor classes: ${taughtClassesError.message}`,
+      error: `Failed to load instructor groups: ${instructorGroupsError.message}`,
     };
   }
 
-  const taughtClassIds = new Set((taughtClasses ?? []).map((row) => row.class_id));
+  const groupIds = Array.from(new Set((instructorGroups ?? []).map((row) => row.group_id)));
+  if (groupIds.length === 0) {
+    return { ok: false, error: 'You do not have access to this swimmer.' };
+  }
+
+  const { data: groupRows, error: groupRowsError } = await supabaseAdmin
+    .from('class_group')
+    .select('group_id, class_id, name')
+    .in('group_id', groupIds);
+
+  if (groupRowsError) {
+    return {
+      ok: false,
+      error: `Failed to load class groups: ${groupRowsError.message}`,
+    };
+  }
+
+  const allowedSlotsByClassId = new Map<string, Set<number>>();
+  (groupRows ?? []).forEach((row) => {
+    const slotMatch = (row.name ?? '').match(/slot\s*(\d+)/i);
+    if (!slotMatch) return;
+    const slotNumber = Number(slotMatch[1]);
+    if (!Number.isFinite(slotNumber)) return;
+    const existing = allowedSlotsByClassId.get(row.class_id) ?? new Set<number>();
+    existing.add(slotNumber);
+    allowedSlotsByClassId.set(row.class_id, existing);
+  });
+
+  if (allowedSlotsByClassId.size === 0) {
+    return { ok: false, error: 'You do not have access to this swimmer.' };
+  }
 
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
@@ -238,27 +268,28 @@ async function instructorCanAccessMember(
     };
   }
 
-  const canAccessViaClass = (memberEnrollments ?? []).some((row) =>
-    taughtClassIds.has(row.class_id)
-  );
-
-  const { data: directAssignment, error: directAssignmentError } = await supabaseAdmin
-    .from('instructor_member_assignment')
-    .select('member_id')
-    .eq('instructor_person_id', instructorPersonId)
+  const { data: memberRow, error: memberError } = await supabaseAdmin
+    .from('member')
+    .select('member_id, slot')
     .eq('member_id', memberId)
     .maybeSingle();
 
-  if (directAssignmentError) {
+  if (memberError) {
     return {
       ok: false,
-      error: `Failed to load direct instructor assignments: ${directAssignmentError.message}`,
+      error: `Failed to load member slot: ${memberError.message}`,
     };
   }
 
-  const canAccessViaDirectAssignment = Boolean(directAssignment);
+  const memberSlot = memberRow?.slot ?? null;
+  const canAccessViaGroup = (memberEnrollments ?? []).some((row) => {
+    if (!row.class_id || memberSlot === null || memberSlot === undefined) return false;
+    const allowedSlots = allowedSlotsByClassId.get(row.class_id);
+    if (!allowedSlots) return false;
+    return allowedSlots.has(memberSlot);
+  });
 
-  return canAccessViaClass || canAccessViaDirectAssignment
+  return canAccessViaGroup
     ? { ok: true }
     : { ok: false, error: 'You do not have access to this swimmer.' };
 }
@@ -269,13 +300,27 @@ async function getSharedClassIdsForInstructorAndMember(
 ): Promise<{ sharedClassIds: string[]; error?: string }> {
   const supabaseAdmin = getSupabaseAdminClient();
 
-  const { data: taughtClasses, error: taughtClassesError } = await supabaseAdmin
-    .from('class_instructor')
-    .select('class_id')
-    .eq('person_id', instructorPersonId);
+  const { data: instructorGroups, error: instructorGroupsError } = await supabaseAdmin
+    .from('group_instructor')
+    .select('group_id')
+    .eq('instructor_person_id', instructorPersonId);
 
-  if (taughtClassesError) {
-    return { sharedClassIds: [], error: `Failed to load instructor classes: ${taughtClassesError.message}` };
+  if (instructorGroupsError) {
+    return { sharedClassIds: [], error: `Failed to load instructor groups: ${instructorGroupsError.message}` };
+  }
+
+  const groupIds = Array.from(new Set((instructorGroups ?? []).map((row) => row.group_id)));
+  if (groupIds.length === 0) {
+    return { sharedClassIds: [] };
+  }
+
+  const { data: groupRows, error: groupRowsError } = await supabaseAdmin
+    .from('class_group')
+    .select('group_id, class_id, name')
+    .in('group_id', groupIds);
+
+  if (groupRowsError) {
+    return { sharedClassIds: [], error: `Failed to load class groups: ${groupRowsError.message}` };
   }
 
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
@@ -287,12 +332,39 @@ async function getSharedClassIdsForInstructorAndMember(
     return { sharedClassIds: [], error: `Failed to load member enrollments: ${memberEnrollmentsError.message}` };
   }
 
-  const taughtClassIds = new Set((taughtClasses ?? []).map((row) => row.class_id));
-  const sharedClassIds = (memberEnrollments ?? [])
-    .map((row) => row.class_id)
-    .filter((classId) => taughtClassIds.has(classId));
+  const allowedSlotsByClassId = new Map<string, Set<number>>();
+  (groupRows ?? []).forEach((row) => {
+    const slotMatch = (row.name ?? '').match(/slot\s*(\d+)/i);
+    if (!slotMatch) return;
+    const slotNumber = Number(slotMatch[1]);
+    if (!Number.isFinite(slotNumber)) return;
+    const existing = allowedSlotsByClassId.get(row.class_id) ?? new Set<number>();
+    existing.add(slotNumber);
+    allowedSlotsByClassId.set(row.class_id, existing);
+  });
 
-  return { sharedClassIds };
+  const { data: memberRow, error: memberError } = await supabaseAdmin
+    .from('member')
+    .select('member_id, slot')
+    .eq('member_id', memberId)
+    .maybeSingle();
+
+  if (memberError) {
+    return { sharedClassIds: [], error: `Failed to load member slot: ${memberError.message}` };
+  }
+
+  const memberSlot = memberRow?.slot ?? null;
+
+  const sharedClassIds = (memberEnrollments ?? [])
+    .filter((row) => {
+      if (!row.class_id || memberSlot === null || memberSlot === undefined) return false;
+      const allowedSlots = allowedSlotsByClassId.get(row.class_id);
+      if (!allowedSlots) return false;
+      return allowedSlots.has(memberSlot);
+    })
+    .map((row) => row.class_id);
+
+  return { sharedClassIds: Array.from(new Set(sharedClassIds)) };
 }
 
 async function buildSwimmerProfileFallback(email: string, memberId: string): Promise<SwimmerProfilePayload> {
