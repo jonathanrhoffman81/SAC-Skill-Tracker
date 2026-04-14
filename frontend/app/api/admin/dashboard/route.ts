@@ -12,6 +12,7 @@ import {
   mapPersonIdsForPersonOrgRole,
   resolveAdminRequestContext,
 } from "@/lib/adminQueries";
+import { get } from "http";
 
 interface AdminDashboardStats {
   totalMembers: number;
@@ -20,6 +21,16 @@ interface AdminDashboardStats {
   skillLevels: number;
   organizationName: string;
   organizationId: string;
+  organizationLogoUrl?: string | null;
+}
+
+function getOrganizationLogoUrl(organizationId: string | undefined) {
+  if (!organizationId) return null;
+
+  const baseUrl =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  return `${baseUrl}/storage/v1/object/public/organization-logos/${organizationId}/logo.png`;
 }
 
 export async function GET(request: NextRequest) {
@@ -133,6 +144,7 @@ export async function GET(request: NextRequest) {
       skillLevels,
       organizationName: organization.name,
       organizationId: organization.organization_id,
+      organizationLogoUrl: getOrganizationLogoUrl(organizationId),
     };
 
     return NextResponse.json(stats);
@@ -152,7 +164,10 @@ export async function GET(request: NextRequest) {
         { status: 401 },
       );
     }
-    if (message === "Missing admin email" || message === "Failed to find organization") {
+    if (
+      message === "Missing admin email" ||
+      message === "Failed to find organization"
+    ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     return NextResponse.json({ error: message }, { status: 500 });

@@ -348,7 +348,7 @@ export async function GET(request: NextRequest) {
     const { data: enrollmentRows, error: enrollmentError } = await supabase
       .from("enrollment")
       .select(
-        "member_id, class_id, group_id, member:member_id(first_name, last_name, date_of_birth, slot), class_entity:class_id(name, organization_id)",
+        "member_id, class_id, group_id, slot, member:member_id(first_name, last_name, date_of_birth), class_entity:class_id(name, organization_id)",
       )
       .eq("class_entity.organization_id", organizationId);
 
@@ -374,7 +374,7 @@ export async function GET(request: NextRequest) {
         member_first_name: row.member?.first_name ?? "",
         member_last_name: row.member?.last_name ?? "",
         date_of_birth: row.member?.date_of_birth ?? null,
-        slot: row.member?.slot ?? null,
+        slot: row.slot ?? null,
       }));
 
     return NextResponse.json({

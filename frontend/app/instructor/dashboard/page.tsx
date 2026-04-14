@@ -46,6 +46,7 @@ interface PaginationState {
 interface DashboardPayload {
   userName: string;
   organizationName?: string;
+  organizationLogoUrl: string | null;
   swimmers: DashboardSwimmer[];
   pagination?: PaginationState;
   error?: string;
@@ -54,6 +55,7 @@ interface DashboardPayload {
 interface CachedDashboardEntry {
   userName: string;
   organizationName: string;
+  organizationLogoUrl: string | null;
   swimmers: DashboardSwimmer[];
   pagination: PaginationState;
 }
@@ -105,6 +107,7 @@ export default function InstructorDashboard() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+
   const [pagination, setPagination] = useState<PaginationState>({
     page: 1,
     pageSize: PAGE_SIZE,
@@ -136,6 +139,7 @@ export default function InstructorDashboard() {
         setOrganizationName(cached.organizationName || "SAC Skill Tracker");
         setSwimmers(cached.swimmers);
         setPagination(cached.pagination);
+        setOrganizationLogo(cached.organizationLogoUrl);
         setIsLoading(false);
         return;
       }
@@ -186,10 +190,12 @@ export default function InstructorDashboard() {
       setOrganizationName(resolvedOrganizationName);
       setSwimmers(resolvedSwimmers);
       setPagination(resolvedPagination);
+      setOrganizationLogo(payload.organizationLogoUrl ?? null);
 
       cacheRef.current.set(cacheKey, {
         userName: resolvedUserName,
         organizationName: resolvedOrganizationName,
+        organizationLogoUrl: payload.organizationLogoUrl ?? null,
         swimmers: resolvedSwimmers,
         pagination: resolvedPagination,
       });
@@ -232,6 +238,7 @@ export default function InstructorDashboard() {
                 userName: prefetchPayload.userName || resolvedUserName,
                 organizationName:
                   prefetchPayload.organizationName || "SAC Skill Tracker",
+                organizationLogoUrl: payload.organizationLogoUrl ?? null,
                 swimmers: prefetchSwimmers,
                 pagination: prefetchPagination,
               });
@@ -268,27 +275,6 @@ export default function InstructorDashboard() {
 
     return () => window.clearTimeout(handle);
   }, [searchQuery]);
-
-  useEffect(() => {
-    const fetchLogo = async () => {
-      try {
-        const headers = await createAuthenticatedHeaders();
-        const res = await fetch("/api/instructor/get-logo", { headers });
-        const data = await res.json();
-
-        if (data.publicUrl) {
-          setOrganizationLogo(data.publicUrl);
-        } else {
-          setOrganizationLogo(null);
-        }
-      } catch (err) {
-        console.error("Error fetching logo:", err);
-        setOrganizationLogo(null);
-      }
-    };
-
-    fetchLogo();
-  }, []);
 
   useEffect(() => {
     loadDashboardData(swimmerTab, currentPage, debouncedSearchQuery);

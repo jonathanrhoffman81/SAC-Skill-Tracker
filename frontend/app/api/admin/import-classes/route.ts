@@ -1,240 +1,194 @@
+/**
+ * Import Swim Classes — Parse Route
+ * POST /api/admin/import-classes
+ *
+ * Accepts organization_id alongside the file so it can check which class
+ * names already exist in the DB. Classes that already exist are flagged
+ * so the frontend skips the schedule prompt for them.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import Papa from "papaparse";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
-// ----------------------
-// helpers
-// ----------------------
-const getString = (val: any): string => (val ?? "").toString().trim();
+export interface ParsedSwimRow {
+  member_first: string;
+  member_last: string;
+  dob: string | null;
+  gender: string | null;
+  account_first: string;
+  account_last: string;
+  account_email: string;
+  class_name: string;
+  slot: number;
+  length_minutes: number;
+}
 
-const splitName = (full: string) => {
-  const parts = full.split(",");
-  return {
-    last: parts[0]?.trim(),
-    first: parts[1]?.trim(),
-  };
-};
+export interface UniqueClass {
+  name: string;
+  length_minutes: number;
+  member_count: number;
+  already_exists: boolean; // true → class is in the DB already, skip schedule prompt
+}
 
-const parseClass = (str: string) => {
-  const parts = str.split(" - ");
-  return {
-    level: parts[0]?.trim(),
-  };
-};
+function parseSlot(slotStr: string | undefined): number {
+  const cleaned = (slotStr ?? "").replace("#", "").trim();
+  const num = parseInt(cleaned, 10);
+  return isNaN(num) ? 1 : num;
+}
 
-const parseSlot = (slot: string) => parseInt(slot.replace("#", "")) || 1;
+function parseLength(lengthStr: string | undefined): number {
+  const match = (lengthStr ?? "").match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 45;
+}
 
-const parseLength = (length: string) => parseInt(length) || null;
+function splitName(raw: string): [string, string] {
+  const commaIdx = raw.indexOf(", ");
+  if (commaIdx === -1) return ["", ""];
+  return [raw.slice(commaIdx + 2).trim(), raw.slice(0, commaIdx).trim()];
+}
 
-// ----------------------
-// API
-// ----------------------
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const formData = await req.formData();
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+    const organization_id = formData.get("organization_id") as string | null;
 
-    const file = formData.get("file") as File;
-    const orgId = formData.get("organization_id") as string;
-
-    if (!file || !orgId) {
+    if (!file) {
+      return NextResponse.json({ error: "File is required" }, { status: 400 });
+    }
+    if (!organization_id) {
       return NextResponse.json(
-        { error: "Missing file or organization_id" },
+        { error: "organization_id is required" },
         { status: 400 },
       );
     }
 
-    const slotConfigs = JSON.parse(
-      formData.get("slotConfigs") as string,
-    ) as Record<
-      string,
-      {
-        slot: string;
-        days: string[];
-        time: string;
-      }
-    >;
-
-    const supabase = getSupabaseAdminClient();
-
     const text = await file.text();
-    const parsed = Papa.parse(text, {
+
+    const parsed = Papa.parse<Record<string, string>>(text, {
       header: true,
       skipEmptyLines: true,
     });
 
-    const rows = parsed.data as any[];
+    const rawRows = parsed.data;
 
-    // caches
-    const classMap = new Map<string, string>();
-    const memberMap = new Map<string, string>();
-
-    // instructors
-    const { data: instructors } = await supabase
-      .from("person_org_role")
-      .select(`person:person_id (person_id)`)
-      .eq("role_id", 3);
-
-    const instructorIds: string[] =
-      instructors?.map((i: any) => i.person.person_id) || [];
-
-    let importedClasses = 0;
-    let importedEnrollments = 0;
-
-    for (const row of rows) {
-      const memberRaw = getString(row["Member"]);
-      const classRaw = getString(row["Registered Class"]);
-
-      const memberName = splitName(memberRaw);
-      const { level } = parseClass(classRaw);
-
-      const slot = parseSlot(getString(row["Slot"]));
-      const length = parseLength(getString(row["Class Length"]));
-      const dob = getString(row["Member DOB"]) || null;
-      const gender = getString(row["Gender"]) || null;
-
-      if (!memberName.first || !memberName.last || !level) continue;
-
-      // -----------------------
-      // CLASS
-      // -----------------------
-      type ClassRow = { class_id: string };
-
-      const classKey = `${level}-${slot}`;
-      let classId = classMap.get(classKey);
-
-      const slotConfig = slotConfigs[`#${slot}`];
-
-      if (!classId) {
-        const { data, error } = await supabase
-          .from("class_entity")
-          .upsert(
-            {
-              organization_id: orgId,
-              name: level,
-
-              // ✅ structured schedule
-              schedule_days: slotConfig?.days || [],
-              schedule_time: slotConfig?.time || null,
-
-              // optional human readable
-              schedule: slotConfig
-                ? `${slotConfig.days.join(", ")} @ ${slotConfig.time}`
-                : `Slot ${slot}`,
-
-              length_minutes: length,
-            },
-            {
-              onConflict: "organization_id,name",
-            },
-          )
-          .select("class_id")
-          .single<ClassRow>();
-
-        if (error || !data) {
-          console.error("Class error:", error);
-          continue;
-        }
-
-        classId = data.class_id;
-        classMap.set(classKey, classId);
-        importedClasses++;
-      }
-
-      const groupName = `Slot ${slot}`;
-      const { data: groupRow, error: groupError } = await supabase
-        .from("class_group")
-        .upsert(
-          {
-            class_id: classId,
-            name: groupName,
-          },
-          { onConflict: "class_id,name" },
-        )
-        .select("group_id")
-        .single<{ group_id: string }>();
-
-      if (groupError || !groupRow) {
-        console.error("Class group error:", groupError);
-        continue;
-      }
-
-      if (instructorIds.length > 0) {
-        const instructorId =
-          instructorIds[Math.floor(Math.random() * instructorIds.length)];
-
-        await supabase.from("group_instructor").upsert({
-          instructor_person_id: instructorId,
-          group_id: groupRow.group_id,
-        });
-      }
-
-      // -----------------------
-      // MEMBER
-      // -----------------------
-      type MemberRow = { member_id: string };
-
-      const memberKey = `${memberName.first}-${memberName.last}-${dob}`;
-      let memberId = memberMap.get(memberKey);
-
-      if (!memberId) {
-        const { data: existing } = await supabase
-          .from("member")
-          .select("member_id")
-          .eq("organization_id", orgId)
-          .eq("first_name", memberName.first)
-          .eq("last_name", memberName.last)
-          .eq("date_of_birth", dob)
-          .maybeSingle<MemberRow>();
-
-        if (existing?.member_id) {
-          memberId = existing.member_id;
-        } else {
-          const { data, error } = await supabase
-            .from("member")
-            .insert({
-              organization_id: orgId,
-              first_name: memberName.first,
-              last_name: memberName.last,
-              date_of_birth: dob,
-              gender: gender,
-              slot: slot,
-              level: level,
-            })
-            .select("member_id")
-            .single<MemberRow>();
-
-          if (error || !data) {
-            console.error("Member error:", error);
-            continue;
-          }
-
-          memberId = data.member_id;
-        }
-
-        memberMap.set(memberKey, memberId);
-      }
-
-      // -----------------------
-      // ENROLLMENT
-      // -----------------------
-      const { error: enrollError } = await supabase.from("enrollment").upsert({
-        member_id: memberId,
-        class_id: classId,
-        slot,
-      });
-
-      if (!enrollError) importedEnrollments++;
+    if (rawRows.length === 0) {
+      return NextResponse.json(
+        { error: "File appears to be empty" },
+        { status: 400 },
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      importedClasses,
-      importedEnrollments,
-    });
-  } catch (err) {
-    console.error("Import classes error:", err);
+    const firstKey = Object.keys(rawRows[0])[0];
+    if (firstKey !== "New Registrations Report") {
+      return NextResponse.json(
+        {
+          error:
+            'Unrecognised file format. Expected a SportsEngine "New Registrations Report" CSV export.',
+        },
+        { status: 400 },
+      );
+    }
+
+    // Row 0 holds the real column headers as values
+    const headerRow = rawRows[0];
+    const colKey: Record<string, string> = {};
+    for (const key of Object.keys(headerRow)) {
+      const label = headerRow[key]?.trim();
+      if (label) colKey[label] = key;
+    }
+
+    const required = [
+      "Account",
+      "Member",
+      "Member DOB",
+      "Gender",
+      "Email",
+      "Registered Class",
+      "Slot",
+      "Class Length",
+    ];
+    const missing = required.filter((c) => !(c in colKey));
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Missing expected columns: ${missing.join(", ")}` },
+        { status: 400 },
+      );
+    }
+
+    const dataRows = rawRows.slice(1);
+    const rows: ParsedSwimRow[] = [];
+    const classMap = new Map<
+      string,
+      { length_minutes: number; count: number }
+    >();
+
+    for (const row of dataRows) {
+      const memberRaw = row[colKey["Member"]]?.trim() ?? "";
+      const accountRaw = row[colKey["Account"]]?.trim() ?? "";
+      const email = row[colKey["Email"]]?.toLowerCase().trim();
+
+      const [memberFirst, memberLast] = splitName(memberRaw);
+      if (!memberFirst || !memberLast) continue;
+
+      const [accountFirst, accountLast] = splitName(accountRaw);
+
+      const className = row[colKey["Registered Class"]]?.trim();
+      if (!className || !email) continue;
+
+      const dob = row[colKey["Member DOB"]]?.trim() || null;
+      const gender = row[colKey["Gender"]]?.trim() || null;
+      const slot = parseSlot(row[colKey["Slot"]]);
+      const length_minutes = parseLength(row[colKey["Class Length"]]);
+
+      const prev = classMap.get(className);
+      classMap.set(className, {
+        length_minutes,
+        count: (prev?.count ?? 0) + 1,
+      });
+
+      rows.push({
+        member_first: memberFirst,
+        member_last: memberLast,
+        dob,
+        gender,
+        account_first: accountFirst,
+        account_last: accountLast,
+        account_email: email,
+        class_name: className,
+        slot,
+        length_minutes,
+      });
+    }
+
+    // Check which class names already exist in the DB for this org
+    const classNames = Array.from(classMap.keys());
+    const supabase = getSupabaseAdminClient();
+    const { data: existingClasses } = await supabase
+      .from("class_entity")
+      .select("name")
+      .eq("organization_id", organization_id)
+      .in("name", classNames);
+
+    const existingNameSet = new Set(
+      existingClasses?.map((c: { name: string }) => c.name) ?? [],
+    );
+
+    const uniqueClasses: UniqueClass[] = Array.from(classMap.entries()).map(
+      ([name, { length_minutes, count }]) => ({
+        name,
+        length_minutes,
+        member_count: count,
+        already_exists: existingNameSet.has(name),
+      }),
+    );
+
+    return NextResponse.json({ uniqueClasses, rows, totalRows: rows.length });
+  } catch (error) {
+    console.error("Parse swim classes error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Failed to parse file" },
       { status: 500 },
     );
   }

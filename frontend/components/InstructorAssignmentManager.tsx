@@ -400,6 +400,12 @@ export default function InstructorAssignmentManager() {
     const formatSlotLabel = (slot: number | null) =>
         slot === null || slot === undefined ? '—' : String(slot);
 
+    const slotSortValue = (slot: number | null | undefined) => {
+        if (slot === null || slot === undefined) return Number.MAX_SAFE_INTEGER;
+        const parsed = Number(slot);
+        return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    };
+
     const enrollmentKey = (row: EnrollmentRow) => `${row.member_id}:${row.class_id}`;
 
     const fetchAssignmentData = useCallback(async (options?: { silent?: boolean }) => {
@@ -511,9 +517,12 @@ export default function InstructorAssignmentManager() {
         });
         map.forEach((items, groupId) => {
             map.set(groupId, [...items].sort((a, b) => {
-                const slotA = a.slot ?? Number.MAX_SAFE_INTEGER;
-                const slotB = b.slot ?? Number.MAX_SAFE_INTEGER;
+                const slotA = slotSortValue(a.slot);
+                const slotB = slotSortValue(b.slot);
                 if (slotA !== slotB) return slotA - slotB;
+                const ageA = a.age ?? Number.MAX_SAFE_INTEGER;
+                const ageB = b.age ?? Number.MAX_SAFE_INTEGER;
+                if (ageA !== ageB) return ageA - ageB;
                 return a.name.localeCompare(b.name);
             }));
         });
@@ -562,8 +571,8 @@ export default function InstructorAssignmentManager() {
             const classCompare = a.class_name.localeCompare(b.class_name);
             if (classCompare !== 0) return classCompare;
 
-            const slotA = a.slot ?? Number.MAX_SAFE_INTEGER;
-            const slotB = b.slot ?? Number.MAX_SAFE_INTEGER;
+            const slotA = slotSortValue(a.slot);
+            const slotB = slotSortValue(b.slot);
             if (slotA !== slotB) return slotA - slotB;
 
             const ageA = getAge(a.date_of_birth);

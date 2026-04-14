@@ -24,13 +24,13 @@ type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
 const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
 
-const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:";
-const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v2:";
+const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v3:";
+const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v3:";
 
 interface SwimmerCard {
   id: string;
   name: string;
-  nextSession: string;
+  nextClass: string;
   classIds: string[];
 }
 
@@ -40,6 +40,12 @@ interface SkillItem {
   progress: SkillProgress;
   mastered?: boolean;
   dateAcquired?: string;
+  progressHistory?: Array<{
+    id: string;
+    date: string;
+    progress: number;
+    dateAcquired?: string;
+  }>;
   notes?: Array<{
     id: string;
     author: string;
@@ -63,20 +69,17 @@ interface DashboardPayload {
         enrollmentDate: string;
         organization: string;
       };
-      sessions: Array<{
+      classHistories: Array<{
         id: string;
+        classId: string | null;
         name: string;
+        schedule: string;
         startDate?: string;
         endDate?: string;
         isCurrent: boolean;
-        isSynthetic: boolean;
-        classes: Array<{
-          id: string;
-          name: string;
-          schedule: string;
-        }>;
+        isGeneral: boolean;
         skills: SkillItem[];
-        sessionNotes: Array<{
+        classNotes: Array<{
           id: string;
           author: string;
           content: string;
@@ -89,7 +92,7 @@ interface DashboardPayload {
           noteCount: number;
         };
       }>;
-      defaultSessionId: string;
+      defaultClassHistoryId: string;
     }
   >;
 }
@@ -487,7 +490,7 @@ export default function AccountDashboard() {
                             </span>
                             <span>{pct}% complete</span>
                             <span className="inline-flex max-w-full rounded-2xl bg-gray-100 px-2.5 py-1 text-[10px] leading-tight text-gray-600">
-                              {swimmer.nextSession}
+                              {swimmer.nextClass}
                             </span>
                             {swimmer.classIds.length === 0 && (
                               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">
