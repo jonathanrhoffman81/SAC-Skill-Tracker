@@ -26,6 +26,7 @@ interface AdminStats {
   skillLevels: number;
   organizationName: string;
   organizationId: string;
+  organizationLogoUrl?: string | null;
 }
 
 // Generic entity with normalized id field for consistent handling
@@ -1331,7 +1332,7 @@ export default function AdminDashboard() {
                 <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
-                <LogoManage organizationId={stats.organizationId} />
+                <LogoManage organizationLogoUrl={stats.organizationLogoUrl} />
               </div>
             </div>
           )}
