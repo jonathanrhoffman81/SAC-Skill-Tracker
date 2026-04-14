@@ -32,6 +32,7 @@ interface DashboardSwimmer {
   name: string;
   classes: DashboardClass[];
   skills: DashboardSkill[];
+  needsEvaluation?: boolean;
 }
 
 interface PaginationState {
@@ -495,6 +496,56 @@ export default function InstructorDashboard() {
           </div>
         )}
 
+        {!isLoading && !error && swimmerTab === "my" && swimmers.some(s => s.needsEvaluation) && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50">
+            <div className="p-4 sm:p-6">
+              <div className="flex items-start gap-3">
+                <svg
+                  className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4v2m0 4v2M7.757 4.505a10 10 0 0114.486 0M4 12a8 8 0 1116 0M4 12a8 8 0 0016 0m0 0a8 8 0 01-16 0"
+                  />
+                </svg>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-amber-900">
+                    Evaluations Needed
+                  </p>
+                  <p className="mt-1 text-sm text-amber-800">
+                    {swimmers.filter(s => s.needsEvaluation).length} swimmer{swimmers.filter(s => s.needsEvaluation).length !== 1 ? "s" : ""} have classes ending soon or recently.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {swimmers.filter(s => s.needsEvaluation).map(swimmer => (
+                  <button
+                    key={swimmer.id}
+                    onClick={() => {
+                      setOpenSwimmerId(swimmer.id);
+                      // Scroll to swimmer
+                      setTimeout(() => {
+                        document.getElementById(`swimmer-${swimmer.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }, 0);
+                    }}
+                    className="block w-full rounded-lg bg-white p-3 text-left text-sm transition hover:bg-amber-50"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900">{swimmer.name}</span>
+                      <span className="text-xs text-amber-700">Click to evaluate</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <section>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-1">
@@ -554,7 +605,12 @@ export default function InstructorDashboard() {
               return (
                 <div
                   key={swimmer.id}
-                  className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                  id={`swimmer-${swimmer.id}`}
+                  className={`overflow-hidden rounded-xl border shadow-sm ${
+                    swimmer.needsEvaluation
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-gray-200 bg-white"
+                  }`}
                 >
                   <button
                     className="w-full p-5 text-left transition hover:bg-gray-50 sm:p-6"

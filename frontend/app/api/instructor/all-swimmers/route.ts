@@ -441,8 +441,8 @@ export async function GET(request: NextRequest) {
         const diffTime = endDate.getTime() - today.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        // True if class ends in 3 days or ended in the last 7 days
-        return diffDays <= 3 && diffDays >= -7;
+        // True if class ends in 3 days or ended in the last 14 days
+        return diffDays <= 3 && diffDays >= -14;
       });
 
       const memberSkills: DashboardSkillPayload[] = (orgSkills ?? []).map(
