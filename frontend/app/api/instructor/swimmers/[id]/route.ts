@@ -212,23 +212,25 @@ async function instructorCanAccessMember(
 ): Promise<{ ok: boolean; error?: string }> {
   const supabaseAdmin = getSupabaseAdminClient();
 
-  const { data: taughtClasses, error: taughtClassesError } = await supabaseAdmin
-    .from('class_instructor')
-    .select('class_id')
-    .eq('person_id', instructorPersonId);
+  // Get instructor's group IDs
+  const { data: instructorGroups, error: instructorGroupsError } = await supabaseAdmin
+    .from('group_instructor')
+    .select('group_id')
+    .eq('instructor_person_id', instructorPersonId);
 
-  if (taughtClassesError) {
+  if (instructorGroupsError) {
     return {
       ok: false,
-      error: `Failed to load instructor classes: ${taughtClassesError.message}`,
+      error: `Failed to load instructor groups: ${instructorGroupsError.message}`,
     };
   }
 
-  const taughtClassIds = new Set((taughtClasses ?? []).map((row) => row.class_id));
+  const instructorGroupIds = new Set((instructorGroups ?? []).map((row) => row.group_id));
 
+  // Get member's group IDs from enrollments
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
-    .select('class_id')
+    .select('group_id')
     .eq('member_id', memberId);
 
   if (memberEnrollmentsError) {
@@ -238,27 +240,11 @@ async function instructorCanAccessMember(
     };
   }
 
-  const canAccessViaClass = (memberEnrollments ?? []).some((row) =>
-    taughtClassIds.has(row.class_id)
+  const canAccessViaGroup = (memberEnrollments ?? []).some((row) =>
+    row.group_id && instructorGroupIds.has(row.group_id)
   );
 
-  const { data: directAssignment, error: directAssignmentError } = await supabaseAdmin
-    .from('instructor_member_assignment')
-    .select('member_id')
-    .eq('instructor_person_id', instructorPersonId)
-    .eq('member_id', memberId)
-    .maybeSingle();
-
-  if (directAssignmentError) {
-    return {
-      ok: false,
-      error: `Failed to load direct instructor assignments: ${directAssignmentError.message}`,
-    };
-  }
-
-  const canAccessViaDirectAssignment = Boolean(directAssignment);
-
-  return canAccessViaClass || canAccessViaDirectAssignment
+  return canAccessViaGroup
     ? { ok: true }
     : { ok: false, error: 'You do not have access to this swimmer.' };
 }
@@ -269,15 +255,23 @@ async function getSharedClassIdsForInstructorAndMember(
 ): Promise<{ sharedClassIds: string[]; error?: string }> {
   const supabaseAdmin = getSupabaseAdminClient();
 
-  const { data: taughtClasses, error: taughtClassesError } = await supabaseAdmin
-    .from('class_instructor')
-    .select('class_id')
-    .eq('person_id', instructorPersonId);
+  // Get instructor's groups with their classes
+  const { data: taughtGroups, error: taughtGroupsError } = await supabaseAdmin
+    .from('group_instructor')
+    .select('group_id, class_group!inner(class_id)')
+    .eq('instructor_person_id', instructorPersonId);
 
-  if (taughtClassesError) {
-    return { sharedClassIds: [], error: `Failed to load instructor classes: ${taughtClassesError.message}` };
+  if (taughtGroupsError) {
+    return { sharedClassIds: [], error: `Failed to load instructor groups: ${taughtGroupsError.message}` };
   }
 
+  const taughtClassIds = new Set(
+    (taughtGroups ?? []).flatMap((row: any) => 
+      (row.class_group ?? []).map((cg: any) => cg.class_id)
+    )
+  );
+
+  // Get member's class IDs from enrollments
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
     .select('class_id')
@@ -287,7 +281,6 @@ async function getSharedClassIdsForInstructorAndMember(
     return { sharedClassIds: [], error: `Failed to load member enrollments: ${memberEnrollmentsError.message}` };
   }
 
-  const taughtClassIds = new Set((taughtClasses ?? []).map((row) => row.class_id));
   const sharedClassIds = (memberEnrollments ?? [])
     .map((row) => row.class_id)
     .filter((classId) => taughtClassIds.has(classId));

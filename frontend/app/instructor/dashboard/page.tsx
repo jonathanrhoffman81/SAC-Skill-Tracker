@@ -530,7 +530,7 @@ export default function InstructorDashboard() {
                       setOpenSwimmerId(swimmer.id);
                       // Scroll to swimmer
                       setTimeout(() => {
-                        document.getElementById(`swimmer-${swimmer.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        document.getElementById(`swimmer-${swimmer.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
                       }, 0);
                     }}
                     className="block w-full rounded-lg bg-white p-3 text-left text-sm transition hover:bg-gray-50"

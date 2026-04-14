@@ -177,15 +177,28 @@ export async function POST(req: NextRequest) {
         classMap.set(classKey, classId);
         importedClasses++;
 
-        // assign instructor
+        // assign instructor to all groups within this class
         if (instructorIds.length > 0) {
           const instructorId =
             instructorIds[Math.floor(Math.random() * instructorIds.length)];
 
-          await supabase.from("class_instructor").upsert({
-            person_id: instructorId,
-            class_id: classId,
-          });
+          // Get groups for this class
+          const { data: classGroups } = await supabase
+            .from("class_group")
+            .select("group_id")
+            .eq("class_id", classId);
+
+          if (classGroups) {
+            for (const group of classGroups) {
+              await supabase.from("group_instructor").upsert(
+                {
+                  group_id: group.group_id,
+                  instructor_person_id: instructorId,
+                },
+                { onConflict: "group_id,instructor_person_id" }
+              );
+            }
+          }
         }
       }
 

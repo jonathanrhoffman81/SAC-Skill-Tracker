@@ -37,6 +37,11 @@ function proficiencyToPercentage(level: 0 | 1 | 2 | 3 | 4): number {
   return mapping[level];
 }
 
+function progressToApiValue(level: 0 | 1 | 2 | 3 | 4): 0 | 25 | 50 | 75 | 100 {
+  const mapping: Record<number, 0 | 25 | 50 | 75 | 100> = { 0: 0, 1: 25, 2: 50, 3: 75, 4: 100 };
+  return mapping[level];
+}
+
 export default function EvaluationForm({
   swimmerId,
   skills,
@@ -82,7 +87,7 @@ export default function EvaluationForm({
         .filter((skill) => skill.progress !== skill.initialProgress)
         .map((skill) => ({
           skillId: skill.skillId,
-          progress: skill.progress,
+          progress: progressToApiValue(skill.progress as 0 | 1 | 2 | 3 | 4),
         })),
     [initialProgressBySkillId, progressBySkillId, skills]
   );
@@ -135,7 +140,10 @@ export default function EvaluationForm({
             skillId: entry.skillId,
             note: entry.note,
           })),
-          skillUpdates: changedSkillUpdates,
+          skillUpdates: changedSkillUpdates.map((update) => ({
+            skillId: update.skillId,
+            progress: update.progress,
+          })),
         }),
       });
 
@@ -145,7 +153,10 @@ export default function EvaluationForm({
       }
 
       const nextProgress = Object.fromEntries(
-        skills.map((skill) => [skill.id, progressBySkillId[skill.id] ?? 0])
+        skills.map((skill) => {
+          const currentProgress = progressBySkillId[skill.id] ?? (0 as const);
+          return [skill.id, currentProgress];
+        })
       ) as Record<string, SkillItem['progress']>;
 
       setInitialProgressBySkillId(nextProgress);
@@ -310,7 +321,7 @@ export default function EvaluationForm({
 
       <div className="flex items-center justify-end gap-3">
         <p className="text-xs text-gray-500">
-          {changedSkillUpdates.length} skill {changedSkillUpdates.length === 1 ? 'change' : 'changes'} ready
+          {changedSkillUpdates.length} skill{changedSkillUpdates.length === 1 ? '' : 's'} updated, {skillNoteEntries.length} note{skillNoteEntries.length === 1 ? '' : 's'}
         </p>
         <button
           type="submit"

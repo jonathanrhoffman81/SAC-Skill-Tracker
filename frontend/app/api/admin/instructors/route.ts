@@ -42,21 +42,22 @@ export async function GET(request: NextRequest) {
     if (instructorsError)
       throw new Error("instructors error: " + instructorsError.message);
 
-    // Fetch class assignments, but only for classes that belong to this organization
-    const { data: classLinks, error: classLinksError } = await supabase
-      .from("class_instructor")
-      .select("person_id, class_id, class_entity!inner(organization_id)")
-      .in("person_id", instructorPersonIds)
-      .eq("class_entity.organization_id", orgId);
+    // Fetch group and class assignments, but only for classes that belong to this organization
+    const { data: groupLinks, error: groupLinksError } = await supabase
+      .from("group_instructor")
+      .select("instructor_person_id, class_group!inner(class_id, class_entity!inner(organization_id))")
+      .in("instructor_person_id", instructorPersonIds)
+      .eq("class_group.class_entity.organization_id", orgId);
 
-    if (classLinksError)
-      throw new Error("class links error: " + classLinksError.message);
+    if (groupLinksError)
+      throw new Error("group links error: " + groupLinksError.message);
 
     const classIdsByPersonId = new Map<string, string[]>();
-    for (const row of classLinks || []) {
-      const existing = classIdsByPersonId.get(row.person_id) || [];
-      existing.push(row.class_id);
-      classIdsByPersonId.set(row.person_id, existing);
+    for (const row of groupLinks || []) {
+      const personId = row.instructor_person_id;
+      const classIds = (row.class_group ?? []).map((cg: any) => cg.class_id);
+      const existing = classIdsByPersonId.get(personId) || [];
+      classIdsByPersonId.set(personId, [...existing, ...classIds]);
     }
 
     const normalized = (instructors || []).map((inst: any) => ({
@@ -242,20 +243,28 @@ export async function POST(request: NextRequest) {
       targetPersonId = newPerson.person_id;
     }
 
-    // Assign classes if provided
+    // Assign groups if provided (via class->group mapping)
     if (class_ids && class_ids.length > 0) {
-      const classAssignments = class_ids.map((class_id: string) => ({
-        person_id: targetPersonId,
-        class_id,
-      }));
+      // Get all groups for the specified classes
+      const { data: groupsData, error: groupsError } = await supabase
+        .from("class_group")
+        .select("group_id")
+        .in("class_id", class_ids);
 
-      const { error: classError } = await supabase
-        .from("class_instructor")
-        .insert(classAssignments);
+      if (!groupsError && groupsData) {
+        const groupAssignments = groupsData.map((row) => ({
+          group_id: row.group_id,
+          instructor_person_id: targetPersonId,
+        }));
 
-      if (classError) {
-        console.error("Failed to assign classes:", classError);
-        // Don't fail the whole request, just log it
+        const { error: groupError } = await supabase
+          .from("group_instructor")
+          .insert(groupAssignments, { onConflict: "group_id,instructor_person_id" });
+
+        if (groupError) {
+          console.error("Failed to assign groups:", groupError);
+          // Don't fail the whole request, just log it
+        }
       }
     }
 
@@ -404,26 +413,34 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // Delete existing group assignments for this instructor
     const { error: deleteError } = await supabase
-      .from("class_instructor")
+      .from("group_instructor")
       .delete()
-      .eq("person_id", person_id);
+      .eq("instructor_person_id", person_id);
 
     if (deleteError) {
       return NextResponse.json(
-        { error: "Failed to clear class assignments: " + deleteError.message },
+        { error: "Failed to clear group assignments: " + deleteError.message },
         { status: 500 },
       );
     }
 
     if (class_ids.length > 0) {
-      const rows = class_ids.map((class_id: string) => ({
-        person_id,
-        class_id,
-      }));
-      const { error: insertError } = await supabase
-        .from("class_instructor")
-        .insert(rows);
+      // Get groups for the specified classes
+      const { data: groupsData, error: groupsError } = await supabase
+        .from("class_group")
+        .select("group_id")
+        .in("class_id", class_ids);
+
+      if (!groupsError && groupsData) {
+        const rows = groupsData.map((row) => ({
+          group_id: row.group_id,
+          instructor_person_id: person_id,
+        }));
+        const { error: insertError } = await supabase
+          .from("group_instructor")
+          .insert(rows);
 
       if (insertError) {
         return NextResponse.json(
