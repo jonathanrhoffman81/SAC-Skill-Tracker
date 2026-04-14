@@ -135,6 +135,12 @@ function normalizeRpcSwimmerProfilePayload(
   return payload;
 }
 
+// Convert API progress scale (0, 25, 50, 75, 100) to database progress scale (0, 1, 2, 3, 4)
+function apiProgressToDbProgress(apiProgress: 0 | 25 | 50 | 75 | 100): 0 | 1 | 2 | 3 | 4 {
+  const mapping: Record<number, 0 | 1 | 2 | 3 | 4> = { 0: 0, 25: 1, 50: 2, 75: 3, 100: 4 };
+  return mapping[apiProgress];
+}
+
 async function resolveInstructorPersonId(email?: string | null) {
   if (!email) {
     return { error: 'Missing instructor email' as const };
@@ -255,23 +261,35 @@ async function getSharedClassIdsForInstructorAndMember(
 ): Promise<{ sharedClassIds: string[]; error?: string }> {
   const supabaseAdmin = getSupabaseAdminClient();
 
-  // Get instructor's groups with their classes
-  const { data: taughtGroups, error: taughtGroupsError } = await supabaseAdmin
+  // Step 1: Get instructor's group IDs
+  const { data: instructorGroups, error: instructorGroupsError } = await supabaseAdmin
     .from('group_instructor')
-    .select('group_id, class_group!inner(class_id)')
+    .select('group_id')
     .eq('instructor_person_id', instructorPersonId);
 
-  if (taughtGroupsError) {
-    return { sharedClassIds: [], error: `Failed to load instructor groups: ${taughtGroupsError.message}` };
+  if (instructorGroupsError) {
+    return { sharedClassIds: [], error: `Failed to load instructor groups: ${instructorGroupsError.message}` };
   }
 
-  const taughtClassIds = new Set(
-    (taughtGroups ?? []).flatMap((row: any) => 
-      (row.class_group ?? []).map((cg: any) => cg.class_id)
-    )
-  );
+  const groupIds = (instructorGroups ?? []).map((row) => row.group_id);
+  
+  if (groupIds.length === 0) {
+    return { sharedClassIds: [] };
+  }
 
-  // Get member's class IDs from enrollments
+  // Step 2: Get class IDs for those groups
+  const { data: groupClasses, error: groupClassesError } = await supabaseAdmin
+    .from('class_group')
+    .select('class_id')
+    .in('group_id', groupIds);
+
+  if (groupClassesError) {
+    return { sharedClassIds: [], error: `Failed to load group classes: ${groupClassesError.message}` };
+  }
+
+  const taughtClassIds = new Set((groupClasses ?? []).map((row) => row.class_id));
+
+  // Step 3: Get member's class IDs from enrollments
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
     .select('class_id')
@@ -739,37 +757,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (hasSkillUpdate) {
-      const skillUpsertRows = skillUpdates.map((update) => ({
-        member_id: memberId,
-        skill_id: update.skillId,
-        progress: update.progress,
-        date_acquired: update.progress === 100 ? new Date().toISOString().slice(0, 10) : null,
-        updated_by_person_id: instructor.person_id,
-      }));
-
-      const { error: skillUpsertError } = await supabaseAdmin
-        .from('member_skill')
-        .upsert(skillUpsertRows, { onConflict: 'member_id,skill_id' });
-
-      if (skillUpsertError) {
-        return NextResponse.json(
-          { error: `Failed to update skill: ${skillUpsertError.message}` },
-          { status: 500 }
-        );
-      }
-    }
-
-    if (!hasNote) {
-      return NextResponse.json({ success: true });
-    }
-
     if (!classId && sharedClassIds.length > 0) {
       classId = sharedClassIds[0];
     }
 
     const evaluationDate = new Date().toISOString().slice(0, 10);
     const evaluationRows = [
+      ...skillUpdates.map((update) => ({
+        instructor_person_id: instructor.person_id,
+        member_id: memberId,
+        class_id: classId ?? null,
+        skill_id: update.skillId,
+        feedback: null,
+        evaluation_date: evaluationDate,
+      })),
       ...skillNotes.map((entry) => ({
         instructor_person_id: instructor.person_id,
         member_id: memberId,
@@ -792,13 +793,76 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         : []),
     ];
 
-    const { error: insertError } = await supabaseAdmin.from('evaluation').insert(evaluationRows);
+    const { data: evaluationData, error: insertError } = await supabaseAdmin
+      .from('evaluation')
+      .insert(evaluationRows)
+      .select('evaluation_id, skill_id');
 
     if (insertError) {
       return NextResponse.json(
-        { error: `Failed to save note: ${insertError.message}` },
+        { error: `Failed to save evaluation: ${insertError.message}` },
         { status: 500 }
       );
+    }
+
+    // Update member_skill records with evaluation reference and new progress
+    if (hasSkillUpdate && evaluationData) {
+      const skillUpdateRows = skillUpdates.map((update) => {
+        const evaluation = (evaluationData ?? []).find((e: any) => e.skill_id === update.skillId);
+        const dbProgress = apiProgressToDbProgress(update.progress as 0 | 25 | 50 | 75 | 100);
+        return {
+          member_id: memberId,
+          skill_id: update.skillId,
+          progress: dbProgress,
+          date_acquired: dbProgress === 4 ? evaluationDate : null,
+          updated_by_person_id: instructor.person_id,
+          evaluation_id: evaluation?.evaluation_id ?? null,
+        };
+      });
+
+      // Find existing member_skill records and update, or insert new ones
+      for (const row of skillUpdateRows) {
+        const { data: existing } = await supabaseAdmin
+          .from('member_skill')
+          .select('member_skill_id')
+          .eq('member_id', row.member_id)
+          .eq('skill_id', row.skill_id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existing) {
+          // Update existing record
+          const { error: updateError } = await supabaseAdmin
+            .from('member_skill')
+            .update({
+              progress: row.progress,
+              date_acquired: row.date_acquired,
+              updated_by_person_id: row.updated_by_person_id,
+              evaluation_id: row.evaluation_id,
+            })
+            .eq('member_skill_id', existing.member_skill_id);
+
+          if (updateError) {
+            return NextResponse.json(
+              { error: `Failed to update skill: ${updateError.message}` },
+              { status: 500 }
+            );
+          }
+        } else {
+          // Insert new record
+          const { error: insertSkillError } = await supabaseAdmin
+            .from('member_skill')
+            .insert(row);
+
+          if (insertSkillError) {
+            return NextResponse.json(
+              { error: `Failed to create skill record: ${insertSkillError.message}` },
+              { status: 500 }
+            );
+          }
+        }
+      }
     }
 
     return NextResponse.json({ success: true });

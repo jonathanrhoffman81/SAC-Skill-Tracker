@@ -42,22 +42,49 @@ export async function GET(request: NextRequest) {
     if (instructorsError)
       throw new Error("instructors error: " + instructorsError.message);
 
-    // Fetch group and class assignments, but only for classes that belong to this organization
+    // Fetch group assignments for instructors
     const { data: groupLinks, error: groupLinksError } = await supabase
       .from("group_instructor")
-      .select("instructor_person_id, class_group!inner(class_id, class_entity!inner(organization_id))")
-      .in("instructor_person_id", instructorPersonIds)
-      .eq("class_group.class_entity.organization_id", orgId);
+      .select("instructor_person_id, group_id")
+      .in("instructor_person_id", instructorPersonIds);
 
     if (groupLinksError)
       throw new Error("group links error: " + groupLinksError.message);
 
+    // Get group IDs for the instructors
+    const groupIds = Array.from(new Set((groupLinks ?? []).map((row: any) => row.group_id)));
+    
+    // If there are groups, fetch class IDs for those groups (filtered by org)
+    let groupToClassId = new Map<string, string>();
+    if (groupIds.length > 0) {
+      const { data: groupClasses, error: groupClassesError } = await supabase
+        .from("class_group")
+        .select("group_id, class_id, class_entity(organization_id)")
+        .in("group_id", groupIds);
+
+      if (groupClassesError)
+        throw new Error("class group links error: " + groupClassesError.message);
+
+      // Filter by organization
+      for (const gc of groupClasses ?? []) {
+        const orgId_check = (gc.class_entity as any)?.organization_id;
+        if (orgId_check === orgId) {
+          groupToClassId.set(gc.group_id, gc.class_id);
+        }
+      }
+    }
+
     const classIdsByPersonId = new Map<string, string[]>();
     for (const row of groupLinks || []) {
       const personId = row.instructor_person_id;
-      const classIds = (row.class_group ?? []).map((cg: any) => cg.class_id);
-      const existing = classIdsByPersonId.get(personId) || [];
-      classIdsByPersonId.set(personId, [...existing, ...classIds]);
+      const classId = groupToClassId.get(row.group_id);
+      if (classId) {
+        const existing = classIdsByPersonId.get(personId) || [];
+        if (!existing.includes(classId)) {
+          existing.push(classId);
+          classIdsByPersonId.set(personId, existing);
+        }
+      }
     }
 
     const normalized = (instructors || []).map((inst: any) => ({

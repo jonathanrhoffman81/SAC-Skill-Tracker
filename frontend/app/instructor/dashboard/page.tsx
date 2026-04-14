@@ -510,7 +510,7 @@ export default function InstructorDashboard() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M12 9v2m0 4v2m0 4v2M7.757 4.505a10 10 0 0114.486 0M4 12a8 8 0 1116 0M4 12a8 8 0 0016 0m0 0a8 8 0 01-16 0"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
                   />
                 </svg>
                 <div className="min-w-0 flex-1">
@@ -678,14 +678,15 @@ export default function InstructorDashboard() {
                         swimmerId={swimmer.id}
                         skills={swimmer.skills}
                         classes={swimmer.classes}
-                        onSubmissionComplete={() =>
+                        onSubmissionComplete={() => {
                           loadDashboardData(
                             swimmerTab,
                             currentPage,
                             debouncedSearchQuery,
                             { forceRefresh: true },
-                          )
-                        }
+                          );
+                          setOpenSwimmerId(null);
+                        }}
                       />
                     </div>
                   )}
