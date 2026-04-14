@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import {
-  getRoleIdByName,
-  resolveAdminRequestContext,
-} from "@/lib/adminQueries";
+import { getRoleIdByName, resolveAdminRequestContext } from "@/lib/adminQueries";
 
 async function validateInstructorInOrg(
   supabase: any,
@@ -61,28 +58,107 @@ async function validateInstructorInOrg(
   return { ok: true };
 }
 
-async function validateMemberInOrg(
+async function validateGroupsInOrg(
   supabase: any,
-  memberId: string,
+  groupIds: string[],
   organizationId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const { data: member, error: memberError } = await supabase
-    .from("member")
-    .select("member_id")
-    .eq("member_id", memberId)
-    .eq("organization_id", organizationId)
-    .maybeSingle();
+  if (groupIds.length === 0) {
+    return { ok: false, error: "At least one group_id is required." };
+  }
 
-  if (memberError) {
+  const { data: groupRows, error: groupError } = await supabase
+    .from("class_group")
+    .select("group_id, class_entity!inner(organization_id)")
+    .in("group_id", groupIds)
+    .eq("class_entity.organization_id", organizationId);
+
+  if (groupError) {
     return {
       ok: false,
-      error: `Failed to validate member org membership: ${memberError.message}`,
+      error: `Failed to validate group org membership: ${groupError.message}`,
     };
   }
 
-  return member
-    ? { ok: true }
-    : { ok: false, error: "Member is not in this organization." };
+  const validGroupIds = new Set((groupRows || []).map((row: any) => row.group_id));
+  const missingGroupIds = groupIds.filter((id) => !validGroupIds.has(id));
+
+  if (missingGroupIds.length > 0) {
+    return {
+      ok: false,
+      error: "One or more groups do not belong to this organization.",
+    };
+  }
+
+  return { ok: true };
+}
+
+async function deleteGroupIfEmpty(
+  supabase: any,
+  groupId: string | null | undefined,
+  organizationId: string,
+): Promise<{ ok: boolean; deleted?: boolean; error?: string }> {
+  if (!groupId) return { ok: true, deleted: false };
+
+  const { data: groupRow, error: groupError } = await supabase
+    .from("class_group")
+    .select("group_id, class_entity!inner(organization_id)")
+    .eq("group_id", groupId)
+    .eq("class_entity.organization_id", organizationId)
+    .maybeSingle();
+
+  if (groupError) {
+    return {
+      ok: false,
+      error: `Failed to validate group before cleanup: ${groupError.message}`,
+    };
+  }
+
+  if (!groupRow) {
+    return { ok: true, deleted: false };
+  }
+
+  const { count: memberCount, error: countError } = await supabase
+    .from("enrollment")
+    .select("member_id", { count: "exact", head: true })
+    .eq("group_id", groupId);
+
+  if (countError) {
+    return {
+      ok: false,
+      error: `Failed to count group enrollments: ${countError.message}`,
+    };
+  }
+
+  if ((memberCount ?? 0) > 0) {
+    return { ok: true, deleted: false };
+  }
+
+  const { error: removeInstructorError } = await supabase
+    .from("group_instructor")
+    .delete()
+    .eq("group_id", groupId);
+
+  if (removeInstructorError) {
+    return {
+      ok: false,
+      error: `Failed to remove group instructors during cleanup: ${removeInstructorError.message}`,
+    };
+  }
+
+  const { error: deleteGroupError } = await supabase
+    .from("class_group")
+    .delete()
+    .eq("group_id", groupId);
+
+  if (deleteGroupError) {
+    return {
+      ok: false,
+      error: `Failed to delete empty group: ${deleteGroupError.message}`,
+    };
+  }
+
+  return { ok: true, deleted: true };
 }
 
 export async function GET(request: NextRequest) {
@@ -94,7 +170,6 @@ export async function GET(request: NextRequest) {
       request.nextUrl.searchParams.get("email"),
     );
     const organizationId = adminContext.organizationId;
-    const sessionId = request.nextUrl.searchParams.get("session_id");
 
     const chunkSize = 200;
 
@@ -194,219 +269,61 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let rawMembers: Array<{
-      member_id: string;
-      first_name?: string;
-      last_name?: string;
-      slot?: number | null;
-      date_of_birth?: string | null;
-    }> = [];
-    let classNameById = new Map<string, string>();
-    let memberClassNames = new Map<string, string[]>();
+    const { data: classRows, error: classRowsError } = await supabase
+      .from("class_entity")
+      .select("class_id, name")
+      .eq("organization_id", organizationId)
+      .order("name", { ascending: true });
 
-    if (sessionId) {
-      const { data: classRows, error: classRowsError } = await supabase
-        .from("class_entity")
-        .select("class_id, name")
-        .eq("organization_id", organizationId)
-        .eq("session_id", sessionId);
+    if (classRowsError) {
+      return NextResponse.json(
+        { error: `Failed to load classes: ${classRowsError.message}` },
+        { status: 500 },
+      );
+    }
 
-      if (classRowsError) {
-        return NextResponse.json(
-          { error: `Failed to load classes: ${classRowsError.message}` },
-          { status: 500 },
-        );
-      }
+    const classNameById = new Map(
+      (classRows || []).map((row: any) => [row.class_id, row.name || "Unnamed class"]),
+    );
+    const classIds = Array.from(classNameById.keys());
 
-      for (const row of classRows ?? []) {
-        classNameById.set(row.class_id, row.name || "Unnamed class");
-      }
-
-      const classIds = Array.from(classNameById.keys());
-      if (classIds.length === 0) {
-        return NextResponse.json({ members: [], instructors, assignments: [] });
-      }
-
-      const allEnrollments: Array<{ member_id: string; class_id: string }> = [];
+    let groups: Array<{ group_id: string; class_id: string; name: string }> = [];
+    if (classIds.length > 0) {
       for (let i = 0; i < classIds.length; i += chunkSize) {
         const classIdChunk = classIds.slice(i, i + chunkSize);
-        const { data: enrollmentChunk, error: enrollmentsError } =
-          await supabase
-            .from("enrollment")
-            .select("member_id, class_id")
-            .in("class_id", classIdChunk);
+        const { data: groupChunk, error: groupError } = await supabase
+          .from("class_group")
+          .select("group_id, class_id, name")
+          .in("class_id", classIdChunk)
+          .order("name", { ascending: true });
 
-        if (enrollmentsError) {
-          console.warn(
-            "Enrollment lookup for session classes failed:",
-            enrollmentsError.message,
-          );
-          continue;
-        }
-
-        allEnrollments.push(
-          ...((enrollmentChunk || []) as Array<{
-            member_id: string;
-            class_id: string;
-          }>),
-        );
-      }
-
-      const memberIds = Array.from(
-        new Set(
-          allEnrollments
-            .map((enrollment) => enrollment.member_id)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      );
-
-      for (let i = 0; i < memberIds.length; i += chunkSize) {
-        const memberIdChunk = memberIds.slice(i, i + chunkSize);
-        const { data: memberChunk, error: membersError } = await supabase
-          .from("member")
-          .select("member_id, first_name, last_name, slot, date_of_birth")
-          .in("member_id", memberIdChunk)
-          .order("first_name", { ascending: true })
-          .order("last_name", { ascending: true });
-
-        if (membersError) {
+        if (groupError) {
           return NextResponse.json(
-            { error: `Failed to load members: ${membersError.message}` },
+            { error: `Failed to load class groups: ${groupError.message}` },
             { status: 500 },
           );
         }
 
-        rawMembers.push(
-          ...((memberChunk || []) as Array<{
-            member_id: string;
-            first_name?: string;
-            last_name?: string;
-            slot?: number | null;
-            date_of_birth?: string | null;
-          }>),
-        );
-      }
-
-      for (const enrollment of allEnrollments) {
-        const className = classNameById.get(enrollment.class_id);
-        if (!className) continue;
-        const existing = memberClassNames.get(enrollment.member_id) || [];
-        if (!existing.includes(className)) {
-          existing.push(className);
-          memberClassNames.set(enrollment.member_id, existing);
-        }
-      }
-    } else {
-      const { data: membersData, error: membersError } = await supabase
-        .from("member")
-        .select("member_id, first_name, last_name, slot, date_of_birth")
-        .eq("organization_id", organizationId)
-        .order("first_name", { ascending: true })
-        .order("last_name", { ascending: true });
-
-      if (membersError) {
-        return NextResponse.json(
-          { error: `Failed to load members: ${membersError.message}` },
-          { status: 500 },
-        );
-      }
-
-      rawMembers = membersData || [];
-
-      // Load class tags for each member via enrollment -> class_entity.
-      // Use chunked IN queries to avoid oversized Supabase requests.
-      const memberIds = rawMembers.map((m: any) => m.member_id);
-      if (memberIds.length > 0) {
-        const allEnrollments: Array<{ member_id: string; class_id: string }> =
-          [];
-
-        for (let i = 0; i < memberIds.length; i += chunkSize) {
-          const memberIdChunk = memberIds.slice(i, i + chunkSize);
-          const { data: enrollmentChunk, error: enrollmentsError } =
-            await supabase
-              .from("enrollment")
-              .select("member_id, class_id")
-              .in("member_id", memberIdChunk);
-
-          if (enrollmentsError) {
-            console.warn(
-              "Enrollment lookup for class tags failed:",
-              enrollmentsError.message,
-            );
-            continue;
-          }
-
-          allEnrollments.push(
-            ...((enrollmentChunk || []) as Array<{
-              member_id: string;
-              class_id: string;
-            }>),
-          );
-        }
-
-        const classIds = Array.from(
-          new Set(
-            allEnrollments
-              .map((enrollment: any) => enrollment.class_id)
-              .filter((id: string | null | undefined): id is string =>
-                Boolean(id),
-              ),
-          ),
-        );
-
-        if (classIds.length > 0) {
-          for (let i = 0; i < classIds.length; i += chunkSize) {
-            const classIdChunk = classIds.slice(i, i + chunkSize);
-            const { data: classRows, error: classRowsError } = await supabase
-              .from("class_entity")
-              .select("class_id, name")
-              .in("class_id", classIdChunk)
-              .eq("organization_id", organizationId);
-
-            if (classRowsError) {
-              console.warn("Class tag lookup failed:", classRowsError.message);
-              continue;
-            }
-
-            for (const row of classRows ?? []) {
-              classNameById.set(row.class_id, row.name || "Unnamed class");
-            }
-          }
-        }
-
-        for (const enrollment of allEnrollments) {
-          const className = classNameById.get(enrollment.class_id);
-          if (!className) continue;
-          const existing = memberClassNames.get(enrollment.member_id) || [];
-          if (!existing.includes(className)) {
-            existing.push(className);
-            memberClassNames.set(enrollment.member_id, existing);
-          }
-        }
+        groups.push(...((groupChunk || []) as Array<{ group_id: string; class_id: string; name: string }>));
       }
     }
 
-    const members = rawMembers ?? [];
-    const memberIds = members.map((m: any) => m.member_id);
-    const memberIdSet = new Set(memberIds);
-
+    const groupIds = groups.map((group) => group.group_id);
     const scopedAssignments: Array<{
       instructor_person_id: string;
-      member_id: string;
+      group_id: string;
     }> = [];
-    if (memberIds.length > 0) {
-      for (let i = 0; i < memberIds.length; i += chunkSize) {
-        const memberIdChunk = memberIds.slice(i, i + chunkSize);
-        const assignmentsQuery = supabase
-          .from("instructor_member_assignment")
-          .select("instructor_person_id, member_id")
-          .in("member_id", memberIdChunk);
+    if (groupIds.length > 0) {
+      for (let i = 0; i < groupIds.length; i += chunkSize) {
+        const groupIdChunk = groupIds.slice(i, i + chunkSize);
+        const { data: assignmentsChunk, error: assignmentsError } = await supabase
+          .from("group_instructor")
+          .select("instructor_person_id, group_id")
+          .in("group_id", groupIdChunk);
 
-        const { data: assignmentsChunk, error: assignmentsError } =
-          await assignmentsQuery;
         if (assignmentsError) {
           console.warn(
-            "Assignments chunk lookup failed:",
+            "Group instructor lookup failed:",
             assignmentsError.message,
           );
           continue;
@@ -415,43 +332,56 @@ export async function GET(request: NextRequest) {
         scopedAssignments.push(
           ...((assignmentsChunk || []) as Array<{
             instructor_person_id: string;
-            member_id: string;
+            group_id: string;
           }>),
         );
       }
     }
 
-    const uniqueAssignments = Array.from(
-      new Map(
-        scopedAssignments
-          .filter((assignment) => memberIdSet.has(assignment.member_id))
-          .map((assignment) => [
-            `${assignment.member_id}:${assignment.instructor_person_id}`,
-            assignment,
-          ]),
-      ).values(),
-    );
-
-    // Deduplicate likely duplicate roster entries by normalized full name.
-    const dedupedMembers = Array.from(
-      new Map(
-        members.map((member: any) => {
-          const normalizedName =
-            `${member.first_name || ""} ${member.last_name || ""}`
-              .trim()
-              .toLowerCase();
-          return [normalizedName, member];
-        }),
-      ).values(),
-    ).map((member: any) => ({
-      ...member,
-      class_names: memberClassNames.get(member.member_id) || [],
+    const normalizedGroups = groups.map((group) => ({
+      group_id: group.group_id,
+      class_id: group.class_id,
+      group_name: group.name || "Slot",
+      class_name: classNameById.get(group.class_id) || "Unnamed class",
     }));
 
+    const { data: enrollmentRows, error: enrollmentError } = await supabase
+      .from("enrollment")
+      .select(
+        "member_id, class_id, group_id, slot, member:member_id(first_name, last_name, date_of_birth), class_entity:class_id(name, organization_id)",
+      )
+      .eq("class_entity.organization_id", organizationId);
+
+    if (enrollmentError) {
+      return NextResponse.json(
+        { error: `Failed to load enrollments: ${enrollmentError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const groupNameById = new Map(
+      normalizedGroups.map((group) => [group.group_id, group.group_name]),
+    );
+
+    const enrollments = (enrollmentRows || [])
+      .filter((row: any) => row.class_entity)
+      .map((row: any) => ({
+        member_id: row.member_id,
+        class_id: row.class_id,
+        group_id: row.group_id ?? null,
+        group_name: row.group_id ? groupNameById.get(row.group_id) || null : null,
+        class_name: row.class_entity?.name || "Unnamed class",
+        member_first_name: row.member?.first_name ?? "",
+        member_last_name: row.member?.last_name ?? "",
+        date_of_birth: row.member?.date_of_birth ?? null,
+        slot: row.slot ?? null,
+      }));
+
     return NextResponse.json({
-      members: dedupedMembers,
+      groups: normalizedGroups,
       instructors,
-      assignments: uniqueAssignments,
+      assignments: scopedAssignments,
+      enrollments,
     });
   } catch (error) {
     const message =
@@ -460,25 +390,297 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      class_id?: string;
+      member_ids?: string[];
+      group_name?: string;
+    };
+
+    if (!body.class_id) {
+      return NextResponse.json({ error: "class_id is required" }, { status: 400 });
+    }
+
+    const memberIds = Array.from(
+      new Set((body.member_ids ?? []).filter((value): value is string => Boolean(value))),
+    );
+
+    if (memberIds.length === 0) {
+      return NextResponse.json({ error: "member_ids is required" }, { status: 400 });
+    }
+
+    const supabase = getSupabaseAdminClient();
+    const adminContext = await resolveAdminRequestContext(request, supabase);
+    const organizationId = adminContext.organizationId;
+
+    const { data: classRow, error: classError } = await supabase
+      .from("class_entity")
+      .select("class_id, name")
+      .eq("class_id", body.class_id)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+
+    if (classError || !classRow) {
+      return NextResponse.json(
+        { error: "Class is not in this organization." },
+        { status: 400 },
+      );
+    }
+
+    const { data: memberRows, error: memberError } = await supabase
+      .from("member")
+      .select("member_id")
+      .in("member_id", memberIds)
+      .eq("organization_id", organizationId);
+
+    if (memberError) {
+      return NextResponse.json(
+        { error: `Failed to validate members: ${memberError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const validMemberIds = new Set((memberRows || []).map((row: any) => row.member_id));
+    const invalidMemberIds = memberIds.filter((memberId) => !validMemberIds.has(memberId));
+    if (invalidMemberIds.length > 0) {
+      return NextResponse.json(
+        { error: "One or more swimmers are not in this organization." },
+        { status: 400 },
+      );
+    }
+
+    const { data: enrollmentRows, error: enrollmentError } = await supabase
+      .from("enrollment")
+      .select("member_id, group_id")
+      .eq("class_id", body.class_id)
+      .in("member_id", memberIds);
+
+    if (enrollmentError) {
+      return NextResponse.json(
+        { error: `Failed to validate enrollments: ${enrollmentError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const enrolledMemberIds = new Set((enrollmentRows || []).map((row: any) => row.member_id));
+    const missingEnrollmentIds = memberIds.filter((memberId) => !enrolledMemberIds.has(memberId));
+
+    if (missingEnrollmentIds.length > 0) {
+      return NextResponse.json(
+        { error: "One or more swimmers are not enrolled in this class." },
+        { status: 400 },
+      );
+    }
+
+    const previousGroupIds = Array.from(
+      new Set(
+        (enrollmentRows || [])
+          .map((row: any) => row.group_id)
+          .filter((groupId: string | null | undefined): groupId is string => Boolean(groupId)),
+      ),
+    );
+
+    const { count: existingCount, error: countError } = await supabase
+      .from("class_group")
+      .select("group_id", { count: "exact", head: true })
+      .eq("class_id", body.class_id);
+
+    if (countError) {
+      return NextResponse.json(
+        { error: `Failed to generate group name: ${countError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const generatedGroupName = body.group_name?.trim()
+      ? body.group_name.trim()
+      : `Group ${(existingCount ?? 0) + 1}`;
+
+    const { data: createdGroup, error: createGroupError } = await supabase
+      .from("class_group")
+      .insert({
+        class_id: body.class_id,
+        name: generatedGroupName,
+      })
+      .select("group_id, class_id, name")
+      .single();
+
+    if (createGroupError || !createdGroup) {
+      return NextResponse.json(
+        { error: `Failed to create group: ${createGroupError?.message ?? "Unknown error"}` },
+        { status: 500 },
+      );
+    }
+
+    const { error: updateEnrollmentError } = await supabase
+      .from("enrollment")
+      .update({ group_id: createdGroup.group_id })
+      .eq("class_id", body.class_id)
+      .in("member_id", memberIds);
+
+    if (updateEnrollmentError) {
+      await supabase.from("class_group").delete().eq("group_id", createdGroup.group_id);
+      return NextResponse.json(
+        { error: `Failed to assign swimmers to new group: ${updateEnrollmentError.message}` },
+        { status: 500 },
+      );
+    }
+
+    for (const previousGroupId of previousGroupIds) {
+      if (previousGroupId === createdGroup.group_id) continue;
+      const cleanupResult = await deleteGroupIfEmpty(
+        supabase,
+        previousGroupId,
+        organizationId,
+      );
+      if (!cleanupResult.ok) {
+        console.warn(cleanupResult.error);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      group: {
+        group_id: createdGroup.group_id,
+        class_id: createdGroup.class_id,
+        group_name: createdGroup.name,
+        class_name: classRow.name || "Unnamed class",
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 export async function PUT(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       member_id?: string;
-      member_ids?: string[];
+      class_id?: string;
+      group_id?: string;
+      group_ids?: string[];
       instructor_person_id?: string | null;
     };
 
-    const memberIds = Array.from(
+    if (body.member_id && body.class_id) {
+      const supabase = getSupabaseAdminClient();
+      const adminContext = await resolveAdminRequestContext(request, supabase);
+      const organizationId = adminContext.organizationId;
+
+      const { data: existingEnrollment, error: existingEnrollmentError } =
+        await supabase
+          .from("enrollment")
+          .select("group_id")
+          .eq("member_id", body.member_id)
+          .eq("class_id", body.class_id)
+          .maybeSingle();
+
+      if (existingEnrollmentError) {
+        return NextResponse.json(
+          {
+            error: `Failed to read current assignment: ${existingEnrollmentError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      if (!existingEnrollment) {
+        return NextResponse.json(
+          { error: "Enrollment not found for this swimmer and class." },
+          { status: 400 },
+        );
+      }
+
+      const previousGroupId = existingEnrollment.group_id as string | null;
+
+      const { data: memberRow, error: memberError } = await supabase
+        .from("member")
+        .select("member_id")
+        .eq("member_id", body.member_id)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (memberError || !memberRow) {
+        return NextResponse.json(
+          { error: "Member is not in this organization." },
+          { status: 400 },
+        );
+      }
+
+      const { data: classRow, error: classError } = await supabase
+        .from("class_entity")
+        .select("class_id")
+        .eq("class_id", body.class_id)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (classError || !classRow) {
+        return NextResponse.json(
+          { error: "Class is not in this organization." },
+          { status: 400 },
+        );
+      }
+
+      if (body.group_id) {
+        const { data: groupRow, error: groupError } = await supabase
+          .from("class_group")
+          .select("group_id, class_id, class_entity!inner(organization_id)")
+          .eq("group_id", body.group_id)
+          .eq("class_id", body.class_id)
+          .eq("class_entity.organization_id", organizationId)
+          .maybeSingle();
+
+        if (groupError || !groupRow) {
+          return NextResponse.json(
+            { error: "Group does not belong to this class." },
+            { status: 400 },
+          );
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from("enrollment")
+        .update({ group_id: body.group_id ?? null })
+        .eq("member_id", body.member_id)
+        .eq("class_id", body.class_id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: `Failed to update group assignment: ${updateError.message}` },
+          { status: 500 },
+        );
+      }
+
+      if (previousGroupId && previousGroupId !== (body.group_id ?? null)) {
+        const cleanupResult = await deleteGroupIfEmpty(
+          supabase,
+          previousGroupId,
+          organizationId,
+        );
+        if (!cleanupResult.ok) {
+          return NextResponse.json(
+            { error: cleanupResult.error || "Failed to clean up empty group." },
+            { status: 500 },
+          );
+        }
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    const groupIds = Array.from(
       new Set(
-        [body.member_id, ...(body.member_ids ?? [])].filter(
+        [body.group_id, ...(body.group_ids ?? [])].filter(
           (value): value is string => Boolean(value),
         ),
       ),
     );
 
-    if (memberIds.length === 0) {
+    if (groupIds.length === 0) {
       return NextResponse.json(
-        { error: "At least one member_id is required" },
+        { error: "At least one group_id is required" },
         { status: 400 },
       );
     }
@@ -494,18 +696,13 @@ export async function PUT(request: NextRequest) {
     const adminContext = await resolveAdminRequestContext(request, supabase);
     const organizationId = adminContext.organizationId;
 
-    for (const memberId of memberIds) {
-      const memberValidation = await validateMemberInOrg(
-        supabase,
-        memberId,
-        organizationId,
-      );
-      if (!memberValidation.ok) {
-        return NextResponse.json(
-          { error: memberValidation.error },
-          { status: 400 },
-        );
-      }
+    const groupValidation = await validateGroupsInOrg(
+      supabase,
+      groupIds,
+      organizationId,
+    );
+    if (!groupValidation.ok) {
+      return NextResponse.json({ error: groupValidation.error }, { status: 400 });
     }
 
     const instructorValidation = await validateInstructorInOrg(
@@ -520,15 +717,15 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const rows = memberIds.map((memberId) => ({
+    const rows = groupIds.map((groupId) => ({
       instructor_person_id: body.instructor_person_id as string,
-      member_id: memberId,
+      group_id: groupId,
     }));
 
     const { error: upsertError } = await supabase
-      .from("instructor_member_assignment")
+      .from("group_instructor")
       .upsert(rows, {
-        onConflict: "member_id,instructor_person_id",
+        onConflict: "group_id,instructor_person_id",
         ignoreDuplicates: true,
       });
 
@@ -551,21 +748,112 @@ export async function DELETE(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       member_id?: string;
-      member_ids?: string[];
+      class_id?: string;
+      group_id?: string;
+      group_ids?: string[];
       instructor_person_id?: string;
     };
 
-    const memberIds = Array.from(
+    if (body.member_id && body.class_id) {
+      const supabase = getSupabaseAdminClient();
+      const adminContext = await resolveAdminRequestContext(request, supabase);
+      const organizationId = adminContext.organizationId;
+
+      const { data: existingEnrollment, error: existingEnrollmentError } =
+        await supabase
+          .from("enrollment")
+          .select("group_id")
+          .eq("member_id", body.member_id)
+          .eq("class_id", body.class_id)
+          .maybeSingle();
+
+      if (existingEnrollmentError) {
+        return NextResponse.json(
+          {
+            error: `Failed to read current assignment: ${existingEnrollmentError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      if (!existingEnrollment) {
+        return NextResponse.json(
+          { error: "Enrollment not found for this swimmer and class." },
+          { status: 400 },
+        );
+      }
+
+      const previousGroupId = existingEnrollment.group_id as string | null;
+
+      const { data: memberRow, error: memberError } = await supabase
+        .from("member")
+        .select("member_id")
+        .eq("member_id", body.member_id)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (memberError || !memberRow) {
+        return NextResponse.json(
+          { error: "Member is not in this organization." },
+          { status: 400 },
+        );
+      }
+
+      const { data: classRow, error: classError } = await supabase
+        .from("class_entity")
+        .select("class_id")
+        .eq("class_id", body.class_id)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (classError || !classRow) {
+        return NextResponse.json(
+          { error: "Class is not in this organization." },
+          { status: 400 },
+        );
+      }
+
+      const { error: updateError } = await supabase
+        .from("enrollment")
+        .update({ group_id: null })
+        .eq("member_id", body.member_id)
+        .eq("class_id", body.class_id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: `Failed to clear group assignment: ${updateError.message}` },
+          { status: 500 },
+        );
+      }
+
+      if (previousGroupId) {
+        const cleanupResult = await deleteGroupIfEmpty(
+          supabase,
+          previousGroupId,
+          organizationId,
+        );
+        if (!cleanupResult.ok) {
+          return NextResponse.json(
+            { error: cleanupResult.error || "Failed to clean up empty group." },
+            { status: 500 },
+          );
+        }
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    const groupIds = Array.from(
       new Set(
-        [body.member_id, ...(body.member_ids ?? [])].filter(
+        [body.group_id, ...(body.group_ids ?? [])].filter(
           (value): value is string => Boolean(value),
         ),
       ),
     );
 
-    if (!body.instructor_person_id || memberIds.length === 0) {
+    if (!body.instructor_person_id || groupIds.length === 0) {
       return NextResponse.json(
-        { error: "instructor_person_id and at least one member are required" },
+        { error: "instructor_person_id and at least one group are required" },
         { status: 400 },
       );
     }
@@ -586,25 +874,20 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    for (const memberId of memberIds) {
-      const memberValidation = await validateMemberInOrg(
-        supabase,
-        memberId,
-        organizationId,
-      );
-      if (!memberValidation.ok) {
-        return NextResponse.json(
-          { error: memberValidation.error },
-          { status: 400 },
-        );
-      }
+    const groupValidation = await validateGroupsInOrg(
+      supabase,
+      groupIds,
+      organizationId,
+    );
+    if (!groupValidation.ok) {
+      return NextResponse.json({ error: groupValidation.error }, { status: 400 });
     }
 
     const { error: deleteError } = await supabase
-      .from("instructor_member_assignment")
+      .from("group_instructor")
       .delete()
       .eq("instructor_person_id", body.instructor_person_id)
-      .in("member_id", memberIds);
+      .in("group_id", groupIds);
 
     if (deleteError) {
       return NextResponse.json(

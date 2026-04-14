@@ -15,9 +15,6 @@ interface Class {
     schedule?: string | null;
     length_minutes?: number | null;
     created_at: string;
-    session_id?: string | null;
-    session_name?: string | null;
-    session_start_date?: string | null;
 }
 
 interface ClassManagerProps {
@@ -171,12 +168,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
             ) : (
                 <div className="space-y-2">
                     {[...classes]
-                        .sort((a, b) => {
-                            const aDate = a.session_start_date ? new Date(a.session_start_date).getTime() : 0;
-                            const bDate = b.session_start_date ? new Date(b.session_start_date).getTime() : 0;
-                            if (aDate !== bDate) return bDate - aDate;
-                            return a.name.localeCompare(b.name);
-                        })
+                        .sort((a, b) => a.name.localeCompare(b.name))
                         .map((classItem) => (
                             <div
                                 key={classItem.class_id}
@@ -258,11 +250,6 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                                             <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
                                                 {classItem.name}
                                             </p>
-                                            <div className="mt-1 flex flex-wrap gap-2">
-                                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                                                    {classItem.session_name || 'Unassigned session'}
-                                                </span>
-                                            </div>
                                             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
                                                 {classItem.schedule && (
                                                     <p className="text-xs sm:text-sm text-gray-600">
@@ -343,7 +330,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
                     <p className="text-sm font-semibold text-gray-900">Confirm Delete</p>
                     <p className="mt-1 text-xs sm:text-sm text-gray-600">
-                        Delete <span className="font-medium">{deleteDialog.className}</span>? This will remove all instructor assignments.
+                        Delete <span className="font-medium">{deleteDialog.className}</span>? This will remove all group assignments.
                     </p>
                     <div className="mt-3 flex justify-end gap-2">
                         <button

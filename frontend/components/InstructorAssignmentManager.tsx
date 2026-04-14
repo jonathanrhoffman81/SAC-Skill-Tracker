@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface Instructor {
@@ -10,36 +11,28 @@ interface Instructor {
     email: string;
 }
 
-interface Student {
-    member_id: string;
-    first_name: string | null;
-    last_name: string | null;
-    class_names?: string[];
-    slot?: number | null;
-    date_of_birth?: string | null;
+interface Group {
+    group_id: string;
+    class_id: string;
+    class_name: string;
+    group_name: string;
 }
 
 interface Assignment {
-    member_id: string;
+    group_id: string;
     instructor_person_id: string;
 }
 
-interface StudentAssignment {
+interface EnrollmentRow {
     member_id: string;
-    first_name: string | null;
-    last_name: string | null;
-    class_names: string[];
-    instructor_ids: string[];
-    instructor_names: string[];
-    slot?: number | null;
-    date_of_birth?: string | null;
-}
-
-interface SessionRecord {
-    session_id: string;
-    name: string;
-    start_date: string | null;
-    end_date: string | null;
+    class_id: string;
+    group_id: string | null;
+    group_name: string | null;
+    class_name: string;
+    member_first_name: string;
+    member_last_name: string;
+    date_of_birth: string | null;
+    slot: number | null;
 }
 
 interface TagColor {
@@ -47,76 +40,318 @@ interface TagColor {
     text: string;
 }
 
-export default function InstructorAssignmentManager() {
-    const formatDisplayName = (firstName?: string | null, lastName?: string | null) => {
-        const first = firstName?.trim() || '';
-        const last = lastName?.trim() || '';
-        return [first, last].filter(Boolean).join(' ') || 'Unnamed';
-    };
+type SelectOption = {
+    value: string;
+    label: string;
+    disabled?: boolean;
+};
 
-    const formatSlotLabel = (slot?: number | null) => {
-        if (slot === null || slot === undefined) return 'Unassigned';
-        return `Slot ${slot}`;
-    };
+type StyledSelectProps = {
+    value: string;
+    onChange: (value: string) => void;
+    options: SelectOption[];
+    placeholder?: string;
+    sizeMode?: 'default' | 'compact';
+    className?: string;
+    disabled?: boolean;
+    ariaLabel?: string;
+};
 
-    const getDobTimestamp = (dob?: string | null) => {
-        if (!dob) return null;
-        const time = new Date(dob).getTime();
-        return Number.isNaN(time) ? null : time;
-    };
+type StyledMultiSelectProps = {
+    values: string[];
+    onChange: (values: string[]) => void;
+    options: SelectOption[];
+    placeholder?: string;
+    sizeMode?: 'default' | 'compact';
+    className?: string;
+    disabled?: boolean;
+    ariaLabel?: string;
+};
 
-    const sortStudentsByAge = (list: StudentAssignment[]) =>
-        [...list].sort((a, b) => {
-            const aDob = getDobTimestamp(a.date_of_birth);
-            const bDob = getDobTimestamp(b.date_of_birth);
-            if (aDob === null && bDob === null) {
-                return formatDisplayName(a.first_name, a.last_name).localeCompare(
-                    formatDisplayName(b.first_name, b.last_name)
-                );
-            }
-            if (aDob === null) return 1;
-            if (bDob === null) return -1;
-            if (aDob !== bDob) return bDob - aDob;
-            return formatDisplayName(a.first_name, a.last_name).localeCompare(
-                formatDisplayName(b.first_name, b.last_name)
-            );
+function StyledSelect({
+    value,
+    onChange,
+    options,
+    placeholder,
+    sizeMode = 'default',
+    className = '',
+    disabled = false,
+    ariaLabel,
+}: StyledSelectProps) {
+    const [open, setOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number }>({
+        top: 0,
+        left: 0,
+        width: 0,
+    });
+    const wrapperRef = useRef<HTMLDivElement | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    const updateMenuPosition = useCallback(() => {
+        const element = wrapperRef.current;
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        setMenuPosition({
+            top: rect.bottom + 4,
+            left: rect.left,
+            width: rect.width,
         });
+    }, []);
 
-    const getAgeYears = (dob?: string | null) => {
-        const timestamp = getDobTimestamp(dob);
-        if (timestamp === null) return null;
-        const now = new Date();
-        const birthDate = new Date(timestamp);
-        let age = now.getFullYear() - birthDate.getFullYear();
-        const monthDiff = now.getMonth() - birthDate.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
-            age -= 1;
+    useEffect(() => {
+        const onClickOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (wrapperRef.current?.contains(target) || menuRef.current?.contains(target)) {
+                return;
+            }
+            if (!wrapperRef.current?.contains(target)) {
+                setOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', onClickOutside);
+        return () => document.removeEventListener('mousedown', onClickOutside);
+    }, []);
+
+    useEffect(() => {
+        if (!open) return;
+
+        updateMenuPosition();
+
+        const handleWindowChange = () => updateMenuPosition();
+        window.addEventListener('resize', handleWindowChange);
+        window.addEventListener('scroll', handleWindowChange, true);
+
+        return () => {
+            window.removeEventListener('resize', handleWindowChange);
+            window.removeEventListener('scroll', handleWindowChange, true);
+        };
+    }, [open, updateMenuPosition]);
+
+    const sizeClasses = sizeMode === 'compact'
+        ? 'h-8 text-xs px-2 pr-7 rounded-lg'
+        : 'h-10 text-xs sm:text-sm px-3 pr-8 rounded-xl';
+
+    const selectedOption = options.find((option) => option.value === value);
+    const selectedLabel = selectedOption?.label || placeholder || 'Select';
+
+    return (
+        <div ref={wrapperRef} className={`relative ${open ? 'z-50' : ''} ${className}`}>
+            <button
+                type="button"
+                aria-label={ariaLabel}
+                onClick={() => !disabled && setOpen((prev) => !prev)}
+                disabled={disabled}
+                className={`w-full border border-slate-300 bg-white text-left text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${sizeClasses}`}
+            >
+                <span className="block truncate">{selectedLabel}</span>
+            </button>
+            <svg
+                className={`pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+            >
+                <path d="M5 7.5L10 12.5L15 7.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+
+            {open && !disabled && createPortal(
+                <div
+                    ref={menuRef}
+                    className="fixed z-[2000] max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    style={{
+                        top: menuPosition.top,
+                        left: menuPosition.left,
+                        width: menuPosition.width,
+                    }}
+                >
+                    {options.map((option) => {
+                        const isSelected = option.value === value;
+                        return (
+                            <button
+                                key={option.value}
+                                type="button"
+                                disabled={option.disabled}
+                                onClick={() => {
+                                    onChange(option.value);
+                                    setOpen(false);
+                                }}
+                                className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${isSelected
+                                    ? 'bg-sky-50 text-sky-700'
+                                    : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}
+                            >
+                                <span className="truncate">{option.label}</span>
+                                {isSelected && <span className="text-[11px]">✓</span>}
+                            </button>
+                        );
+                    })}
+                </div>,
+                document.body,
+            )}
+        </div>
+    );
+}
+
+function StyledMultiSelect({
+    values,
+    onChange,
+    options,
+    placeholder = 'Select',
+    sizeMode = 'default',
+    className = '',
+    disabled = false,
+    ariaLabel,
+}: StyledMultiSelectProps) {
+    const [open, setOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number }>({
+        top: 0,
+        left: 0,
+        width: 0,
+    });
+    const wrapperRef = useRef<HTMLDivElement | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    const updateMenuPosition = useCallback(() => {
+        const element = wrapperRef.current;
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        setMenuPosition({
+            top: rect.bottom + 4,
+            left: rect.left,
+            width: rect.width,
+        });
+    }, []);
+
+    useEffect(() => {
+        const onClickOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (wrapperRef.current?.contains(target) || menuRef.current?.contains(target)) {
+                return;
+            }
+            setOpen(false);
+        };
+
+        document.addEventListener('mousedown', onClickOutside);
+        return () => document.removeEventListener('mousedown', onClickOutside);
+    }, []);
+
+    useEffect(() => {
+        if (!open) return;
+
+        updateMenuPosition();
+
+        const handleWindowChange = () => updateMenuPosition();
+        window.addEventListener('resize', handleWindowChange);
+        window.addEventListener('scroll', handleWindowChange, true);
+
+        return () => {
+            window.removeEventListener('resize', handleWindowChange);
+            window.removeEventListener('scroll', handleWindowChange, true);
+        };
+    }, [open, updateMenuPosition]);
+
+    const sizeClasses = sizeMode === 'compact'
+        ? 'h-8 text-xs px-2 pr-7 rounded-lg'
+        : 'h-10 text-xs sm:text-sm px-3 pr-8 rounded-xl';
+
+    const selectedLabels = options
+        .filter((option) => values.includes(option.value))
+        .map((option) => option.label);
+
+    const displayLabel = selectedLabels.length === 0
+        ? placeholder
+        : selectedLabels.length <= 2
+            ? selectedLabels.join(', ')
+            : `${selectedLabels.length} selected`;
+
+    const toggleValue = (optionValue: string) => {
+        if (values.includes(optionValue)) {
+            onChange(values.filter((value) => value !== optionValue));
+            return;
         }
-        return age;
+        onChange([...values, optionValue]);
     };
+
+    return (
+        <div ref={wrapperRef} className={`relative ${open ? 'z-50' : ''} ${className}`}>
+            <button
+                type="button"
+                aria-label={ariaLabel}
+                onClick={() => !disabled && setOpen((prev) => !prev)}
+                disabled={disabled}
+                className={`w-full border border-slate-300 bg-white text-left text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${sizeClasses}`}
+            >
+                <span className="block truncate">{displayLabel}</span>
+            </button>
+            <svg
+                className={`pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+            >
+                <path d="M5 7.5L10 12.5L15 7.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+
+            {open && !disabled && createPortal(
+                <div
+                    ref={menuRef}
+                    className="fixed z-[2000] max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    style={{
+                        top: menuPosition.top,
+                        left: menuPosition.left,
+                        width: menuPosition.width,
+                    }}
+                >
+                    {options.map((option) => {
+                        const isSelected = values.includes(option.value);
+                        return (
+                            <button
+                                key={option.value}
+                                type="button"
+                                disabled={option.disabled}
+                                onClick={() => toggleValue(option.value)}
+                                className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${isSelected
+                                    ? 'bg-sky-50 text-sky-700'
+                                    : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}
+                            >
+                                <span className="truncate">{option.label}</span>
+                                <span className="text-[11px]">{isSelected ? '✓' : ''}</span>
+                            </button>
+                        );
+                    })}
+                </div>,
+                document.body,
+            )}
+        </div>
+    );
+}
+
+export default function InstructorAssignmentManager() {
+    const SWIMMER_PAGE_SIZE = 25;
+    const GROUP_PAGE_SIZE = 8;
 
     const [instructors, setInstructors] = useState<Instructor[]>([]);
-    const [students, setStudents] = useState<StudentAssignment[]>([]);
+    const [groups, setGroups] = useState<Group[]>([]);
+    const [assignments, setAssignments] = useState<Assignment[]>([]);
+    const [enrollments, setEnrollments] = useState<EnrollmentRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedInstructorId, setSelectedInstructorId] = useState('');
     const [classFilter, setClassFilter] = useState('all');
     const [slotFilter, setSlotFilter] = useState('all');
-    const [pendingStudentIds, setPendingStudentIds] = useState<Set<string>>(new Set());
-    const [showInstructorDropdown, setShowInstructorDropdown] = useState(false);
-    const [showClassFilterDropdown, setShowClassFilterDropdown] = useState(false);
-    const [showSlotFilterDropdown, setShowSlotFilterDropdown] = useState(false);
-    const [showSessionDropdown, setShowSessionDropdown] = useState(false);
-    const [sessions, setSessions] = useState<SessionRecord[]>([]);
-    const [sessionsLoading, setSessionsLoading] = useState(false);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-    const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const instructorDropdownRef = useRef<HTMLDivElement>(null);
-    const classFilterDropdownRef = useRef<HTMLDivElement>(null);
-    const slotFilterDropdownRef = useRef<HTMLDivElement>(null);
-    const sessionDropdownRef = useRef<HTMLDivElement>(null);
+    const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
+    const [swimmerPage, setSwimmerPage] = useState(1);
+    const [groupPage, setGroupPage] = useState(1);
+    const [pendingEnrollmentKeys, setPendingEnrollmentKeys] = useState<Set<string>>(new Set());
+    const [pendingInstructorKeys, setPendingInstructorKeys] = useState<Set<string>>(new Set());
+    const [groupInstructorSelection, setGroupInstructorSelection] = useState<Record<string, string[]>>({});
+    const [selectedEnrollmentKeys, setSelectedEnrollmentKeys] = useState<Set<string>>(new Set());
+    const [bulkGroupId, setBulkGroupId] = useState('');
+    const [bulkPending, setBulkPending] = useState(false);
+    const [createGroupPending, setCreateGroupPending] = useState(false);
+    const hasCompletedInitialLoadRef = useRef(false);
 
     const classTagPalette: TagColor[] = [
         { bg: 'bg-blue-100', text: 'text-blue-800' },
@@ -134,10 +369,6 @@ export default function InstructorAssignmentManager() {
     ];
 
     const getClassTagColors = (className: string): TagColor => {
-        if (className === 'No class') {
-            return { bg: 'bg-gray-100', text: 'text-gray-700' };
-        }
-
         const hash = className
             .toLowerCase()
             .split('')
@@ -147,383 +378,601 @@ export default function InstructorAssignmentManager() {
 
     const showToast = useCallback((message: string) => {
         setToastMessage(message);
-        if (toastTimeoutRef.current) {
-            clearTimeout(toastTimeoutRef.current);
-        }
-        toastTimeoutRef.current = setTimeout(() => {
-            setToastMessage(null);
-        }, 2200);
+        setTimeout(() => setToastMessage(null), 2200);
     }, []);
 
-    const pickDefaultSession = (list: SessionRecord[]) => {
-        if (list.length === 0) return null;
-        const today = new Date();
-        const active = list.find((session) => {
-            if (!session.start_date || !session.end_date) return false;
-            const start = new Date(`${session.start_date}T00:00:00`);
-            const end = new Date(`${session.end_date}T23:59:59`);
-            return start <= today && today <= end;
-        });
+    const formatName = (firstName?: string | null, lastName?: string | null) =>
+        [firstName || '', lastName || ''].join(' ').trim() || 'Unnamed';
 
-        if (active) return active.session_id;
-
-        const byStart = [...list].sort((a, b) => {
-            const aDate = a.start_date ? new Date(a.start_date).getTime() : 0;
-            const bDate = b.start_date ? new Date(b.start_date).getTime() : 0;
-            return bDate - aDate;
-        });
-        return byStart[0]?.session_id ?? null;
+    const getAge = (dob?: string | null) => {
+        if (!dob) return null;
+        const date = new Date(dob);
+        if (Number.isNaN(date.getTime())) return null;
+        const now = new Date();
+        let age = now.getFullYear() - date.getFullYear();
+        const monthDelta = now.getMonth() - date.getMonth();
+        if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < date.getDate())) {
+            age -= 1;
+        }
+        return age;
     };
 
-    const fetchSessions = useCallback(async () => {
-        setSessionsLoading(true);
-        try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch('/api/admin/sessions', { headers });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to load sessions');
-            }
-            const list = (data.sessions || []) as SessionRecord[];
-            setSessions(list);
-            setActiveSessionId((prev) => {
-                if (prev && list.some((session) => session.session_id === prev)) return prev;
-                return pickDefaultSession(list);
-            });
-        } catch (err) {
-            console.error('Error fetching sessions:', err);
-        } finally {
-            setSessionsLoading(false);
-        }
-    }, []);
+    const formatSlotLabel = (slot: number | null) =>
+        slot === null || slot === undefined ? '—' : String(slot);
 
-    const fetchAssignmentData = useCallback(async () => {
-        if (!activeSessionId) {
-            setInstructors([]);
-            setStudents([]);
-            setSelectedInstructorId('');
-            setLoading(false);
-            setErrorMessage(null);
-            return;
+    const slotSortValue = (slot: number | null | undefined) => {
+        if (slot === null || slot === undefined) return Number.MAX_SAFE_INTEGER;
+        const parsed = Number(slot);
+        return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    };
+
+    const enrollmentKey = (row: EnrollmentRow) => `${row.member_id}:${row.class_id}`;
+
+    const fetchAssignmentData = useCallback(async (options?: { silent?: boolean }) => {
+        const showBlockingLoader = !hasCompletedInitialLoadRef.current && !options?.silent;
+        if (showBlockingLoader) {
+            setLoading(true);
         }
-        setLoading(true);
         setErrorMessage(null);
 
         try {
             const headers = await createAuthenticatedHeaders();
-            const response = await fetch(
-                `/api/admin/instructor-member-assignments?session_id=${activeSessionId}`,
-                { headers }
-            );
+            const response = await fetch('/api/admin/instructor-member-assignments', { headers });
             if (!response.ok) {
                 const errorPayload = await response.json().catch(() => ({}));
                 throw new Error(errorPayload?.error || 'Failed to load assignments');
             }
 
             const data = await response.json();
-            const instructorsData: Instructor[] = data.instructors || [];
-            const membersData: Student[] = data.members || [];
-            const assignmentsData: Assignment[] = data.assignments || [];
-
-            const instructorNameById = new Map(
-                instructorsData.map((instructor) => [
-                    instructor.person_id,
-                    formatDisplayName(instructor.first_name, instructor.last_name),
-                ])
-            );
-
-            const assignmentsByMemberId = new Map<string, string[]>();
-            assignmentsData.forEach((assignment) => {
-                const existing = assignmentsByMemberId.get(assignment.member_id) || [];
-                if (!existing.includes(assignment.instructor_person_id)) {
-                    existing.push(assignment.instructor_person_id);
-                    assignmentsByMemberId.set(assignment.member_id, existing);
-                }
-            });
-
-            const studentsWithAssignments: StudentAssignment[] = membersData.map((member) => {
-                const instructorIds = assignmentsByMemberId.get(member.member_id) || [];
-                return {
-                    member_id: member.member_id,
-                    first_name: member.first_name,
-                    last_name: member.last_name,
-                    class_names: member.class_names || [],
-                    instructor_ids: instructorIds,
-                    instructor_names: instructorIds
-                        .map((instructorId) => instructorNameById.get(instructorId))
-                        .filter((name): name is string => Boolean(name)),
-                    slot: member.slot ?? null,
-                    date_of_birth: member.date_of_birth ?? null,
-                };
-            });
-
-            setInstructors(instructorsData);
-            setSelectedInstructorId((prev) =>
-                prev && instructorsData.some((inst) => inst.person_id === prev)
-                    ? prev
-                    : instructorsData[0]?.person_id || ''
-            );
-            setStudents(studentsWithAssignments);
+            setInstructors(data.instructors || []);
+            setGroups(data.groups || []);
+            setAssignments(data.assignments || []);
+            setEnrollments(data.enrollments || []);
         } catch (err) {
             console.error('Error fetching assignments:', err);
-            setErrorMessage(err instanceof Error ? err.message : 'Failed to load swimmer assignments');
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to load assignments');
         } finally {
-            setLoading(false);
+            if (!hasCompletedInitialLoadRef.current) {
+                hasCompletedInitialLoadRef.current = true;
+                setLoading(false);
+            } else if (showBlockingLoader) {
+                setLoading(false);
+            }
         }
-    }, [activeSessionId]);
-
-    useEffect(() => {
-        fetchSessions();
-    }, [fetchSessions]);
+    }, []);
 
     useEffect(() => {
         fetchAssignmentData();
     }, [fetchAssignmentData]);
 
-    useEffect(() => {
-        return () => {
-            if (toastTimeoutRef.current) {
-                clearTimeout(toastTimeoutRef.current);
+    const instructorNameById = useMemo(
+        () => new Map(instructors.map((instructor) => [
+            instructor.person_id,
+            formatName(instructor.first_name, instructor.last_name),
+        ])),
+        [instructors],
+    );
+
+    const sortedInstructors = useMemo(() => {
+        return [...instructors].sort((a, b) =>
+            formatName(a.first_name, a.last_name).localeCompare(formatName(b.first_name, b.last_name)),
+        );
+    }, [instructors]);
+
+    const instructorInfoByGroupId = useMemo(() => {
+        const map = new Map<string, { id: string; name: string }[]>();
+        assignments.forEach((assignment) => {
+            const name = instructorNameById.get(assignment.instructor_person_id);
+            if (!name) return;
+            const existing = map.get(assignment.group_id) || [];
+            if (!existing.some((item) => item.id === assignment.instructor_person_id)) {
+                existing.push({ id: assignment.instructor_person_id, name });
             }
-        };
-    }, []);
+            map.set(assignment.group_id, existing);
+        });
+        map.forEach((items, groupId) => {
+            map.set(
+                groupId,
+                [...items].sort((a, b) => a.name.localeCompare(b.name)),
+            );
+        });
+        return map;
+    }, [assignments, instructorNameById]);
+
+    const instructorNamesByGroupId = useMemo(() => {
+        const map = new Map<string, string[]>();
+        instructorInfoByGroupId.forEach((items, groupId) => {
+            map.set(groupId, items.map((item) => item.name));
+        });
+        return map;
+    }, [instructorInfoByGroupId]);
+
+    const groupById = useMemo(
+        () => new Map(groups.map((group) => [group.group_id, group])),
+        [groups],
+    );
+
+    const groupsByClassId = useMemo(() => {
+        const map = new Map<string, Group[]>();
+        groups.forEach((group) => {
+            const existing = map.get(group.class_id) || [];
+            existing.push(group);
+            map.set(group.class_id, existing);
+        });
+        return map;
+    }, [groups]);
+
+    const swimmersByGroupId = useMemo(() => {
+        const map = new Map<string, { memberId: string; name: string; age: number | null; slot: number | null }[]>();
+        enrollments.forEach((row) => {
+            if (!row.group_id) return;
+            const existing = map.get(row.group_id) || [];
+            existing.push({
+                memberId: row.member_id,
+                name: formatName(row.member_first_name, row.member_last_name),
+                age: getAge(row.date_of_birth),
+                slot: row.slot,
+            });
+            map.set(row.group_id, existing);
+        });
+        map.forEach((items, groupId) => {
+            map.set(groupId, [...items].sort((a, b) => {
+                const slotA = slotSortValue(a.slot);
+                const slotB = slotSortValue(b.slot);
+                if (slotA !== slotB) return slotA - slotB;
+                const ageA = a.age ?? Number.MAX_SAFE_INTEGER;
+                const ageB = b.age ?? Number.MAX_SAFE_INTEGER;
+                if (ageA !== ageB) return ageA - ageB;
+                return a.name.localeCompare(b.name);
+            }));
+        });
+        return map;
+    }, [enrollments]);
+
+    const classOptions = useMemo(
+        () => Array.from(new Set(enrollments.map((row) => row.class_name))).sort((a, b) => a.localeCompare(b)),
+        [enrollments],
+    );
+
+    const slotOptions = useMemo(() => {
+        const slots = Array.from(new Set(enrollments.map((row) => row.slot).filter((slot) => slot !== null && slot !== undefined)));
+        return slots.sort((a, b) => Number(a) - Number(b));
+    }, [enrollments]);
+
+    const filteredEnrollments = useMemo(() => {
+        return enrollments.filter((row) => {
+            if (classFilter !== 'all' && row.class_name !== classFilter) return false;
+            if (slotFilter !== 'all' && String(row.slot ?? '') !== slotFilter) return false;
+            if (assignmentFilter === 'unassigned' && row.group_id) return false;
+            if (assignmentFilter === 'assigned' && !row.group_id) return false;
+            return true;
+        });
+    }, [assignmentFilter, classFilter, enrollments, slotFilter]);
 
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (instructorDropdownRef.current && !instructorDropdownRef.current.contains(event.target as Node)) {
-                setShowInstructorDropdown(false);
-            }
-            if (classFilterDropdownRef.current && !classFilterDropdownRef.current.contains(event.target as Node)) {
-                setShowClassFilterDropdown(false);
-            }
-            if (slotFilterDropdownRef.current && !slotFilterDropdownRef.current.contains(event.target as Node)) {
-                setShowSlotFilterDropdown(false);
-            }
-            if (sessionDropdownRef.current && !sessionDropdownRef.current.contains(event.target as Node)) {
-                setShowSessionDropdown(false);
-            }
-        };
+        setSwimmerPage(1);
+    }, [assignmentFilter, classFilter, slotFilter]);
 
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
+    useEffect(() => {
+        setGroupPage(1);
+    }, [classFilter]);
 
-    const selectedInstructor =
-        instructors.find((inst) => inst.person_id === selectedInstructorId) || null;
+    const sortedEnrollments = useMemo(() => {
+        const rows = [...filteredEnrollments];
+        rows.sort((a, b) => {
+            if (assignmentFilter === 'all') {
+                const aAssigned = Boolean(a.group_id);
+                const bAssigned = Boolean(b.group_id);
+                if (aAssigned !== bAssigned) {
+                    return aAssigned ? 1 : -1;
+                }
+            }
 
-    const selectedSession = sessions.find((session) => session.session_id === activeSessionId) || null;
-    const selectedSessionLabel = selectedSession?.name || 'Select session';
-    const isActiveSession = (session: SessionRecord | null) => {
-        if (!session?.start_date || !session?.end_date) return false;
-        const today = new Date();
-        const start = new Date(`${session.start_date}T00:00:00`);
-        const end = new Date(`${session.end_date}T23:59:59`);
-        return start <= today && today <= end;
+            const classCompare = a.class_name.localeCompare(b.class_name);
+            if (classCompare !== 0) return classCompare;
+
+            const slotA = slotSortValue(a.slot);
+            const slotB = slotSortValue(b.slot);
+            if (slotA !== slotB) return slotA - slotB;
+
+            const ageA = getAge(a.date_of_birth);
+            const ageB = getAge(b.date_of_birth);
+            if (ageA === null && ageB === null) return 0;
+            if (ageA === null) return 1;
+            if (ageB === null) return -1;
+            if (ageA !== ageB) return ageA - ageB;
+            const nameA = formatName(a.member_first_name, a.member_last_name).toLowerCase();
+            const nameB = formatName(b.member_first_name, b.member_last_name).toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
+        return rows;
+    }, [filteredEnrollments, assignmentFilter]);
+
+    const buildGroupOptions = (row: EnrollmentRow) => {
+        return groupsByClassId.get(row.class_id) || [];
     };
 
-    const classFilterOptions = useMemo(
-        () =>
-            Array.from(
-                new Set(
-                    students.flatMap((student) =>
-                        student.class_names.length ? student.class_names : ['No class']
-                    )
-                )
-            ).sort((a, b) => a.localeCompare(b)),
-        [students]
-    );
-
-    const matchesSearch = useCallback(
-        (student: StudentAssignment) =>
-            formatDisplayName(student.first_name, student.last_name)
-                .toLowerCase()
-                .includes(searchTerm.toLowerCase()),
-        [searchTerm]
-    );
-
-    const matchesClassFilter = useCallback(
-        (className: string) => classFilter === 'all' || classFilter === className,
-        [classFilter]
-    );
-
-    const slotFilterOptions = useMemo(() => {
-        const filteredByClass = classFilter === 'all'
-            ? students
-            : students.filter((student) => {
-                const classes = student.class_names.length ? student.class_names : ['No class'];
-                return classes.some((className) => className === classFilter);
-            });
-
-        return Array.from(
-            new Set(filteredByClass.map((student) => formatSlotLabel(student.slot ?? null)))
-        ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-    }, [students, classFilter]);
-
-    const selectedInstructorStudents = useMemo(
-        () =>
-            selectedInstructor
-                ? sortStudentsByAge(
-                    students.filter((student) =>
-                        student.instructor_ids.includes(selectedInstructor.person_id)
-                    )
-                )
-                : [],
-        [students, selectedInstructor]
-    );
-
-    const instructorAssignmentCounts = useMemo(() => {
-        const counts = new Map<string, number>();
-        students.forEach((student) => {
-            student.instructor_ids.forEach((instructorId) => {
-                counts.set(instructorId, (counts.get(instructorId) || 0) + 1);
-            });
+    const patchEnrollmentGroup = async (row: EnrollmentRow, nextGroupId: string | null) => {
+        const response = await fetch('/api/admin/instructor-member-assignments', {
+            method: 'PUT',
+            headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+                member_id: row.member_id,
+                class_id: row.class_id,
+                group_id: nextGroupId,
+            }),
         });
-        return counts;
-    }, [students]);
 
-    const setStudentPending = (memberIds: string[], pending: boolean) => {
-        setPendingStudentIds((prev) => {
-            const next = new Set(prev);
-            memberIds.forEach((memberId) => {
-                if (pending) next.add(memberId);
-                else next.delete(memberId);
+        if (!response.ok) {
+            const errorPayload = await response.json().catch(() => ({}));
+            throw new Error(errorPayload?.error || 'Failed to update assignment');
+        }
+    };
+
+    const updateEnrollmentGroup = async (row: EnrollmentRow, nextGroupId: string | null) => {
+        const key = enrollmentKey(row);
+        setPendingEnrollmentKeys((prev) => new Set(prev).add(key));
+
+        const previous = enrollments;
+        const groupName = nextGroupId ? groupById.get(nextGroupId)?.group_name ?? null : null;
+
+        setEnrollments((prev) =>
+            prev.map((item) =>
+                item.member_id === row.member_id && item.class_id === row.class_id
+                    ? { ...item, group_id: nextGroupId, group_name: groupName }
+                    : item,
+            ),
+        );
+
+        try {
+            await patchEnrollmentGroup(row, nextGroupId);
+
+            showToast(nextGroupId ? 'Group assignment updated' : 'Group assignment cleared');
+        } catch (err) {
+            console.error('Error updating assignment:', err);
+            setEnrollments(previous);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to update assignment');
+        } finally {
+            setPendingEnrollmentKeys((prev) => {
+                const next = new Set(prev);
+                next.delete(key);
+                return next;
             });
+        }
+    };
+
+    const selectedRows = useMemo(() => {
+        return sortedEnrollments.filter((row) => selectedEnrollmentKeys.has(enrollmentKey(row)));
+    }, [sortedEnrollments, selectedEnrollmentKeys]);
+
+    const uniqueSelectedClassIds = useMemo(
+        () => Array.from(new Set(selectedRows.map((row) => row.class_id))),
+        [selectedRows],
+    );
+
+    const bulkAssignableGroups = useMemo(() => {
+        if (uniqueSelectedClassIds.length !== 1) return [];
+        return groupsByClassId.get(uniqueSelectedClassIds[0]) || [];
+    }, [uniqueSelectedClassIds, groupsByClassId]);
+
+    const bulkGroupName = bulkGroupId ? groupById.get(bulkGroupId)?.group_name || '' : '';
+
+    const toggleRowSelection = (row: EnrollmentRow) => {
+        const key = enrollmentKey(row);
+        setSelectedEnrollmentKeys((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
             return next;
         });
     };
 
-    const applyAssignmentChange = (
-        memberIds: string[],
-        instructorId: string,
-        action: 'assign' | 'remove'
-    ) => {
-        const memberIdSet = new Set(memberIds);
-        const instructorNameById = new Map(
-            instructors.map((item) => [
-                item.person_id,
-                formatDisplayName(item.first_name, item.last_name),
-            ])
-        );
-        setStudents((prev) =>
-            prev.map((student) => {
-                if (!memberIdSet.has(student.member_id)) return student;
+    const togglePageSelection = () => {
+        const pageKeys = swimmerPageRows.map((row) => enrollmentKey(row));
+        const allSelected = pageKeys.length > 0 && pageKeys.every((key) => selectedEnrollmentKeys.has(key));
 
-                const nextInstructorIds =
-                    action === 'assign'
-                        ? Array.from(new Set([...student.instructor_ids, instructorId]))
-                        : student.instructor_ids.filter((id) => id !== instructorId);
-
-                const nextInstructorNames = Array.from(
-                    new Set(
-                        nextInstructorIds
-                            .map((id) => instructorNameById.get(id))
-                            .filter((name): name is string => Boolean(name))
-                    )
-                );
-
-                return {
-                    ...student,
-                    instructor_ids: nextInstructorIds,
-                    instructor_names: nextInstructorNames,
-                };
-            })
-        );
+        setSelectedEnrollmentKeys((prev) => {
+            const next = new Set(prev);
+            if (allSelected) {
+                pageKeys.forEach((key) => next.delete(key));
+            } else {
+                pageKeys.forEach((key) => next.add(key));
+            }
+            return next;
+        });
     };
 
-    const sendAssignmentRequest = async (
-        memberIds: string[],
-        instructorId: string,
-        action: 'assign' | 'remove'
-    ) => {
-        const previousStudents = students;
-        setStudentPending(memberIds, true);
-        applyAssignmentChange(memberIds, instructorId, action);
+    const runBulkUpdate = async (nextGroupId: string | null) => {
+        if (selectedRows.length === 0) return;
+
+        const keysToUpdate = new Set(selectedRows.map((row) => enrollmentKey(row)));
+        const previous = enrollments;
+        const nextGroupName = nextGroupId ? groupById.get(nextGroupId)?.group_name || null : null;
+
+        setBulkPending(true);
+        setPendingEnrollmentKeys((prev) => {
+            const next = new Set(prev);
+            keysToUpdate.forEach((key) => next.add(key));
+            return next;
+        });
+
+        setEnrollments((prev) =>
+            prev.map((item) => {
+                const key = enrollmentKey(item);
+                if (!keysToUpdate.has(key)) return item;
+                return { ...item, group_id: nextGroupId, group_name: nextGroupName };
+            }),
+        );
+
+        try {
+            await Promise.all(selectedRows.map((row) => patchEnrollmentGroup(row, nextGroupId)));
+            showToast(
+                nextGroupId
+                    ? `${selectedRows.length} swimmers assigned to ${nextGroupName}`
+                    : `${selectedRows.length} swimmers cleared`,
+            );
+            setSelectedEnrollmentKeys(new Set());
+            setBulkGroupId('');
+        } catch (err) {
+            console.error('Error applying bulk update:', err);
+            setEnrollments(previous);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to apply bulk update');
+        } finally {
+            setPendingEnrollmentKeys((prev) => {
+                const next = new Set(prev);
+                keysToUpdate.forEach((key) => next.delete(key));
+                return next;
+            });
+            setBulkPending(false);
+        }
+    };
+
+    const handleBulkAssign = async () => {
+        if (!bulkGroupId || uniqueSelectedClassIds.length !== 1) return;
+        await runBulkUpdate(bulkGroupId);
+    };
+
+    const handleBulkClear = async () => {
+        await runBulkUpdate(null);
+    };
+
+    const handleCreateGroupFromSelected = async () => {
+        if (selectedRows.length === 0 || uniqueSelectedClassIds.length !== 1) return;
+
+        const classId = uniqueSelectedClassIds[0];
+        const memberIds = Array.from(new Set(selectedRows.map((row) => row.member_id)));
+
+        setCreateGroupPending(true);
+        try {
+            const response = await fetch('/api/admin/instructor-member-assignments', {
+                method: 'POST',
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    class_id: classId,
+                    member_ids: memberIds,
+                }),
+            });
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload?.error || 'Failed to create group from selected swimmers');
+            }
+
+            const createdGroup = payload?.group as {
+                group_id: string;
+                class_id: string;
+                group_name: string;
+                class_name: string;
+            } | undefined;
+
+            if (createdGroup?.group_id) {
+                setGroups((prev) => {
+                    if (prev.some((group) => group.group_id === createdGroup.group_id)) {
+                        return prev;
+                    }
+                    return [...prev, {
+                        group_id: createdGroup.group_id,
+                        class_id: createdGroup.class_id,
+                        class_name: createdGroup.class_name,
+                        group_name: createdGroup.group_name,
+                    }];
+                });
+
+                setEnrollments((prev) =>
+                    prev.map((row) => {
+                        const isSelectedMember = memberIds.includes(row.member_id);
+                        if (!isSelectedMember || row.class_id !== classId) return row;
+                        return {
+                            ...row,
+                            group_id: createdGroup.group_id,
+                            group_name: createdGroup.group_name,
+                        };
+                    }),
+                );
+
+                setBulkGroupId(createdGroup.group_id);
+            }
+
+            showToast(`Created new group with ${memberIds.length} swimmer${memberIds.length > 1 ? 's' : ''}`);
+            setSelectedEnrollmentKeys(new Set());
+        } catch (err) {
+            console.error('Error creating group from selected swimmers:', err);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to create group from selected swimmers');
+        } finally {
+            setCreateGroupPending(false);
+        }
+    };
+
+    const filteredGroupsForInstructors = useMemo(() => {
+        return groups.filter((group) => {
+            if (classFilter !== 'all' && group.class_name !== classFilter) return false;
+            return true;
+        });
+    }, [groups, classFilter]);
+
+    const totalSwimmerPages = Math.max(1, Math.ceil(sortedEnrollments.length / SWIMMER_PAGE_SIZE));
+    const swimmerPageRows = useMemo(() => {
+        const start = (swimmerPage - 1) * SWIMMER_PAGE_SIZE;
+        return sortedEnrollments.slice(start, start + SWIMMER_PAGE_SIZE);
+    }, [sortedEnrollments, swimmerPage, SWIMMER_PAGE_SIZE]);
+
+    const selectedRowsOnPage = useMemo(() => {
+        return swimmerPageRows.filter((row) => selectedEnrollmentKeys.has(enrollmentKey(row)));
+    }, [swimmerPageRows, selectedEnrollmentKeys]);
+
+    const totalGroupPages = Math.max(1, Math.ceil(filteredGroupsForInstructors.length / GROUP_PAGE_SIZE));
+    const groupPageRows = useMemo(() => {
+        const start = (groupPage - 1) * GROUP_PAGE_SIZE;
+        return filteredGroupsForInstructors.slice(start, start + GROUP_PAGE_SIZE);
+    }, [filteredGroupsForInstructors, groupPage, GROUP_PAGE_SIZE]);
+
+    useEffect(() => {
+        if (swimmerPage > totalSwimmerPages) {
+            setSwimmerPage(totalSwimmerPages);
+        }
+    }, [swimmerPage, totalSwimmerPages]);
+
+    useEffect(() => {
+        if (groupPage > totalGroupPages) {
+            setGroupPage(totalGroupPages);
+        }
+    }, [groupPage, totalGroupPages]);
+
+    const updateGroupInstructor = async (groupId: string, instructorId: string, action: 'assign' | 'remove') => {
+        const key = `${groupId}:${instructorId}:${action}`;
+        setPendingInstructorKeys((prev) => new Set(prev).add(key));
+
+        const previous = assignments;
+        setAssignments((prev) => {
+            if (action === 'assign') {
+                if (prev.some((item) => item.group_id === groupId && item.instructor_person_id === instructorId)) {
+                    return prev;
+                }
+                return [...prev, { group_id: groupId, instructor_person_id: instructorId }];
+            }
+            return prev.filter((item) => !(item.group_id === groupId && item.instructor_person_id === instructorId));
+        });
 
         try {
             const response = await fetch('/api/admin/instructor-member-assignments', {
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
                 method: action === 'assign' ? 'PUT' : 'DELETE',
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
-                    member_ids: memberIds,
+                    group_ids: [groupId],
                     instructor_person_id: instructorId,
                 }),
             });
 
             if (!response.ok) {
                 const errorPayload = await response.json().catch(() => ({}));
-                throw new Error(errorPayload?.error || 'Failed to update assignments');
+                throw new Error(errorPayload?.error || 'Failed to update instructor assignment');
             }
 
-            if (action === 'assign') {
-                showToast(memberIds.length === 1 ? 'Swimmer assigned successfully' : 'Slots assigned successfully');
-            } else {
-                showToast(memberIds.length === 1 ? 'Instructor access removed' : 'Slot access removed');
-            }
+            showToast(action === 'assign' ? 'Instructor assigned to group' : 'Instructor removed from group');
         } catch (err) {
-            console.error('Error updating assignments:', err);
-            setStudents(previousStudents);
-            setErrorMessage(err instanceof Error ? err.message : 'Failed to update assignments');
+            console.error('Error updating instructor assignment:', err);
+            setAssignments(previous);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to update instructor assignment');
         } finally {
-            setStudentPending(memberIds, false);
+            setPendingInstructorKeys((prev) => {
+                const next = new Set(prev);
+                next.delete(key);
+                return next;
+            });
         }
     };
-
-    const handleAssignStudent = async (student: StudentAssignment) => {
-        if (!selectedInstructor) return;
-        await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'assign');
-    };
-
-    const handleRemoveStudent = async (student: StudentAssignment) => {
-        if (!selectedInstructor) return;
-        await sendAssignmentRequest([student.member_id], selectedInstructor.person_id, 'remove');
-    };
-
-    const matchesSlotFilter = (student: StudentAssignment) =>
-        slotFilter === 'all' || formatSlotLabel(student.slot ?? null) === slotFilter;
-
-    const matchesSelectedClass = (student: StudentAssignment) => {
-        const classes = student.class_names.length ? student.class_names : ['No class'];
-        return classFilter === 'all' || classes.some((className) => className === classFilter);
-    };
-
-    const handleUnassignAll = async () => {
-        if (!selectedInstructor || selectedInstructorStudents.length === 0) return;
-        const memberIds = selectedInstructorStudents.map((student) => student.member_id);
-        await sendAssignmentRequest(memberIds, selectedInstructor.person_id, 'remove');
-    };
-
-    const manualAddStudents = useMemo(
-        () =>
-            selectedInstructor
-                ? sortStudentsByAge(
-                    students.filter(
-                        (student) =>
-                            !student.instructor_ids.includes(selectedInstructor.person_id) &&
-                            matchesSearch(student) &&
-                            matchesSelectedClass(student) &&
-                            matchesSlotFilter(student)
-                    )
-                )
-                : [],
-        [matchesSearch, matchesSelectedClass, matchesSlotFilter, selectedInstructor, students]
-    );
-
-    const handleAssignAllFiltered = async () => {
-        if (!selectedInstructor || manualAddStudents.length === 0) return;
-        const memberIds = manualAddStudents.map((student) => student.member_id);
-        await sendAssignmentRequest(memberIds, selectedInstructor.person_id, 'assign');
-    };
-
-    const selectedClassFilterLabel = classFilter === 'all' ? 'All classes' : classFilter;
-    const selectedSlotFilterLabel = slotFilter === 'all' ? 'All slots' : slotFilter;
 
     useEffect(() => {
-        if (slotFilter !== 'all' && !slotFilterOptions.includes(slotFilter)) {
-            setSlotFilter('all');
+        setGroupInstructorSelection((prev) => {
+            let changed = false;
+            const next: Record<string, string[]> = {};
+
+            Object.entries(prev).forEach(([groupId, selectedIds]) => {
+                const assignedIds = new Set(
+                    (instructorInfoByGroupId.get(groupId) || []).map((item) => item.id),
+                );
+                const filtered = selectedIds.filter((id) => !assignedIds.has(id));
+                if (filtered.length !== selectedIds.length) {
+                    changed = true;
+                }
+                if (filtered.length > 0) {
+                    next[groupId] = filtered;
+                }
+            });
+
+            return changed ? next : prev;
+        });
+    }, [instructorInfoByGroupId]);
+
+    const assignMultipleInstructorsToGroup = async (groupId: string, instructorIds: string[]) => {
+        const uniqueInstructorIds = Array.from(new Set(instructorIds)).filter((instructorId) => {
+            return !assignments.some(
+                (item) => item.group_id === groupId && item.instructor_person_id === instructorId,
+            );
+        });
+
+        if (uniqueInstructorIds.length === 0) {
+            showToast('Selected instructors are already assigned');
+            return;
         }
-    }, [slotFilter, slotFilterOptions]);
+
+        const keys = uniqueInstructorIds.map((instructorId) => `${groupId}:${instructorId}:assign`);
+        setPendingInstructorKeys((prev) => {
+            const next = new Set(prev);
+            keys.forEach((key) => next.add(key));
+            return next;
+        });
+
+        const previous = assignments;
+        setAssignments((prev) => [
+            ...prev,
+            ...uniqueInstructorIds.map((instructorId) => ({
+                group_id: groupId,
+                instructor_person_id: instructorId,
+            })),
+        ]);
+
+        try {
+            await Promise.all(
+                uniqueInstructorIds.map(async (instructorId) => {
+                    const response = await fetch('/api/admin/instructor-member-assignments', {
+                        method: 'PUT',
+                        headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                        body: JSON.stringify({
+                            group_ids: [groupId],
+                            instructor_person_id: instructorId,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorPayload = await response.json().catch(() => ({}));
+                        throw new Error(errorPayload?.error || 'Failed to update instructor assignments');
+                    }
+                }),
+            );
+
+            showToast(`${uniqueInstructorIds.length} instructor${uniqueInstructorIds.length > 1 ? 's' : ''} assigned`);
+            setGroupInstructorSelection((prev) => {
+                const current = prev[groupId] || [];
+                const remaining = current.filter((id) => !uniqueInstructorIds.includes(id));
+                if (remaining.length === current.length) return prev;
+                const next = { ...prev };
+                if (remaining.length > 0) next[groupId] = remaining;
+                else delete next[groupId];
+                return next;
+            });
+        } catch (err) {
+            console.error('Error updating instructor assignments:', err);
+            setAssignments(previous);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to update instructor assignments');
+        } finally {
+            setPendingInstructorKeys((prev) => {
+                const next = new Set(prev);
+                keys.forEach((key) => next.delete(key));
+                return next;
+            });
+        }
+    };
 
     return (
         <div className="space-y-4 relative">
@@ -540,410 +989,403 @@ export default function InstructorAssignmentManager() {
             )}
 
             <div className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 p-4 sm:p-5">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">Class Assignment</p>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">Group Assignment</p>
                 <p className="text-sm font-semibold text-slate-900 sm:text-base">
-                    Filter by class and slot, then assign swimmers to instructors.
+                    Manage group instructors and swimmer placements at scale.
                 </p>
-                <p className="mt-2 text-xs text-slate-600 sm:text-sm">
-                    Swimmers are sorted by age (youngest first).
-                </p>
+                <p className="mt-2 text-xs text-slate-600">Swimmers are sorted by slot, then age.</p>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-                <div className="space-y-4">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 1</p>
-                        <p className="mb-1 text-base font-semibold text-slate-900 sm:text-lg">Choose Session</p>
-                        <p className="mb-3 text-xs text-slate-500">Assignments update based on the selected session.</p>
-                        <div className="flex flex-wrap items-center gap-2">
-                            {sessionsLoading ? (
-                                <span className="text-xs text-slate-500">Loading sessions...</span>
-                            ) : sessions.length === 0 ? (
-                                <span className="text-xs text-slate-500">No sessions available</span>
-                            ) : (
-                                <div ref={sessionDropdownRef} className="relative">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowSessionDropdown((prev) => !prev)}
-                                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
-                                    >
-                                        <span className="truncate text-left text-slate-900">{selectedSessionLabel}</span>
-                                        <svg
-                                            className={`h-4 w-4 text-slate-500 transition-transform ${showSessionDropdown ? 'rotate-180' : ''}`}
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="flex flex-wrap gap-2">
+                    <StyledSelect
+                        value={classFilter}
+                        onChange={setClassFilter}
+                        options={[
+                            { value: 'all', label: 'All classes' },
+                            ...classOptions.map((className) => ({ value: className, label: className })),
+                        ]}
+                        className="min-w-[150px]"
+                        ariaLabel="Filter by class"
+                    />
+                    <StyledSelect
+                        value={slotFilter}
+                        onChange={setSlotFilter}
+                        options={[
+                            { value: 'all', label: 'All slots' },
+                            ...slotOptions.map((slot) => ({ value: String(slot), label: `Slot ${slot}` })),
+                        ]}
+                        className="min-w-[130px]"
+                        ariaLabel="Filter by slot"
+                    />
+                    <StyledSelect
+                        value={assignmentFilter}
+                        onChange={(value) => setAssignmentFilter(value as 'all' | 'unassigned' | 'assigned')}
+                        options={[
+                            { value: 'all', label: 'All swimmers' },
+                            { value: 'unassigned', label: 'Unassigned only' },
+                            { value: 'assigned', label: 'Assigned only' },
+                        ]}
+                        className="min-w-[170px]"
+                        ariaLabel="Filter by assignment status"
+                    />
+                </div>
 
-                                    {showSessionDropdown && (
-                                        <div className="absolute z-30 mt-1 max-h-64 w-60 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                                            {sessions.map((session) => {
-                                                const isActive = session.session_id === activeSessionId;
-                                                return (
-                                                    <button
-                                                        key={session.session_id}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setActiveSessionId(session.session_id);
-                                                            setShowSessionDropdown(false);
-                                                        }}
-                                                        className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                            ? 'bg-sky-50 text-sky-700'
-                                                            : 'text-slate-900 hover:bg-slate-50'
-                                                            }`}
-                                                    >
-                                                        {session.name}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            {isActiveSession(selectedSession) && (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                    Active session
-                                </span>
-                            )}
-                        </div>
-                        <div className="mt-4">
-                            <p className="mb-1 text-base font-semibold text-slate-900 sm:text-lg">Choose Instructor</p>
-                            <p className="mb-3 text-xs text-slate-500">Everything on this page updates for the selected instructor.</p>
-                        </div>
-                        <div ref={instructorDropdownRef} className="relative">
-                            <button
-                                type="button"
-                                onClick={() => setShowInstructorDropdown((prev) => !prev)}
-                                className="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-3 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
-                            >
-                                <span className="truncate text-left text-gray-900">
-                                    {selectedInstructor
-                                        ? formatDisplayName(selectedInstructor.first_name, selectedInstructor.last_name)
-                                        : 'No instructors available'}
-                                </span>
-                                <svg
-                                    className={`h-4 w-4 text-gray-500 transition-transform ${showInstructorDropdown ? 'rotate-180' : ''}`}
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-
-                            {showInstructorDropdown && (
-                                <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                                    {instructors.length === 0 ? (
-                                        <div className="px-3 py-2 text-xs text-gray-500 sm:text-sm">
-                                            No instructors available
-                                        </div>
-                                    ) : (
-                                        instructors.map((instructor) => {
-                                            const isActive = instructor.person_id === selectedInstructorId;
-                                            const assignedCount = instructorAssignmentCounts.get(instructor.person_id) || 0;
-                                            return (
-                                                <button
-                                                    key={instructor.person_id}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedInstructorId(instructor.person_id);
-                                                        setShowInstructorDropdown(false);
-                                                    }}
-                                                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                        ? 'bg-blue-50 text-blue-700'
-                                                        : 'text-gray-900 hover:bg-gray-50'
-                                                        }`}
-                                                >
-                                                    <span className="truncate">
-                                                        {formatDisplayName(instructor.first_name, instructor.last_name)}
-                                                    </span>
-                                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
-                                                        {assignedCount} kids
-                                                    </span>
-                                                </button>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                {loading && (
+                    <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-white py-10 mt-4">
+                        <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-blue-600"></div>
                     </div>
-                </div>
-            </div>
+                )}
 
-            {loading && (
-                <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-white py-10">
-                    <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-blue-600"></div>
-                </div>
-            )}
-
-            {!loading && instructors.length === 0 && (
-                <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
-                    No instructors found.
-                </div>
-            )}
-
-            {!loading && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
-                    <p className="mt-1 text-base font-semibold text-slate-900 sm:text-lg">Assign Swimmers</p>
-                    <p className="mt-2 text-xs text-slate-500">
-                        Filter by class and slot, then assign swimmers in age order.
-                    </p>
-
-                    {!selectedInstructor ? (
-                        <p className="mt-4 text-xs text-slate-500">Select an instructor to begin.</p>
-                    ) : (
-                        <>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                <div ref={classFilterDropdownRef} className="relative">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowClassFilterDropdown((prev) => !prev)}
-                                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
-                                    >
-                                        <span className="truncate text-left text-slate-900">{selectedClassFilterLabel}</span>
-                                        <svg
-                                            className={`h-4 w-4 text-slate-500 transition-transform ${showClassFilterDropdown ? 'rotate-180' : ''}`}
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
-
-                                    {showClassFilterDropdown && (
-                                        <div className="absolute left-0 z-30 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setClassFilter('all');
-                                                    setShowClassFilterDropdown(false);
-                                                }}
-                                                className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${classFilter === 'all'
-                                                    ? 'bg-sky-50 text-sky-700'
-                                                    : 'text-slate-900 hover:bg-slate-50'
-                                                    }`}
-                                            >
-                                                All classes
-                                            </button>
-                                            {classFilterOptions.map((className) => {
-                                                const isActive = classFilter === className;
-                                                return (
-                                                    <button
-                                                        key={className}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setClassFilter(className);
-                                                            setShowClassFilterDropdown(false);
-                                                        }}
-                                                        className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                            ? 'bg-sky-50 text-sky-700'
-                                                            : 'text-slate-900 hover:bg-slate-50'
-                                                            }`}
-                                                    >
-                                                        {className}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
+                {!loading && (
+                    <div className="mt-5 grid gap-4">
+                        <div className="order-2 rounded-xl border border-slate-200 bg-slate-50/40 p-3 sm:p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Group Instructors</p>
+                                    <p className="text-sm font-semibold text-slate-900">Assign instructors to groups</p>
                                 </div>
-                                <div ref={slotFilterDropdownRef} className="relative">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowSlotFilterDropdown((prev) => !prev)}
-                                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
-                                    >
-                                        <span className="truncate text-left text-slate-900">{selectedSlotFilterLabel}</span>
-                                        <svg
-                                            className={`h-4 w-4 text-slate-500 transition-transform ${showSlotFilterDropdown ? 'rotate-180' : ''}`}
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
+                                <p className="text-xs text-slate-500">Page {groupPage} / {totalGroupPages}</p>
+                            </div>
 
-                                    {showSlotFilterDropdown && (
-                                        <div className="absolute left-0 z-30 mt-1 max-h-64 w-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setSlotFilter('all');
-                                                    setShowSlotFilterDropdown(false);
-                                                }}
-                                                className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${slotFilter === 'all'
-                                                    ? 'bg-sky-50 text-sky-700'
-                                                    : 'text-slate-900 hover:bg-slate-50'
-                                                    }`}
-                                            >
-                                                All slots
-                                            </button>
-                                            {slotFilterOptions.map((slotLabel) => {
-                                                const isActive = slotFilter === slotLabel;
+                            <div className="relative overflow-visible rounded-lg border border-slate-200 bg-white">
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs sm:text-sm">
+                                        <thead className="bg-slate-50 text-slate-600">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left font-semibold">Class</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Swimmers (Age)</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Instructors</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Add</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {groupPageRows.map((group) => {
+                                                const groupInstructors = instructorInfoByGroupId.get(group.group_id) || [];
+                                                const swimmersInGroup = swimmersByGroupId.get(group.group_id) || [];
+                                                const classTag = getClassTagColors(group.class_name);
+                                                const slotSummary = Array.from(
+                                                    new Set(
+                                                        swimmersInGroup
+                                                            .map((swimmer) => swimmer.slot)
+                                                            .filter((slot) => slot !== null),
+                                                    ),
+                                                ).sort((a, b) => Number(a) - Number(b));
+                                                const slotLabel =
+                                                    slotSummary.length === 0
+                                                        ? 'Slot n/a'
+                                                        : slotSummary.length === 1
+                                                            ? `Slot ${slotSummary[0]}`
+                                                            : 'Mixed slots';
+                                                const selectedInstructorIds = groupInstructorSelection[group.group_id] || [];
+                                                const addPending = selectedInstructorIds.some((instructorId) =>
+                                                    pendingInstructorKeys.has(`${group.group_id}:${instructorId}:assign`),
+                                                );
                                                 return (
-                                                    <button
-                                                        key={slotLabel}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setSlotFilter(slotLabel);
-                                                            setShowSlotFilterDropdown(false);
-                                                        }}
-                                                        className={`w-full px-3 py-2 text-left text-xs transition sm:text-sm ${isActive
-                                                            ? 'bg-sky-50 text-sky-700'
-                                                            : 'text-slate-900 hover:bg-slate-50'
-                                                            }`}
-                                                    >
-                                                        {slotLabel}
-                                                    </button>
+                                                    <tr key={group.group_id} className="border-t border-slate-100 align-top">
+                                                        <td className="px-3 py-2">
+                                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${classTag.bg} ${classTag.text}`}>
+                                                                {group.class_name}
+                                                            </span>
+                                                            <p className="text-[11px] text-slate-500">{slotLabel}</p>
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <div className="flex max-w-[320px] flex-wrap gap-1.5">
+                                                                {swimmersInGroup.length === 0 && (
+                                                                    <span className="text-[11px] text-slate-500">No swimmers assigned</span>
+                                                                )}
+                                                                {swimmersInGroup.map((swimmer) => (
+                                                                    <span
+                                                                        key={swimmer.memberId}
+                                                                        className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800"
+                                                                    >
+                                                                        {swimmer.name}
+                                                                        {swimmer.age !== null ? ` (${swimmer.age})` : ''}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {groupInstructors.length === 0 && (
+                                                                    <span className="text-[11px] text-slate-500">No instructors</span>
+                                                                )}
+                                                                {groupInstructors.map((instructor) => (
+                                                                    <span key={instructor.id} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                                                                        {instructor.name}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => updateGroupInstructor(group.group_id, instructor.id, 'remove')}
+                                                                            disabled={pendingInstructorKeys.has(`${group.group_id}:${instructor.id}:remove`)}
+                                                                            className="text-slate-500 hover:text-rose-600"
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <StyledMultiSelect
+                                                                    values={selectedInstructorIds}
+                                                                    onChange={(selectedValues) =>
+                                                                        setGroupInstructorSelection((prev) => ({
+                                                                            ...prev,
+                                                                            [group.group_id]: selectedValues,
+                                                                        }))
+                                                                    }
+                                                                    options={[
+                                                                        ...sortedInstructors.map((instructor) => ({
+                                                                            value: instructor.person_id,
+                                                                            label: formatName(instructor.first_name, instructor.last_name),
+                                                                            disabled: groupInstructors.some((item) => item.id === instructor.person_id),
+                                                                        })),
+                                                                    ]}
+                                                                    placeholder="Select instructor(s)"
+                                                                    className="w-44"
+                                                                    sizeMode="compact"
+                                                                    ariaLabel={`Select instructor for ${group.group_name}`}
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        selectedInstructorIds.length > 0 &&
+                                                                        assignMultipleInstructorsToGroup(group.group_id, selectedInstructorIds)
+                                                                    }
+                                                                    disabled={selectedInstructorIds.length === 0 || addPending}
+                                                                    className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                                                                >
+                                                                    Add selected
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
                                                 );
                                             })}
-                                        </div>
-                                    )}
+                                            {groupPageRows.length === 0 && (
+                                                <tr>
+                                                    <td colSpan={4} className="px-3 py-4 text-center text-xs text-slate-500">No groups found.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
 
-                            <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search swimmers..."
-                                className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500 sm:text-sm"
-                            />
-
-                            {manualAddStudents.length === 0 ? (
-                                <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">
-                                    No swimmers found to add.
-                                </p>
-                            ) : (
-                                <div className="mt-4 max-h-80 space-y-2 overflow-y-auto pr-1">
-                                    {manualAddStudents.map((student) => (
-                                        <div
-                                            key={`manual-add-${student.member_id}`}
-                                            className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 p-2"
-                                        >
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-xs font-medium text-gray-900 sm:text-sm">
-                                                    {formatDisplayName(student.first_name, student.last_name)}
-                                                </p>
-                                                <div className="mt-1 flex flex-wrap gap-1">
-                                                    {getAgeYears(student.date_of_birth) !== null && (
-                                                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
-                                                            {getAgeYears(student.date_of_birth)} yrs
-                                                        </span>
-                                                    )}
-                                                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
-                                                        {formatSlotLabel(student.slot ?? null)}
-                                                    </span>
-                                                    {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
-                                                        const colors = getClassTagColors(className);
-                                                        return (
-                                                            <span
-                                                                key={`manual-add-tag-${student.member_id}-${className}`}
-                                                                className={`rounded-full px-1.5 py-0.5 text-[10px] ${colors.bg} ${colors.text}`}
-                                                            >
-                                                                {className}
-                                                            </span>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => handleAssignStudent(student)}
-                                                disabled={pendingStudentIds.has(student.member_id)}
-                                                className="rounded-lg bg-sky-600 px-3 py-2 text-[10px] font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:text-xs"
-                                            >
-                                                {pendingStudentIds.has(student.member_id) ? 'Saving...' : 'Add'}
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <div className="mt-3 flex items-center justify-end">
+                            <div className="mt-3 flex items-center justify-end gap-2">
                                 <button
-                                    onClick={handleAssignAllFiltered}
-                                    disabled={manualAddStudents.length === 0 || pendingStudentIds.size > 0}
-                                    className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-medium text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
+                                    type="button"
+                                    onClick={() => setGroupPage((prev) => Math.max(1, prev - 1))}
+                                    disabled={groupPage <= 1}
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    Assign All
+                                    Prev
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setGroupPage((prev) => Math.min(totalGroupPages, prev + 1))}
+                                    disabled={groupPage >= totalGroupPages}
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Next
                                 </button>
                             </div>
-                        </>
-                    )}
-                </div>
-            )}
-
-            {!loading && selectedInstructor && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
-                            <p className="mt-1 text-base font-semibold text-slate-900 sm:text-lg">
-                                Already Assigned ({selectedInstructorStudents.length})
-                            </p>
                         </div>
-                        <button
-                            onClick={handleUnassignAll}
-                            disabled={selectedInstructorStudents.length === 0}
-                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
-                        >
-                            Unassign All
-                        </button>
-                    </div>
-                    {selectedInstructorStudents.length === 0 ? (
-                        <p className="text-xs text-gray-500">No swimmers assigned to this instructor yet.</p>
-                    ) : (
-                        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                            {selectedInstructorStudents.map((student) => (
-                                <div
-                                    key={`assigned-${selectedInstructor.person_id}-${student.member_id}`}
-                                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 p-2"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-xs font-medium text-gray-900 sm:text-sm">
-                                            {formatDisplayName(student.first_name, student.last_name)}
-                                        </p>
-                                        <div className="mt-1 flex flex-wrap gap-1">
-                                            {getAgeYears(student.date_of_birth) !== null && (
-                                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
-                                                    {getAgeYears(student.date_of_birth)} yrs
-                                                </span>
-                                            )}
-                                            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
-                                                {formatSlotLabel(student.slot ?? null)}
-                                            </span>
-                                            {(student.class_names.length ? student.class_names : ['No class']).map((className) => {
-                                                const colors = getClassTagColors(className);
-                                                return (
-                                                    <span
-                                                        key={`assigned-tag-${student.member_id}-${className}`}
-                                                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${colors.bg} ${colors.text}`}
-                                                    >
-                                                        {className}
-                                                    </span>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
+
+                        <div className="order-1 rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Swimmer Assignments</p>
+                                    <p className="text-sm font-semibold text-slate-900">{sortedEnrollments.length} swimmers</p>
+                                </div>
+                                <p className="text-xs text-slate-500">Page {swimmerPage} / {totalSwimmerPages}</p>
+                            </div>
+
+                            <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs font-medium text-slate-700">
+                                        Selected: {selectedRows.length}
+                                    </span>
+                                    <StyledSelect
+                                        value={bulkGroupId}
+                                        onChange={setBulkGroupId}
+                                        disabled={bulkPending || uniqueSelectedClassIds.length !== 1 || selectedRows.length === 0}
+                                        options={[
+                                            { value: '', label: 'Select group' },
+                                            ...bulkAssignableGroups.map((group) => ({ value: group.group_id, label: group.group_name })),
+                                        ]}
+                                        className="w-52"
+                                        sizeMode="compact"
+                                        ariaLabel="Bulk assign group"
+                                    />
                                     <button
-                                        onClick={() => handleRemoveStudent(student)}
-                                        disabled={pendingStudentIds.has(student.member_id)}
-                                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-medium text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-xs"
+                                        type="button"
+                                        onClick={handleCreateGroupFromSelected}
+                                        disabled={createGroupPending || selectedRows.length === 0 || uniqueSelectedClassIds.length !== 1}
+                                        className="rounded-md border border-sky-200 px-2 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                        {pendingStudentIds.has(student.member_id) ? 'Saving...' : 'Unassign'}
+                                        Create group from selected
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleBulkAssign}
+                                        disabled={bulkPending || createGroupPending || !bulkGroupId || uniqueSelectedClassIds.length !== 1 || selectedRows.length === 0}
+                                        className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                                    >
+                                        Assign selected
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleBulkClear}
+                                        disabled={bulkPending || createGroupPending || selectedRows.length === 0}
+                                        className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        Clear selected
                                     </button>
                                 </div>
-                            ))}
+                                {selectedRows.length > 0 && uniqueSelectedClassIds.length > 1 && (
+                                    <p className="mt-1 text-[11px] text-amber-700">
+                                        Select swimmers from one class to create a group or bulk-assign.
+                                    </p>
+                                )}
+                                {selectedRows.length > 0 && uniqueSelectedClassIds.length === 1 && !bulkGroupId && (
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                        Choose a group to assign selected swimmers.
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="relative overflow-visible rounded-lg border border-slate-200">
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-xs sm:text-sm">
+                                        <thead className="bg-slate-50 text-slate-600">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left font-semibold">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={
+                                                            swimmerPageRows.length > 0 &&
+                                                            selectedRowsOnPage.length === swimmerPageRows.length
+                                                        }
+                                                        onChange={togglePageSelection}
+                                                        className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                                        aria-label="Select all swimmers on page"
+                                                    />
+                                                </th>
+                                                <th className="px-3 py-2 text-left font-semibold">Swimmer</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Age</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Slot</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Class</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Group</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Instructors</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {swimmerPageRows.flatMap((row, index) => {
+                                                const key = enrollmentKey(row);
+                                                const isAssigned = Boolean(row.group_id);
+                                                const previousRow = index > 0 ? swimmerPageRows[index - 1] : null;
+                                                const previousAssigned = previousRow ? Boolean(previousRow.group_id) : null;
+                                                const shouldShowSectionRow =
+                                                    assignmentFilter === 'all' && (index === 0 || previousAssigned !== isAssigned);
+                                                const age = getAge(row.date_of_birth);
+                                                const groupOptions = buildGroupOptions(row);
+                                                const instructorNames = row.group_id
+                                                    ? instructorNamesByGroupId.get(row.group_id) || []
+                                                    : [];
+                                                const tag = getClassTagColors(row.class_name);
+                                                const isPending = pendingEnrollmentKeys.has(key);
+                                                const isSelected = selectedEnrollmentKeys.has(key);
+
+                                                const rows: JSX.Element[] = [];
+
+                                                if (shouldShowSectionRow) {
+                                                    rows.push(
+                                                        <tr key={`section-${key}`} className="border-t border-slate-200 bg-slate-50/70">
+                                                            <td colSpan={7} className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                                                                {isAssigned ? 'Assigned Swimmers' : 'Unassigned Swimmers'}
+                                                            </td>
+                                                        </tr>,
+                                                    );
+                                                }
+
+                                                rows.push(
+                                                    <tr key={key} className={`border-t border-slate-100 align-top ${isAssigned ? 'bg-slate-50/30' : ''}`}>
+                                                        <td className="px-3 py-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleRowSelection(row)}
+                                                                className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                                            />
+                                                        </td>
+                                                        <td className="px-3 py-2 font-medium text-slate-900">
+                                                            {formatName(row.member_first_name, row.member_last_name)}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-slate-600">{age ?? '—'}</td>
+                                                        <td className="px-3 py-2 text-slate-600">{formatSlotLabel(row.slot)}</td>
+                                                        <td className="px-3 py-2">
+                                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${tag.bg} ${tag.text}`}>
+                                                                {row.class_name}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-2">
+                                                            <StyledSelect
+                                                                value={row.group_id ?? ''}
+                                                                onChange={(selectedValue) => updateEnrollmentGroup(row, selectedValue || null)}
+                                                                disabled={isPending}
+                                                                options={[
+                                                                    { value: '', label: 'Unassigned' },
+                                                                    ...groupOptions.map((group) => ({ value: group.group_id, label: group.group_name })),
+                                                                ]}
+                                                                className="w-56"
+                                                                sizeMode="compact"
+                                                                ariaLabel={`Assign group for ${formatName(row.member_first_name, row.member_last_name)}`}
+                                                            />
+                                                        </td>
+                                                        <td className="px-3 py-2 text-slate-600">
+                                                            {instructorNames.length > 0 ? instructorNames.join(', ') : 'No instructor'}
+                                                        </td>
+                                                    </tr>,
+                                                );
+
+                                                return rows;
+                                            })}
+                                            {swimmerPageRows.length === 0 && (
+                                                <tr>
+                                                    <td colSpan={7} className="px-3 py-4 text-center text-xs text-slate-500">
+                                                        No swimmers match the current filters.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setSwimmerPage((prev) => Math.max(1, prev - 1))}
+                                    disabled={swimmerPage <= 1}
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Prev
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSwimmerPage((prev) => Math.min(totalSwimmerPages, prev + 1))}
+                                    disabled={swimmerPage >= totalSwimmerPages}
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
-                    )}
-                </div>
-            )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
