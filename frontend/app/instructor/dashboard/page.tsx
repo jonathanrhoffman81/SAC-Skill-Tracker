@@ -497,11 +497,11 @@ export default function InstructorDashboard() {
         )}
 
         {!isLoading && !error && swimmerTab === "my" && swimmers.some(s => s.needsEvaluation) && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50">
+          <div className="rounded-lg border border-blue-200 bg-blue-50">
             <div className="p-4 sm:p-6">
               <div className="flex items-start gap-3">
                 <svg
-                  className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600"
+                  className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -514,10 +514,10 @@ export default function InstructorDashboard() {
                   />
                 </svg>
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-amber-900">
+                  <p className="text-sm font-semibold text-gray-900">
                     Evaluations Needed
                   </p>
-                  <p className="mt-1 text-sm text-amber-800">
+                  <p className="mt-1 text-sm text-gray-700">
                     {swimmers.filter(s => s.needsEvaluation).length} swimmer{swimmers.filter(s => s.needsEvaluation).length !== 1 ? "s" : ""} have classes ending soon or recently.
                   </p>
                 </div>
@@ -533,11 +533,11 @@ export default function InstructorDashboard() {
                         document.getElementById(`swimmer-${swimmer.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }, 0);
                     }}
-                    className="block w-full rounded-lg bg-white p-3 text-left text-sm transition hover:bg-amber-50"
+                    className="block w-full rounded-lg bg-white p-3 text-left text-sm transition hover:bg-gray-50"
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-gray-900">{swimmer.name}</span>
-                      <span className="text-xs text-amber-700">Click to evaluate</span>
+                      <span className="text-xs text-blue-600">Click to evaluate</span>
                     </div>
                   </button>
                 ))}
@@ -608,7 +608,7 @@ export default function InstructorDashboard() {
                   id={`swimmer-${swimmer.id}`}
                   className={`overflow-hidden rounded-xl border shadow-sm ${
                     swimmer.needsEvaluation
-                      ? "border-amber-200 bg-amber-50"
+                      ? "border-blue-200 bg-blue-50"
                       : "border-gray-200 bg-white"
                   }`}
                 >
