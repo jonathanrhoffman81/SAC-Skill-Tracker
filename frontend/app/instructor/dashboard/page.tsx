@@ -110,6 +110,7 @@ export default function InstructorDashboard() {
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState("");
+  const [selectedClasses, setSelectedClasses] = useState<Set<string>>(new Set());
 
   const [pagination, setPagination] = useState<PaginationState>({
     page: 1,
@@ -287,6 +288,37 @@ export default function InstructorDashboard() {
     setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
   };
 
+  const getAllClasses = (): DashboardClass[] => {
+    const classMap = new Map<string, DashboardClass>();
+    swimmers.forEach((swimmer) => {
+      swimmer.classes.forEach((classItem) => {
+        classMap.set(classItem.id, classItem);
+      });
+    });
+    return Array.from(classMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  };
+
+  const getFilteredSwimmers = (): DashboardSwimmer[] => {
+    if (selectedClasses.size === 0) {
+      return swimmers;
+    }
+    return swimmers.filter((swimmer) =>
+      swimmer.classes.some((classItem) => selectedClasses.has(classItem.id)),
+    );
+  };
+
+  const handleClassToggle = (classId: string) => {
+    const newSelectedClasses = new Set(selectedClasses);
+    if (newSelectedClasses.has(classId)) {
+      newSelectedClasses.delete(classId);
+    } else {
+      newSelectedClasses.add(classId);
+    }
+    setSelectedClasses(newSelectedClasses);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
@@ -414,6 +446,56 @@ export default function InstructorDashboard() {
           </div>
         )}
 
+        {!isLoading && !error && swimmerTab === "my" && swimmers.some(s => s.needsEvaluation) && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50">
+            <div className="p-4 sm:p-6">
+              <div className="flex items-start gap-3">
+                <svg
+                  className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                  />
+                </svg>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-900">
+                    Evaluations Needed
+                  </p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    {swimmers.filter(s => s.needsEvaluation).length} swimmer{swimmers.filter(s => s.needsEvaluation).length !== 1 ? "s" : ""} have classes ending soon or ended recently.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {swimmers.filter(s => s.needsEvaluation).map(swimmer => (
+                  <button
+                    key={swimmer.id}
+                    onClick={() => {
+                      setOpenSwimmerId(swimmer.id);
+                      // Scroll to swimmer
+                      setTimeout(() => {
+                        document.getElementById(`swimmer-${swimmer.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }, 0);
+                    }}
+                    className="block w-full rounded-lg bg-white p-3 text-left text-sm transition hover:bg-gray-50"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900">{swimmer.name}</span>
+                      <span className="text-xs text-blue-600">Click to evaluate</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {!isLoading && !error && (
           <div className="rounded-lg border border-blue-200 bg-blue-50">
             <button
@@ -497,56 +579,6 @@ export default function InstructorDashboard() {
           </div>
         )}
 
-        {!isLoading && !error && swimmerTab === "my" && swimmers.some(s => s.needsEvaluation) && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50">
-            <div className="p-4 sm:p-6">
-              <div className="flex items-start gap-3">
-                <svg
-                  className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-                  />
-                </svg>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-gray-900">
-                    Evaluations Needed
-                  </p>
-                  <p className="mt-1 text-sm text-gray-700">
-                    {swimmers.filter(s => s.needsEvaluation).length} swimmer{swimmers.filter(s => s.needsEvaluation).length !== 1 ? "s" : ""} have classes ending soon or ended recently.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 space-y-2">
-                {swimmers.filter(s => s.needsEvaluation).map(swimmer => (
-                  <button
-                    key={swimmer.id}
-                    onClick={() => {
-                      setOpenSwimmerId(swimmer.id);
-                      // Scroll to swimmer
-                      setTimeout(() => {
-                        document.getElementById(`swimmer-${swimmer.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }, 0);
-                    }}
-                    className="block w-full rounded-lg bg-white p-3 text-left text-sm transition hover:bg-gray-50"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900">{swimmer.name}</span>
-                      <span className="text-xs text-blue-600">Click to evaluate</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         <section>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-1">
@@ -593,8 +625,39 @@ export default function InstructorDashboard() {
             </div>
           </div>
 
+          {getAllClasses().length > 0 && (
+            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3 sm:p-4">
+              <p className="mb-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                Filter by Class
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {getAllClasses().map((classItem) => (
+                  <button
+                    key={classItem.id}
+                    onClick={() => handleClassToggle(classItem.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                      selectedClasses.has(classItem.id)
+                        ? "bg-blue-600 text-white"
+                        : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {classItem.name}
+                  </button>
+                ))}
+                {selectedClasses.size > 0 && (
+                  <button
+                    onClick={() => setSelectedClasses(new Set())}
+                    className="rounded-full px-3 py-1.5 text-xs font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
-            {swimmers.map((swimmer) => {
+            {getFilteredSwimmers().map((swimmer) => {
               const mastered = swimmer.skills.filter(
                 (skill) => skill.mastered,
               ).length;
@@ -699,7 +762,7 @@ export default function InstructorDashboard() {
             })}
           </div>
 
-          {!isLoading && !error && pagination.total > PAGE_SIZE && (
+          {!isLoading && !error && selectedClasses.size === 0 && pagination.total > PAGE_SIZE && (
             <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-gray-600 sm:text-sm">
                 Showing {(pagination.page - 1) * pagination.pageSize + 1}
@@ -764,6 +827,12 @@ export default function InstructorDashboard() {
           {!isLoading && !error && swimmers.length === 0 && (
             <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
               No swimmers found.
+            </div>
+          )}
+
+          {!isLoading && !error && swimmers.length > 0 && getFilteredSwimmers().length === 0 && (
+            <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
+              No swimmers found for the selected class{selectedClasses.size !== 1 ? "es" : ""}.
             </div>
           )}
         </section>
