@@ -661,10 +661,10 @@ export default function InstructorDashboard() {
                     </div>
                   </button>
                   
-                  <div className="absolute right-4 top-4">
+                  <div className="absolute right-16 top-4 z-10">
                     <button
                       type="button"
-                      className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                      className="text-xs text-blue-600 hover:text-blue-700 hover:underline whitespace-nowrap"
                       onClick={(event) => {
                         event.stopPropagation();
                         router.push(

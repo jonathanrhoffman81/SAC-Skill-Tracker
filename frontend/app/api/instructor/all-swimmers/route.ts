@@ -30,6 +30,7 @@ interface DashboardSwimmerPayload {
 interface DashboardPayload {
   userName: string;
   organizationName: string;
+  organizationLogoUrl: string | null;
   swimmers: DashboardSwimmerPayload[];
   pagination: {
     page: number;
@@ -47,6 +48,16 @@ const INSTRUCTOR_ROUTE_ROLE_SET = new Set([
   "super-admin",
   "superadmin",
 ]);
+
+function getOrganizationLogoUrl(organizationId: string | undefined) {
+  if (!organizationId) return null;
+
+  const baseUrl =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  return `${baseUrl}/storage/v1/object/public/organization-logos/${organizationId}/logo.png`;
+}
+
 const PAGE_SIZE = 25;
 
 function parsePage(request: NextRequest): number {
@@ -187,6 +198,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         userName,
         organizationName: "SAC Skill Tracker",
+        organizationLogoUrl: null,
         swimmers: [],
         pagination: buildPagination(page, PAGE_SIZE, 0),
       } as DashboardPayload);
@@ -268,6 +280,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         userName,
         organizationName: organization?.name || "SAC Skill Tracker",
+        organizationLogoUrl: getOrganizationLogoUrl(organizationId),
         swimmers: [],
         pagination,
       } as DashboardPayload);
@@ -536,6 +549,7 @@ export async function GET(request: NextRequest) {
     const payload: DashboardPayload = {
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers,
       pagination,
     };
