@@ -284,11 +284,12 @@ export async function POST(request: NextRequest) {
           instructor_person_id: targetPersonId,
         }));
 
+        // Try to insert, silently skip duplicates (upsert not directly supported)
         const { error: groupError } = await supabase
           .from("group_instructor")
-          .insert(groupAssignments, { onConflict: "group_id,instructor_person_id" });
+          .insert(groupAssignments);
 
-        if (groupError) {
+        if (groupError && !groupError.message.includes("duplicate key")) {
           console.error("Failed to assign groups:", groupError);
           // Don't fail the whole request, just log it
         }
@@ -469,13 +470,14 @@ export async function PATCH(request: NextRequest) {
           .from("group_instructor")
           .insert(rows);
 
-      if (insertError) {
-        return NextResponse.json(
-          {
-            error: "Failed to update class assignments: " + insertError.message,
-          },
-          { status: 500 },
-        );
+        if (insertError) {
+          return NextResponse.json(
+            {
+              error: "Failed to update class assignments: " + insertError.message,
+            },
+            { status: 500 },
+          );
+        }
       }
     }
 
