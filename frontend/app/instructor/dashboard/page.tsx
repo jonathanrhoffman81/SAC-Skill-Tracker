@@ -109,6 +109,7 @@ export default function InstructorDashboard() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("");
 
   const [pagination, setPagination] = useState<PaginationState>({
     page: 1,
@@ -726,10 +727,23 @@ export default function InstructorDashboard() {
                     type="number"
                     min="1"
                     max={pagination.totalPages}
-                    value={pagination.page}
-                    onChange={(e) => {
-                      const page = Math.max(1, Math.min(parseInt(e.target.value) || 1, pagination.totalPages));
+                    value={pageInput !== "" ? pageInput : String(pagination.page)}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onFocus={(e) => {
+                      if (pageInput === "") setPageInput(String(pagination.page));
+                      e.currentTarget.select();
+                    }}
+                    onBlur={() => {
+                      const page = Math.max(1, Math.min(parseInt(pageInput) || pagination.page, pagination.totalPages));
                       setCurrentPage(page);
+                      setPageInput("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const page = Math.max(1, Math.min(parseInt(pageInput) || pagination.page, pagination.totalPages));
+                        setCurrentPage(page);
+                        setPageInput("");
+                      }
                     }}
                     className="w-14 rounded border border-gray-300 px-2.5 py-1.5 text-center text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
