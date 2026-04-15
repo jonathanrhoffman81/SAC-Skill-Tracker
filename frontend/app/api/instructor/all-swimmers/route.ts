@@ -358,9 +358,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Get evaluations in batches
+    let evaluations: any[] = [];
+    if (memberIds.length > 0) {
+      try {
+        evaluations = await batchQuery(
+          "evaluation",
+          "member_id, class_id, evaluation_date",
+          memberIds,
+          "member_id",
+        );
+      } catch (error) {
+        console.error("Evaluations error:", error);
+        evaluations = [];
+      }
+    }
+
     console.log(
-      `Retrieved ${memberSkillRows.length} member skill records and ${enrollments.length} enrollment records`,
+      `Retrieved ${memberSkillRows.length} member skill records, ${enrollments.length} enrollment records, and ${evaluations.length} evaluation records`,
     );
+
+    // DEBUG: Log evaluations
+    if (evaluations.length > 0) {
+      console.log("[DEBUG] Evaluations fetched:");
+      evaluations.forEach(e => {
+        console.log(`  - member_id: ${e.member_id}, class_id: ${e.class_id}, evaluation_date: ${e.evaluation_date}`);
+      });
+    } else {
+      console.log("[DEBUG] No evaluations found in database");
+    }
 
     const classIds = Array.from(
       new Set((enrollments ?? []).map((e) => e.class_id)),
@@ -422,27 +448,59 @@ export async function GET(request: NextRequest) {
     });
 
     const swimmers: DashboardSwimmerPayload[] = members.map((member) => {
+      const memberName = `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim();
       
       // 1. Get enrollments specific to THIS swimmer
       const memberEnrollments = enrollments.filter(e => e.member_id === member.member_id);
+      console.log(`[DEBUG] Processing swimmer: ${memberName}, enrollments: ${memberEnrollments.length}`);
 
       // 2. Determine if the swimmer needs an evaluation
       const needsEvaluation = memberEnrollments.some(enrol => {
         const classData = classes.find(c => c.class_id === enrol.class_id);
-        
-        // Safety check: Is the instructor authorized for this specific group?
         const isMySection = instructorGroupIds.has(enrol.group_id);
         
-        if (!classData?.end_date || !isMySection) return false;
+        console.log(`  [ENROLLMENT] classData exists: ${!!classData}, has end_date: ${!!classData?.end_date}, isMySection: ${isMySection}`);
+        
+        if (!classData?.end_date || !isMySection) {
+          console.log(`    → Returning false early (no classData.end_date or not my section)`);
+          return false;
+        }
 
         // Date Calculation logic
         const endDate = new Date(classData.end_date);
         const today = new Date();
+        today.setHours(0, 0, 0, 0); // Normalize to start of day
+        endDate.setHours(0, 0, 0, 0); // Normalize to start of day
         const diffTime = endDate.getTime() - today.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        // True if class ends in 3 days or ended in the last 14 days
-        return diffDays <= 3 && diffDays >= -14;
+        // Check if there's already a recent evaluation for this class FIRST
+        const recentEval = evaluations.find(
+          e => e.member_id === member.member_id && e.class_id === enrol.class_id
+        );
+        
+        if (recentEval) {
+          // There's an evaluation - check if it's within 14 days
+          const evalDate = new Date(recentEval.evaluation_date);
+          evalDate.setHours(0, 0, 0, 0);
+          const evalDiffTime = today.getTime() - evalDate.getTime();
+          const evalDiffDays = Math.ceil(evalDiffTime / (1000 * 60 * 60 * 24));
+          
+          // If eval is recent (within 14 days), don't need new one
+          if (evalDiffDays <= 14) {
+            return false;
+          }
+        }
+
+        // Then check if class is ending within next 3 days
+        if (diffDays <= 3 && diffDays >= 0) return true;
+
+        // Or if class ended within last 14 days
+        if (diffDays < 0 && diffDays >= -14) {
+          return true; // No recent evaluation found
+        }
+
+        return false;
       });
 
       const memberSkills: DashboardSkillPayload[] = (orgSkills ?? []).map(
@@ -462,6 +520,8 @@ export async function GET(request: NextRequest) {
         },
       );
  
+      console.log(`  → Final needsEvaluation for ${memberName}: ${needsEvaluation}`);
+
       return {
         id: member.member_id,
         name:
@@ -503,3 +563,4 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+ 

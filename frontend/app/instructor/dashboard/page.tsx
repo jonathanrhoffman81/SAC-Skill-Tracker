@@ -518,7 +518,7 @@ export default function InstructorDashboard() {
                     Evaluations Needed
                   </p>
                   <p className="mt-1 text-sm text-gray-700">
-                    {swimmers.filter(s => s.needsEvaluation).length} swimmer{swimmers.filter(s => s.needsEvaluation).length !== 1 ? "s" : ""} have classes ending soon or recently.
+                    {swimmers.filter(s => s.needsEvaluation).length} swimmer{swimmers.filter(s => s.needsEvaluation).length !== 1 ? "s" : ""} have classes ending soon or ended recently.
                   </p>
                 </div>
               </div>
@@ -606,7 +606,7 @@ export default function InstructorDashboard() {
                 <div
                   key={swimmer.id}
                   id={`swimmer-${swimmer.id}`}
-                  className={`overflow-hidden rounded-xl border shadow-sm ${
+                  className={`relative overflow-hidden rounded-xl border shadow-sm ${
                     swimmer.needsEvaluation
                       ? "border-blue-200 bg-blue-50"
                       : "border-gray-200 bg-white"
@@ -626,18 +626,6 @@ export default function InstructorDashboard() {
                             <p className="text-sm font-semibold text-gray-900">
                               {swimmer.name}
                             </p>
-                            <button
-                              type="button"
-                              className="text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                router.push(
-                                  `/instructor/swimmers/${swimmer.id}`,
-                                );
-                              }}
-                            >
-                              View full profile
-                            </button>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                             <span>
@@ -671,6 +659,21 @@ export default function InstructorDashboard() {
                       </svg>
                     </div>
                   </button>
+                  
+                  <div className="absolute right-4 top-4">
+                    <button
+                      type="button"
+                      className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        router.push(
+                          `/instructor/swimmers/${swimmer.id}`,
+                        );
+                      }}
+                    >
+                      View full profile
+                    </button>
+                  </div>
 
                   {isOpen && (
                     <div className="border-t border-gray-100 p-5 sm:p-6">
