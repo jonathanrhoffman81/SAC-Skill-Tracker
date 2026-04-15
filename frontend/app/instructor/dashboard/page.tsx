@@ -731,7 +731,7 @@ export default function InstructorDashboard() {
                       const page = Math.max(1, Math.min(parseInt(e.target.value) || 1, pagination.totalPages));
                       setCurrentPage(page);
                     }}
-                    className="w-10 rounded border border-gray-300 px-2 py-1 text-center text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-14 rounded border border-gray-300 px-2.5 py-1.5 text-center text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                   <span className="text-xs text-gray-600">/ {pagination.totalPages}</span>
                 </div>
