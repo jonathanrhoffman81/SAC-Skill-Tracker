@@ -271,7 +271,7 @@ export async function GET(request: NextRequest) {
 
     const { data: classRows, error: classRowsError } = await supabase
       .from("class_entity")
-      .select("class_id, name")
+      .select("class_id, name, start_date, end_date")
       .eq("organization_id", organizationId)
       .order("name", { ascending: true });
 
@@ -282,10 +282,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const classNameById = new Map(
-      (classRows || []).map((row: any) => [row.class_id, row.name || "Unnamed class"]),
+    const classInfoById = new Map(
+      (classRows || []).map((row: any) => [
+        row.class_id,
+        {
+          class_name: row.name || "Unnamed class",
+          class_start_date: row.start_date ?? null,
+          class_end_date: row.end_date ?? null,
+        },
+      ]),
     );
-    const classIds = Array.from(classNameById.keys());
+    const classIds = Array.from(classInfoById.keys());
 
     let groups: Array<{ group_id: string; class_id: string; name: string }> = [];
     if (classIds.length > 0) {
@@ -338,17 +345,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const normalizedGroups = groups.map((group) => ({
-      group_id: group.group_id,
-      class_id: group.class_id,
-      group_name: group.name || "Slot",
-      class_name: classNameById.get(group.class_id) || "Unnamed class",
-    }));
+    const normalizedGroups = groups.map((group) => {
+      const classInfo = classInfoById.get(group.class_id);
+
+      return {
+        group_id: group.group_id,
+        class_id: group.class_id,
+        group_name: group.name || "Slot",
+        class_name: classInfo?.class_name || "Unnamed class",
+        class_start_date: classInfo?.class_start_date ?? null,
+        class_end_date: classInfo?.class_end_date ?? null,
+      };
+    });
 
     const { data: enrollmentRows, error: enrollmentError } = await supabase
       .from("enrollment")
       .select(
-        "member_id, class_id, group_id, slot, member:member_id(first_name, last_name, date_of_birth), class_entity:class_id(name, organization_id)",
+        "member_id, class_id, group_id, slot, member:member_id(first_name, last_name, date_of_birth), class_entity:class_id(name, organization_id, start_date, end_date)",
       )
       .eq("class_entity.organization_id", organizationId);
 
@@ -371,6 +384,8 @@ export async function GET(request: NextRequest) {
         group_id: row.group_id ?? null,
         group_name: row.group_id ? groupNameById.get(row.group_id) || null : null,
         class_name: row.class_entity?.name || "Unnamed class",
+        class_start_date: row.class_entity?.start_date ?? null,
+        class_end_date: row.class_entity?.end_date ?? null,
         member_first_name: row.member?.first_name ?? "",
         member_last_name: row.member?.last_name ?? "",
         date_of_birth: row.member?.date_of_birth ?? null,
@@ -452,7 +467,7 @@ export async function POST(request: NextRequest) {
 
     const { data: enrollmentRows, error: enrollmentError } = await supabase
       .from("enrollment")
-      .select("member_id, group_id")
+      .select("member_id, group_id, slot")
       .eq("class_id", body.class_id)
       .in("member_id", memberIds);
 
@@ -493,9 +508,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const selectedSlots = Array.from(
+      new Set(
+        (enrollmentRows || [])
+          .map((row: any) => row.slot)
+          .filter((slot: number | null | undefined): slot is number =>
+            slot !== null && slot !== undefined,
+          ),
+      ),
+    ).sort((a, b) => a - b);
+
+    const slotDescriptor =
+      selectedSlots.length === 1
+        ? `Slot ${selectedSlots[0]}`
+        : selectedSlots.length > 1
+          ? "Mixed Slots"
+          : "No Slot";
+
+    const classDescriptor = (classRow.name || "Class").trim();
+
     const generatedGroupName = body.group_name?.trim()
       ? body.group_name.trim()
-      : `Group ${(existingCount ?? 0) + 1}`;
+      : `${classDescriptor} - ${slotDescriptor} - Group ${(existingCount ?? 0) + 1}`;
 
     const { data: createdGroup, error: createGroupError } = await supabase
       .from("class_group")
@@ -752,6 +786,7 @@ export async function DELETE(request: NextRequest) {
       group_id?: string;
       group_ids?: string[];
       instructor_person_id?: string;
+      delete_group?: boolean;
     };
 
     if (body.member_id && body.class_id) {
@@ -838,6 +873,71 @@ export async function DELETE(request: NextRequest) {
             { status: 500 },
           );
         }
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.delete_group && body.group_id) {
+      const supabase = getSupabaseAdminClient();
+      const adminContext = await resolveAdminRequestContext(request, supabase);
+      const organizationId = adminContext.organizationId;
+
+      const { data: groupRow, error: groupError } = await supabase
+        .from("class_group")
+        .select("group_id, class_entity!inner(organization_id)")
+        .eq("group_id", body.group_id)
+        .eq("class_entity.organization_id", organizationId)
+        .maybeSingle();
+
+      if (groupError) {
+        return NextResponse.json(
+          { error: `Failed to validate group: ${groupError.message}` },
+          { status: 500 },
+        );
+      }
+
+      if (!groupRow) {
+        return NextResponse.json(
+          { error: "Group not found in this organization." },
+          { status: 400 },
+        );
+      }
+
+      const { error: clearEnrollmentsError } = await supabase
+        .from("enrollment")
+        .update({ group_id: null })
+        .eq("group_id", body.group_id);
+
+      if (clearEnrollmentsError) {
+        return NextResponse.json(
+          { error: `Failed to clear swimmer assignments: ${clearEnrollmentsError.message}` },
+          { status: 500 },
+        );
+      }
+
+      const { error: clearInstructorsError } = await supabase
+        .from("group_instructor")
+        .delete()
+        .eq("group_id", body.group_id);
+
+      if (clearInstructorsError) {
+        return NextResponse.json(
+          { error: `Failed to remove instructor assignments: ${clearInstructorsError.message}` },
+          { status: 500 },
+        );
+      }
+
+      const { error: deleteGroupError } = await supabase
+        .from("class_group")
+        .delete()
+        .eq("group_id", body.group_id);
+
+      if (deleteGroupError) {
+        return NextResponse.json(
+          { error: `Failed to delete group: ${deleteGroupError.message}` },
+          { status: 500 },
+        );
       }
 
       return NextResponse.json({ success: true });

@@ -7,6 +7,8 @@
  *   class_id: UUID,
  *   name: string,
  *   schedule: string | null,  // e.g., "Mon/Wed/Fri 4-5pm" or "Tuesdays 3:30-4:30pm"
+ *   start_date: date | null,
+ *   end_date: date | null,
  *   length_minutes: number | null,  // e.g., 60 for 1 hour
  *   created_at: timestamp
  * }
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     const { data: classes, error: classesError } = await supabase
       .from("class_entity")
-      .select("class_id, name, schedule, length_minutes, created_at")
+      .select("class_id, name, schedule, start_date, end_date, length_minutes, created_at")
       .eq("organization_id", orgId)
       .order("name", { ascending: true });
 
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
     const { data: newClass, error: insertError } = await supabase
       .from("class_entity")
       .insert(insertData)
-      .select("class_id, name, schedule, length_minutes, created_at")
+      .select("class_id, name, schedule, start_date, end_date, length_minutes, created_at")
       .single();
 
     if (insertError) {
@@ -135,6 +137,8 @@ export async function PUT(request: NextRequest) {
     const class_id = body.class_id;
     const name = body.name;
     const schedule = body.schedule;
+    const start_date = body.start_date;
+    const end_date = body.end_date;
     const length_minutes = body.length_minutes;
 
     if (!class_id || !name) {
@@ -182,6 +186,18 @@ export async function PUT(request: NextRequest) {
       name: name.trim(),
     };
 
+    if (start_date === null || start_date === undefined || start_date === "") {
+      updateData.start_date = null;
+    } else {
+      updateData.start_date = start_date;
+    }
+
+    if (end_date === null || end_date === undefined || end_date === "") {
+      updateData.end_date = null;
+    } else {
+      updateData.end_date = end_date;
+    }
+
     // Handle schedule - allow clearing by setting to null
     if (schedule === null || schedule === undefined || schedule === "") {
       updateData.schedule = null;
@@ -204,7 +220,7 @@ export async function PUT(request: NextRequest) {
       .from("class_entity")
       .update(updateData)
       .eq("class_id", class_id)
-      .select("class_id, name, schedule, length_minutes, created_at")
+      .select("class_id, name, schedule, start_date, end_date, length_minutes, created_at")
       .single();
 
     if (updateError) {

@@ -6,16 +6,20 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface Class {
     class_id: string;
     name: string;
     schedule?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
     length_minutes?: number | null;
     created_at: string;
 }
+
+type ClassFilter = 'active' | 'past';
 
 interface ClassManagerProps {
     onRefresh: () => void;
@@ -24,11 +28,14 @@ interface ClassManagerProps {
 export default function ClassManager({ onRefresh }: ClassManagerProps) {
     const [loading, setLoading] = useState(false);
     const [classes, setClasses] = useState<Class[]>([]);
+    const [classFilter, setClassFilter] = useState<ClassFilter>('active');
 
     // Editing state
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState('');
     const [editingSchedule, setEditingSchedule] = useState('');
+    const [editingStartDate, setEditingStartDate] = useState('');
+    const [editingEndDate, setEditingEndDate] = useState('');
     const [editingLengthMinutes, setEditingLengthMinutes] = useState('');
 
     const [toasts, setToasts] = useState<Array<{ id: number; message: string; type: 'success' | 'error' }>>([]);
@@ -63,6 +70,65 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         }, 3500);
     };
 
+    const parseDate = (value?: string | null) => {
+        if (!value) return null;
+        const parsed = new Date(`${value}T00:00:00`);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const isActiveClass = (classItem: Class) => {
+        const now = new Date();
+        const start = parseDate(classItem.start_date);
+        const end = parseDate(classItem.end_date);
+
+        if (start && end) return start <= now && now <= end;
+        if (end) return end >= now;
+        return true;
+    };
+
+    const getSortTime = (classItem: Class, filter: ClassFilter) => {
+        const start = parseDate(classItem.start_date)?.getTime();
+        const end = parseDate(classItem.end_date)?.getTime();
+
+        if (filter === 'past') {
+            return end ?? start ?? new Date(classItem.created_at).getTime() ?? 0;
+        }
+
+        return start ?? end ?? new Date(classItem.created_at).getTime() ?? 0;
+    };
+
+    const formatDate = (value?: string | null) => {
+        const parsed = parseDate(value);
+        if (!parsed) return 'TBD';
+        return parsed.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        });
+    };
+
+    const filteredClasses = useMemo(() => {
+        const rows = classes.filter((classItem) =>
+            classFilter === 'active' ? isActiveClass(classItem) : !isActiveClass(classItem),
+        );
+
+        rows.sort((a, b) => {
+            const aTime = getSortTime(a, classFilter);
+            const bTime = getSortTime(b, classFilter);
+
+            if (aTime !== bTime) {
+                return classFilter === 'past' ? bTime - aTime : aTime - bTime;
+            }
+
+            const nameCompare = a.name.localeCompare(b.name);
+            if (nameCompare !== 0) return nameCompare;
+
+            return a.class_id.localeCompare(b.class_id);
+        });
+
+        return rows;
+    }, [classFilter, classes]);
+
 
 
     // Start editing a class
@@ -70,6 +136,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         setEditingId(classItem.class_id);
         setEditingName(classItem.name);
         setEditingSchedule(classItem.schedule || '');
+        setEditingStartDate(classItem.start_date || '');
+        setEditingEndDate(classItem.end_date || '');
         setEditingLengthMinutes(classItem.length_minutes?.toString() || '');
     };
 
@@ -78,6 +146,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         setEditingId(null);
         setEditingName('');
         setEditingSchedule('');
+        setEditingStartDate('');
+        setEditingEndDate('');
         setEditingLengthMinutes('');
     };
 
@@ -93,6 +163,11 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
             return;
         }
 
+        if (editingStartDate && editingEndDate && editingEndDate < editingStartDate) {
+            showToast('End date cannot be before start date', 'error');
+            return;
+        }
+
         try {
             const response = await fetch('/api/admin/classes', {
                 method: 'PUT',
@@ -101,6 +176,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                     class_id,
                     name: editingName.trim(),
                     schedule: editingSchedule.trim() || null,
+                    start_date: editingStartDate || null,
+                    end_date: editingEndDate || null,
                     length_minutes: editingLengthMinutes ? parseInt(editingLengthMinutes) : null,
                 }),
             });
@@ -161,15 +238,39 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 <div className="flex items-center justify-center py-6 sm:py-8">
                     <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-blue-600"></div>
                 </div>
-            ) : classes.length === 0 ? (
+            ) : filteredClasses.length === 0 ? (
                 <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">
-                    No classes yet. Classes are managed by administrators.
+                    {classFilter === 'active'
+                        ? 'No active classes found.'
+                        : 'No past classes found.'}
                 </p>
             ) : (
-                <div className="space-y-2">
-                    {[...classes]
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map((classItem) => (
+                <div>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setClassFilter('active')}
+                            className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${classFilter === 'active'
+                                ? 'border-blue-600 bg-blue-600 text-white'
+                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            Active
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setClassFilter('past')}
+                            className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${classFilter === 'past'
+                                ? 'border-blue-600 bg-blue-600 text-white'
+                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            Past
+                        </button>
+                    </div>
+
+                    <div className="space-y-2">
+                        {filteredClasses.map((classItem) => (
                             <div
                                 key={classItem.class_id}
                                 className="border border-gray-200 rounded-lg p-3 hover:border-gray-300 transition"
@@ -177,7 +278,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                                 {editingId === classItem.class_id ? (
                                     // Edit Mode
                                     <div className="space-y-2">
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                                             <div>
                                                 <label className="block text-[10px] sm:text-xs font-medium text-gray-700 mb-1">
                                                     Name*
@@ -207,6 +308,28 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                                                         if (e.key === 'Escape') cancelEdit();
                                                     }}
                                                     placeholder="e.g., Mon/Wed 4pm"
+                                                    className="w-full px-2 py-1 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] sm:text-xs font-medium text-gray-700 mb-1">
+                                                    Start date
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={editingStartDate}
+                                                    onChange={(e) => setEditingStartDate(e.target.value)}
+                                                    className="w-full px-2 py-1 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] sm:text-xs font-medium text-gray-700 mb-1">
+                                                    End date
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={editingEndDate}
+                                                    onChange={(e) => setEditingEndDate(e.target.value)}
                                                     className="w-full px-2 py-1 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                                 />
                                             </div>
@@ -251,6 +374,12 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                                                 {classItem.name}
                                             </p>
                                             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                                                <p className="text-xs sm:text-sm text-gray-600">
+                                                    <span className="font-medium">Start:</span> {formatDate(classItem.start_date)}
+                                                </p>
+                                                <p className="text-xs sm:text-sm text-gray-600">
+                                                    <span className="font-medium">End:</span> {formatDate(classItem.end_date)}
+                                                </p>
                                                 {classItem.schedule && (
                                                     <p className="text-xs sm:text-sm text-gray-600">
                                                         <span className="font-medium">Schedule:</span> {classItem.schedule}
@@ -307,6 +436,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                                 )}
                             </div>
                         ))}
+                    </div>
                 </div>
             )}
 

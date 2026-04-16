@@ -16,6 +16,8 @@ interface Group {
     class_id: string;
     class_name: string;
     group_name: string;
+    class_start_date?: string | null;
+    class_end_date?: string | null;
 }
 
 interface Assignment {
@@ -29,16 +31,32 @@ interface EnrollmentRow {
     group_id: string | null;
     group_name: string | null;
     class_name: string;
+    class_start_date?: string | null;
+    class_end_date?: string | null;
     member_first_name: string;
     member_last_name: string;
     date_of_birth: string | null;
     slot: number | null;
 }
 
+type ClassDateFilter = 'active' | 'past';
+
+type ClassFilterOption = {
+    class_id: string;
+    class_name: string;
+    class_start_date?: string | null;
+    class_end_date?: string | null;
+};
+
 interface TagColor {
     bg: string;
     text: string;
 }
+
+type GroupDeletePrompt = {
+    group: Group;
+    swimmerCount: number;
+} | null;
 
 type SelectOption = {
     value: string;
@@ -68,6 +86,46 @@ type StyledMultiSelectProps = {
     ariaLabel?: string;
 };
 
+function getViewportClampedMenuPosition(rect: DOMRect, desiredMenuHeight: number) {
+    const viewportPadding = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const preferredWidth = rect.width;
+    const maxWidth = Math.max(160, viewportWidth - viewportPadding * 2);
+    const width = Math.min(preferredWidth, maxWidth);
+    const left = Math.min(
+        Math.max(viewportPadding, rect.left),
+        Math.max(viewportPadding, viewportWidth - width - viewportPadding),
+    );
+
+    const spaceBelow = viewportHeight - rect.bottom - viewportPadding - 4;
+    const spaceAbove = rect.top - viewportPadding - 4;
+    const fitsBelow = spaceBelow >= desiredMenuHeight;
+    const fitsAbove = spaceAbove >= desiredMenuHeight;
+
+    let top = rect.bottom + 4;
+    let maxHeight = desiredMenuHeight;
+
+    if (!fitsBelow && fitsAbove) {
+        top = Math.max(viewportPadding, rect.top - 4 - desiredMenuHeight);
+    } else if (!fitsBelow && !fitsAbove) {
+        if (spaceBelow >= spaceAbove) {
+            top = rect.bottom + 4;
+            maxHeight = Math.max(120, spaceBelow);
+        } else {
+            top = Math.max(viewportPadding, rect.top - 4 - Math.max(120, spaceAbove));
+            maxHeight = Math.max(120, spaceAbove);
+        }
+    }
+
+    return {
+        top,
+        left,
+        width,
+        maxHeight,
+    };
+}
+
 function StyledSelect({
     value,
     onChange,
@@ -79,10 +137,11 @@ function StyledSelect({
     ariaLabel,
 }: StyledSelectProps) {
     const [open, setOpen] = useState(false);
-    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number }>({
+    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>({
         top: 0,
         left: 0,
         width: 0,
+        maxHeight: 0,
     });
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -91,11 +150,7 @@ function StyledSelect({
         const element = wrapperRef.current;
         if (!element) return;
         const rect = element.getBoundingClientRect();
-        setMenuPosition({
-            top: rect.bottom + 4,
-            left: rect.left,
-            width: rect.width,
-        });
+        setMenuPosition(getViewportClampedMenuPosition(rect, 224));
     }, []);
 
     useEffect(() => {
@@ -204,10 +259,11 @@ function StyledMultiSelect({
     ariaLabel,
 }: StyledMultiSelectProps) {
     const [open, setOpen] = useState(false);
-    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number }>({
+    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>({
         top: 0,
         left: 0,
         width: 0,
+        maxHeight: 0,
     });
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -216,11 +272,7 @@ function StyledMultiSelect({
         const element = wrapperRef.current;
         if (!element) return;
         const rect = element.getBoundingClientRect();
-        setMenuPosition({
-            top: rect.bottom + 4,
-            left: rect.left,
-            width: rect.width,
-        });
+        setMenuPosition(getViewportClampedMenuPosition(rect, 240));
     }, []);
 
     useEffect(() => {
@@ -291,6 +343,7 @@ function StyledMultiSelect({
                 stroke="currentColor"
                 strokeWidth="1.8"
             >
+                maxHeight: menuPosition.maxHeight,
                 <path d="M5 7.5L10 12.5L15 7.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
 
@@ -302,6 +355,7 @@ function StyledMultiSelect({
                         top: menuPosition.top,
                         left: menuPosition.left,
                         width: menuPosition.width,
+                        maxHeight: menuPosition.maxHeight,
                     }}
                 >
                     {options.map((option) => {
@@ -339,6 +393,7 @@ export default function InstructorAssignmentManager() {
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const [classDateFilter, setClassDateFilter] = useState<ClassDateFilter>('active');
     const [classFilter, setClassFilter] = useState('all');
     const [slotFilter, setSlotFilter] = useState('all');
     const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
@@ -351,6 +406,8 @@ export default function InstructorAssignmentManager() {
     const [bulkGroupId, setBulkGroupId] = useState('');
     const [bulkPending, setBulkPending] = useState(false);
     const [createGroupPending, setCreateGroupPending] = useState(false);
+    const [pendingGroupDeleteIds, setPendingGroupDeleteIds] = useState<Set<string>>(new Set());
+    const [deleteGroupPrompt, setDeleteGroupPrompt] = useState<GroupDeletePrompt>(null);
     const hasCompletedInitialLoadRef = useRef(false);
 
     const classTagPalette: TagColor[] = [
@@ -404,6 +461,27 @@ export default function InstructorAssignmentManager() {
         if (slot === null || slot === undefined) return Number.MAX_SAFE_INTEGER;
         const parsed = Number(slot);
         return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    };
+
+    const parseClassDate = (value?: string | null, endOfDay = false) => {
+        if (!value) return null;
+        const parsed = new Date(`${value}T${endOfDay ? '23:59:59' : '00:00:00'}`);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const isPastClass = (startDate?: string | null, endDate?: string | null) => {
+        const now = new Date();
+        const end = parseClassDate(endDate, true);
+        if (end) return end < now;
+
+        const start = parseClassDate(startDate, true);
+        if (!start) return false;
+        return start < now;
+    };
+
+    const matchesClassDateFilter = (startDate?: string | null, endDate?: string | null) => {
+        const past = isPastClass(startDate, endDate);
+        return classDateFilter === 'past' ? past : !past;
     };
 
     const enrollmentKey = (row: EnrollmentRow) => `${row.member_id}:${row.class_id}`;
@@ -529,10 +607,35 @@ export default function InstructorAssignmentManager() {
         return map;
     }, [enrollments]);
 
-    const classOptions = useMemo(
-        () => Array.from(new Set(enrollments.map((row) => row.class_name))).sort((a, b) => a.localeCompare(b)),
-        [enrollments],
-    );
+    const classOptions = useMemo(() => {
+        const byClassId = new Map<string, ClassFilterOption>();
+
+        enrollments.forEach((row) => {
+            if (!byClassId.has(row.class_id)) {
+                byClassId.set(row.class_id, {
+                    class_id: row.class_id,
+                    class_name: row.class_name,
+                    class_start_date: row.class_start_date,
+                    class_end_date: row.class_end_date,
+                });
+            }
+        });
+
+        groups.forEach((group) => {
+            if (!byClassId.has(group.class_id)) {
+                byClassId.set(group.class_id, {
+                    class_id: group.class_id,
+                    class_name: group.class_name,
+                    class_start_date: group.class_start_date,
+                    class_end_date: group.class_end_date,
+                });
+            }
+        });
+
+        return Array.from(byClassId.values())
+            .filter((item) => matchesClassDateFilter(item.class_start_date, item.class_end_date))
+            .sort((a, b) => a.class_name.localeCompare(b.class_name));
+    }, [classDateFilter, enrollments, groups]);
 
     const slotOptions = useMemo(() => {
         const slots = Array.from(new Set(enrollments.map((row) => row.slot).filter((slot) => slot !== null && slot !== undefined)));
@@ -541,21 +644,29 @@ export default function InstructorAssignmentManager() {
 
     const filteredEnrollments = useMemo(() => {
         return enrollments.filter((row) => {
-            if (classFilter !== 'all' && row.class_name !== classFilter) return false;
+            if (!matchesClassDateFilter(row.class_start_date, row.class_end_date)) return false;
+            if (classFilter !== 'all' && row.class_id !== classFilter) return false;
             if (slotFilter !== 'all' && String(row.slot ?? '') !== slotFilter) return false;
             if (assignmentFilter === 'unassigned' && row.group_id) return false;
             if (assignmentFilter === 'assigned' && !row.group_id) return false;
             return true;
         });
-    }, [assignmentFilter, classFilter, enrollments, slotFilter]);
+    }, [assignmentFilter, classDateFilter, classFilter, enrollments, slotFilter]);
 
     useEffect(() => {
         setSwimmerPage(1);
-    }, [assignmentFilter, classFilter, slotFilter]);
+    }, [assignmentFilter, classDateFilter, classFilter, slotFilter]);
 
     useEffect(() => {
         setGroupPage(1);
-    }, [classFilter]);
+    }, [classDateFilter, classFilter]);
+
+    useEffect(() => {
+        if (classFilter === 'all') return;
+        if (!classOptions.some((option) => option.class_id === classFilter)) {
+            setClassFilter('all');
+        }
+    }, [classFilter, classOptions]);
 
     const sortedEnrollments = useMemo(() => {
         const rows = [...filteredEnrollments];
@@ -650,10 +761,20 @@ export default function InstructorAssignmentManager() {
         [selectedRows],
     );
 
+    const uniqueSelectedSlotValues = useMemo(
+        () => Array.from(new Set(selectedRows.map((row) => String(row.slot ?? '__none__')))),
+        [selectedRows],
+    );
+
+    const hasSingleSelectedClass = uniqueSelectedClassIds.length === 1;
+    const hasSingleSelectedSlot = uniqueSelectedSlotValues.length === 1;
+    const canRunGroupingActions =
+        selectedRows.length > 0 && hasSingleSelectedClass && hasSingleSelectedSlot;
+
     const bulkAssignableGroups = useMemo(() => {
-        if (uniqueSelectedClassIds.length !== 1) return [];
+        if (!hasSingleSelectedClass) return [];
         return groupsByClassId.get(uniqueSelectedClassIds[0]) || [];
-    }, [uniqueSelectedClassIds, groupsByClassId]);
+    }, [hasSingleSelectedClass, uniqueSelectedClassIds, groupsByClassId]);
 
     const bulkGroupName = bulkGroupId ? groupById.get(bulkGroupId)?.group_name || '' : '';
 
@@ -665,6 +786,13 @@ export default function InstructorAssignmentManager() {
             else next.add(key);
             return next;
         });
+    };
+
+    const shouldIgnoreRowSelection = (target: EventTarget | null) => {
+        if (!(target instanceof HTMLElement)) return false;
+        return Boolean(
+            target.closest('button, input, select, textarea, a, [role="button"], [data-row-toggle-ignore="true"]'),
+        );
     };
 
     const togglePageSelection = () => {
@@ -728,7 +856,7 @@ export default function InstructorAssignmentManager() {
     };
 
     const handleBulkAssign = async () => {
-        if (!bulkGroupId || uniqueSelectedClassIds.length !== 1) return;
+        if (!bulkGroupId || !canRunGroupingActions) return;
         await runBulkUpdate(bulkGroupId);
     };
 
@@ -737,7 +865,7 @@ export default function InstructorAssignmentManager() {
     };
 
     const handleCreateGroupFromSelected = async () => {
-        if (selectedRows.length === 0 || uniqueSelectedClassIds.length !== 1) return;
+        if (!canRunGroupingActions) return;
 
         const classId = uniqueSelectedClassIds[0];
         const memberIds = Array.from(new Set(selectedRows.map((row) => row.member_id)));
@@ -803,12 +931,82 @@ export default function InstructorAssignmentManager() {
         }
     };
 
+    const requestDeleteGroup = (group: Group) => {
+        const swimmerCount = (swimmersByGroupId.get(group.group_id) || []).length;
+        setDeleteGroupPrompt({ group, swimmerCount });
+    };
+
+    const confirmDeleteGroup = async () => {
+        if (!deleteGroupPrompt) return;
+
+        const { group } = deleteGroupPrompt;
+        setDeleteGroupPrompt(null);
+
+        setPendingGroupDeleteIds((prev) => {
+            const next = new Set(prev);
+            next.add(group.group_id);
+            return next;
+        });
+
+        const previousGroups = groups;
+        const previousAssignments = assignments;
+        const previousEnrollments = enrollments;
+
+        setGroups((prev) => prev.filter((item) => item.group_id !== group.group_id));
+        setAssignments((prev) => prev.filter((item) => item.group_id !== group.group_id));
+        setEnrollments((prev) =>
+            prev.map((row) =>
+                row.group_id === group.group_id
+                    ? { ...row, group_id: null, group_name: null }
+                    : row,
+            ),
+        );
+        setGroupInstructorSelection((prev) => {
+            if (!(group.group_id in prev)) return prev;
+            const next = { ...prev };
+            delete next[group.group_id];
+            return next;
+        });
+        setBulkGroupId((prev) => (prev === group.group_id ? '' : prev));
+
+        try {
+            const response = await fetch('/api/admin/instructor-member-assignments', {
+                method: 'DELETE',
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    group_id: group.group_id,
+                    delete_group: true,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorPayload = await response.json().catch(() => ({}));
+                throw new Error(errorPayload?.error || 'Failed to delete group');
+            }
+
+            showToast(`Deleted ${group.group_name}`);
+        } catch (err) {
+            console.error('Error deleting group:', err);
+            setGroups(previousGroups);
+            setAssignments(previousAssignments);
+            setEnrollments(previousEnrollments);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to delete group');
+        } finally {
+            setPendingGroupDeleteIds((prev) => {
+                const next = new Set(prev);
+                next.delete(group.group_id);
+                return next;
+            });
+        }
+    };
+
     const filteredGroupsForInstructors = useMemo(() => {
         return groups.filter((group) => {
-            if (classFilter !== 'all' && group.class_name !== classFilter) return false;
+            if (!matchesClassDateFilter(group.class_start_date, group.class_end_date)) return false;
+            if (classFilter !== 'all' && group.class_id !== classFilter) return false;
             return true;
         });
-    }, [groups, classFilter]);
+    }, [groups, classDateFilter, classFilter]);
 
     const totalSwimmerPages = Math.max(1, Math.ceil(sortedEnrollments.length / SWIMMER_PAGE_SIZE));
     const swimmerPageRows = useMemo(() => {
@@ -875,6 +1073,48 @@ export default function InstructorAssignmentManager() {
             setErrorMessage(err instanceof Error ? err.message : 'Failed to update instructor assignment');
         } finally {
             setPendingInstructorKeys((prev) => {
+                const next = new Set(prev);
+                next.delete(key);
+                return next;
+            });
+        }
+    };
+
+    const unassignSwimmer = async (memberId: string, classId: string) => {
+        const key = `${memberId}:${classId}:unassign`;
+        setPendingEnrollmentKeys((prev) => new Set(prev).add(key));
+
+        const previous = enrollments;
+        setEnrollments((prev) =>
+            prev.map((item) =>
+                item.member_id === memberId && item.class_id === classId
+                    ? { ...item, group_id: null, group_name: null }
+                    : item,
+            ),
+        );
+
+        try {
+            const response = await fetch('/api/admin/instructor-member-assignments', {
+                method: 'DELETE',
+                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    member_id: memberId,
+                    class_id: classId,
+                }),
+            });
+
+            if (!response.ok) {
+                const errorPayload = await response.json().catch(() => ({}));
+                throw new Error(errorPayload?.error || 'Failed to unassign swimmer');
+            }
+
+            showToast('Swimmer unassigned from group');
+        } catch (err) {
+            console.error('Error unassigning swimmer:', err);
+            setEnrollments(previous);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to unassign swimmer');
+        } finally {
+            setPendingEnrollmentKeys((prev) => {
                 const next = new Set(prev);
                 next.delete(key);
                 return next;
@@ -976,6 +1216,43 @@ export default function InstructorAssignmentManager() {
 
     return (
         <div className="space-y-4 relative">
+            {deleteGroupPrompt && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+                        <div className="flex items-start gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-8.1 14A2 2 0 003.92 21h16.16a2 2 0 001.73-3.14l-8.1-14a2 2 0 00-3.46 0z" />
+                                </svg>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-base font-semibold text-slate-900">Delete group?</h3>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    This will delete <span className="font-semibold text-slate-900">{deleteGroupPrompt.group.group_name}</span> and unassign {deleteGroupPrompt.swimmerCount} swimmer{deleteGroupPrompt.swimmerCount === 1 ? '' : 's'}.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeleteGroupPrompt(null)}
+                                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmDeleteGroup}
+                                className="rounded-md bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                            >
+                                Delete group
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {toastMessage && (
                 <div className="fixed top-4 right-4 z-50 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white shadow-lg">
                     {toastMessage}
@@ -999,11 +1276,21 @@ export default function InstructorAssignmentManager() {
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                 <div className="flex flex-wrap gap-2">
                     <StyledSelect
+                        value={classDateFilter}
+                        onChange={(value) => setClassDateFilter(value as ClassDateFilter)}
+                        options={[
+                            { value: 'active', label: 'Active classes' },
+                            { value: 'past', label: 'Past classes' },
+                        ]}
+                        className="min-w-[150px]"
+                        ariaLabel="Filter by class date status"
+                    />
+                    <StyledSelect
                         value={classFilter}
                         onChange={setClassFilter}
                         options={[
                             { value: 'all', label: 'All classes' },
-                            ...classOptions.map((className) => ({ value: className, label: className })),
+                            ...classOptions.map((option) => ({ value: option.class_id, label: option.class_name })),
                         ]}
                         className="min-w-[150px]"
                         ariaLabel="Filter by class"
@@ -1081,12 +1368,14 @@ export default function InstructorAssignmentManager() {
                                                 const addPending = selectedInstructorIds.some((instructorId) =>
                                                     pendingInstructorKeys.has(`${group.group_id}:${instructorId}:assign`),
                                                 );
+                                                const deletePending = pendingGroupDeleteIds.has(group.group_id);
                                                 return (
                                                     <tr key={group.group_id} className="border-t border-slate-100 align-top">
                                                         <td className="px-3 py-2">
                                                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${classTag.bg} ${classTag.text}`}>
                                                                 {group.class_name}
                                                             </span>
+                                                            <p className="mt-1 text-xs font-semibold text-slate-800">{group.group_name}</p>
                                                             <p className="text-[11px] text-slate-500">{slotLabel}</p>
                                                         </td>
                                                         <td className="px-3 py-2">
@@ -1097,10 +1386,18 @@ export default function InstructorAssignmentManager() {
                                                                 {swimmersInGroup.map((swimmer) => (
                                                                     <span
                                                                         key={swimmer.memberId}
-                                                                        className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800"
+                                                                        className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800"
                                                                     >
                                                                         {swimmer.name}
                                                                         {swimmer.age !== null ? ` (${swimmer.age})` : ''}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => unassignSwimmer(swimmer.memberId, group.class_id)}
+                                                                            disabled={pendingEnrollmentKeys.has(`${swimmer.memberId}:${group.class_id}:unassign`)}
+                                                                            className="text-sky-600 hover:text-sky-800"
+                                                                        >
+                                                                            ×
+                                                                        </button>
                                                                     </span>
                                                                 ))}
                                                             </div>
@@ -1153,10 +1450,18 @@ export default function InstructorAssignmentManager() {
                                                                         selectedInstructorIds.length > 0 &&
                                                                         assignMultipleInstructorsToGroup(group.group_id, selectedInstructorIds)
                                                                     }
-                                                                    disabled={selectedInstructorIds.length === 0 || addPending}
+                                                                    disabled={selectedInstructorIds.length === 0 || addPending || deletePending}
                                                                     className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                                                                 >
                                                                     Add selected
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => requestDeleteGroup(group)}
+                                                                    disabled={deletePending}
+                                                                    className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                >
+                                                                    {deletePending ? 'Deleting…' : 'Delete group'}
                                                                 </button>
                                                             </div>
                                                         </td>
@@ -1210,7 +1515,7 @@ export default function InstructorAssignmentManager() {
                                     <StyledSelect
                                         value={bulkGroupId}
                                         onChange={setBulkGroupId}
-                                        disabled={bulkPending || uniqueSelectedClassIds.length !== 1 || selectedRows.length === 0}
+                                        disabled={bulkPending || !canRunGroupingActions}
                                         options={[
                                             { value: '', label: 'Select group' },
                                             ...bulkAssignableGroups.map((group) => ({ value: group.group_id, label: group.group_name })),
@@ -1222,7 +1527,7 @@ export default function InstructorAssignmentManager() {
                                     <button
                                         type="button"
                                         onClick={handleCreateGroupFromSelected}
-                                        disabled={createGroupPending || selectedRows.length === 0 || uniqueSelectedClassIds.length !== 1}
+                                        disabled={createGroupPending || !canRunGroupingActions}
                                         className="rounded-md border border-sky-200 px-2 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Create group from selected
@@ -1230,7 +1535,7 @@ export default function InstructorAssignmentManager() {
                                     <button
                                         type="button"
                                         onClick={handleBulkAssign}
-                                        disabled={bulkPending || createGroupPending || !bulkGroupId || uniqueSelectedClassIds.length !== 1 || selectedRows.length === 0}
+                                        disabled={bulkPending || createGroupPending || !bulkGroupId || !canRunGroupingActions}
                                         className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                                     >
                                         Assign selected
@@ -1244,16 +1549,19 @@ export default function InstructorAssignmentManager() {
                                         Clear selected
                                     </button>
                                 </div>
-                                {selectedRows.length > 0 && uniqueSelectedClassIds.length > 1 && (
-                                    <p className="mt-1 text-[11px] text-amber-700">
-                                        Select swimmers from one class to create a group or bulk-assign.
-                                    </p>
-                                )}
-                                {selectedRows.length > 0 && uniqueSelectedClassIds.length === 1 && !bulkGroupId && (
-                                    <p className="mt-1 text-[11px] text-slate-500">
-                                        Choose a group to assign selected swimmers.
-                                    </p>
-                                )}
+                                <div className="mt-1 min-h-[1.25rem]">
+                                    {errorMessage ? (
+                                        <p className="text-[11px] text-rose-700">{errorMessage}</p>
+                                    ) : selectedRows.length > 0 && !canRunGroupingActions ? (
+                                        <p className="text-[11px] text-amber-700">
+                                            Select swimmers from one class and one slot to create a group or bulk-assign.
+                                        </p>
+                                    ) : (
+                                        <p className="text-[11px] text-slate-500">
+                                            Choose a group to assign selected swimmers.
+                                        </p>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="relative overflow-visible rounded-lg border border-slate-200">
@@ -1311,7 +1619,18 @@ export default function InstructorAssignmentManager() {
                                                 }
 
                                                 rows.push(
-                                                    <tr key={key} className={`border-t border-slate-100 align-top ${isAssigned ? 'bg-slate-50/30' : ''}`}>
+                                                    <tr
+                                                        key={key}
+                                                        className={`border-t border-slate-100 align-top cursor-pointer transition-colors ${isSelected
+                                                            ? 'bg-sky-50 ring-1 ring-inset ring-sky-200'
+                                                            : isAssigned
+                                                                ? 'bg-slate-50/30 hover:bg-slate-50'
+                                                                : 'hover:bg-sky-50/40'}`}
+                                                        onClick={(event) => {
+                                                            if (shouldIgnoreRowSelection(event.target)) return;
+                                                            toggleRowSelection(row);
+                                                        }}
+                                                    >
                                                         <td className="px-3 py-2">
                                                             <input
                                                                 type="checkbox"
