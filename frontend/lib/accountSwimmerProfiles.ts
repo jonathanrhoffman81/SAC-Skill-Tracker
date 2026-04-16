@@ -20,6 +20,12 @@ export interface SessionSkillItem {
   progress: number;
   dateAcquired?: string;
   obtainedInSession?: boolean;
+  progressHistory?: Array<{
+    id: string;
+    date: string;
+    progress: number;
+    dateAcquired?: string;
+  }>;
   notes: SwimmerProfileNote[];
 }
 
@@ -41,6 +47,25 @@ export interface SessionPayload {
   };
 }
 
+export interface ClassHistoryPayload {
+  id: string;
+  classId: string | null;
+  name: string;
+  schedule: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent: boolean;
+  isGeneral: boolean;
+  skills: SessionSkillItem[];
+  classNotes: SwimmerProfileNote[];
+  summary: {
+    progressPct: number;
+    masteredCount: number;
+    totalSkills: number;
+    noteCount: number;
+  };
+}
+
 export interface SwimmerProfilePayload {
   swimmer: {
     id: string;
@@ -49,6 +74,8 @@ export interface SwimmerProfilePayload {
     enrollmentDate: string;
     organization: string;
   };
+  classHistories: ClassHistoryPayload[];
+  defaultClassHistoryId: string;
   sessions: SessionPayload[];
   defaultSessionId: string;
 }
@@ -81,6 +108,21 @@ interface EvaluationRow {
   class_id: string | null;
 }
 
+interface ClassRow {
+  class_id: string;
+  name: string | null;
+  schedule: string | null;
+  schedule_days: string[] | null;
+  schedule_time: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+interface EnrollmentRow {
+  member_id: string;
+  class_id: string;
+  group_id: string | null;
+}
 
 interface MemberRow {
   member_id: string;
@@ -228,6 +270,32 @@ function findSkillObtainedDate(historyRows: MemberSkillHistoryRow[]) {
   }
 
   return null;
+}
+
+function buildProgressHistory(
+  historyRows: MemberSkillHistoryRow[],
+  sessionEndDate?: string,
+): Array<{
+  id: string;
+  date: string;
+  progress: number;
+  dateAcquired?: string;
+}> {
+  const entries = historyRows
+    .filter((row) => {
+      if (!sessionEndDate) return true;
+      const rowDate = toIsoDate(row.updated_at);
+      return Boolean(rowDate && rowDate <= sessionEndDate);
+    })
+    .map((row) => ({
+      id: row.member_skill_id,
+      date: formatDate(row.updated_at) ?? "",
+      progress: row.progress ?? 0,
+      dateAcquired: formatDate(row.date_acquired) ?? undefined,
+    }))
+    .filter((entry) => entry.date.length > 0);
+
+  return entries;
 }
 
 async function loadAccessibleMemberIds(
@@ -565,6 +633,10 @@ export async function buildParentSwimmerProfiles(
               options.sessionEndDate,
             ),
           ),
+          progressHistory: buildProgressHistory(
+            history,
+            options.sessionEndDate,
+          ),
           notes: skillNotesBySkillId.get(skill.skill_id) ?? [],
         };
       });
@@ -604,7 +676,30 @@ export async function buildParentSwimmerProfiles(
       },
     ];
 
-    const defaultSessionId = "current-progress";
+    const classHistories: ClassHistoryPayload[] = [
+      {
+        id: "current-progress",
+        classId: null,
+        name: "Current Progress",
+        schedule:
+          classItems.length > 0
+            ? classItems.map((item) => item.name).join(", ")
+            : "No class linked",
+        startDate: undefined,
+        endDate: undefined,
+        isCurrent: true,
+        isGeneral: true,
+        skills,
+        classNotes: sessionNotes,
+        summary: computeSummary(skills, sessionNotes),
+      },
+    ];
+
+    const defaultSessionId = sessions[0]?.id ?? "current-progress";
+    const defaultClassHistoryId =
+      classHistories.find((item) => item.isCurrent)?.id ??
+      classHistories[0]?.id ??
+      "current-progress";
 
     profileByMemberId.set(member.member_id, {
       swimmer: {
@@ -614,6 +709,8 @@ export async function buildParentSwimmerProfiles(
         enrollmentDate: formatDate(member.created_at) ?? "",
         organization: organizationNameById.get(member.organization_id) ?? "",
       },
+      classHistories,
+      defaultClassHistoryId,
       sessions,
       defaultSessionId,
     });

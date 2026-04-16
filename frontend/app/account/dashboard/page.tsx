@@ -24,8 +24,8 @@ type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
 const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
 
-const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v3:";
-const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v3:";
+const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v4:";
+const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v4:";
 
 interface SwimmerCard {
   id: string;
@@ -294,7 +294,7 @@ export default function AccountDashboard() {
     return Math.round(
       (skills.reduce((sum, skill) => sum + skill.progress, 0) /
         (skills.length * 4)) *
-        100,
+      100,
     );
   }
 
@@ -502,9 +502,8 @@ export default function AccountDashboard() {
                       </div>
 
                       <svg
-                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
-                          isOpen ? "rotate-180" : ""
-                        }`}
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""
+                          }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -571,14 +570,14 @@ export default function AccountDashboard() {
                                       className={`inline-flex max-w-full rounded-2xl px-2.5 py-1 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
                                       title={
                                         PROFICIENCY_LABELS[
-                                          skill.progress as SkillProgress
+                                        skill.progress as SkillProgress
                                         ]
                                       }
                                     >
                                       {skill.progress} -{" "}
                                       {
                                         PROFICIENCY_LABELS[
-                                          skill.progress as SkillProgress
+                                        skill.progress as SkillProgress
                                         ]
                                       }
                                     </span>
