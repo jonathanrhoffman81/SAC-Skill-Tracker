@@ -11,12 +11,12 @@ import {
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
-import InstructorManager from "@/components/InstructorManager";
 import ClassManager from "@/components/ClassManager";
 import InstructorAssignmentManager from "@/components/InstructorAssignmentManager";
 import ImportRoster from "@/components/ImportRoster";
 import ImportClasses from "@/components/ImportClasses";
 import LogoManage from "@/components/LogoManage";
+import AccountsManager from "@/components/AccountsManager";
 
 // Dashboard statistics from admin API
 interface AdminStats {
@@ -36,7 +36,7 @@ interface Entity {
   [key: string]: any;
 }
 
-// State for each entity type (skills, instructors, swimmers, parents, classes)
+// State for each entity type
 interface EntityState {
   list: Entity[];
   loading: boolean;
@@ -45,20 +45,14 @@ interface EntityState {
   newName: string; // New item input value
 }
 
-type EntityType = "skills" | "instructors" | "swimmers" | "parents" | "classes";
+type EntityType = "skills";
 type Tab =
   | EntityType
   | "roster"
-  | "admins"
+  | "accounts"
+  | "classes"
   | "assignments"
   | "settings";
-
-interface OrgPerson {
-  person_id: string;
-  first_name?: string;
-  last_name?: string;
-  email?: string;
-}
 
 interface ToastMessage {
   id: number;
@@ -66,17 +60,16 @@ interface ToastMessage {
   type: "success" | "error";
 }
 
-// Configuration for each entity type. Centralizes all entity-specific logic.
-// To add a new entity: add an entry here, and it works everywhere (forms, API, UI)
+// Configuration for each entity type.
 const ENTITY_CONFIG: Record<
   EntityType,
   {
-    singularLabel: string; // Used in alerts/messages: "Delete this instructor?"
-    pluralLabel: string; // Tab heading: "Manage Instructors"
-    apiPath: string; // API endpoint: /api/admin/instructors
-    dataKey: string; // Response key: data.instructors
-    idField: string; // ID field name in database: person_id vs skill_id
-    displayName: (item: Entity) => string; // How to display item in list: name or "first last"
+    singularLabel: string;
+    pluralLabel: string;
+    apiPath: string;
+    dataKey: string;
+    idField: string;
+    displayName: (item: Entity) => string;
   }
 > = {
   skills: {
@@ -85,39 +78,6 @@ const ENTITY_CONFIG: Record<
     apiPath: "/api/admin/skills",
     dataKey: "skills",
     idField: "skill_id",
-    displayName: (item) => item.name,
-  },
-  instructors: {
-    singularLabel: "instructor",
-    pluralLabel: "Instructors",
-    apiPath: "/api/admin/instructors",
-    dataKey: "instructors",
-    idField: "person_id",
-    displayName: (item) =>
-      `${item.first_name || ""} ${item.last_name || ""}`.trim(),
-  },
-  swimmers: {
-    singularLabel: "swimmer",
-    pluralLabel: "Swimmers",
-    apiPath: "/api/admin/swimmers",
-    dataKey: "swimmers",
-    idField: "person_id",
-    displayName: (item) => `${item.first_name} ${item.last_name}`,
-  },
-  parents: {
-    singularLabel: "parent",
-    pluralLabel: "Parents",
-    apiPath: "/api/admin/parents",
-    dataKey: "parents",
-    idField: "person_id",
-    displayName: (item) => `${item.first_name} ${item.last_name}`,
-  },
-  classes: {
-    singularLabel: "class",
-    pluralLabel: "Classes",
-    apiPath: "/api/admin/classes",
-    dataKey: "classes",
-    idField: "class_id",
     displayName: (item) => item.name,
   },
 };
@@ -163,8 +123,8 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
-    id: "admins",
-    label: "Admins",
+    id: "accounts",
+    label: "Accounts",
     icon: (
       <svg
         className="w-4 h-4"
@@ -176,70 +136,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={2}
-          d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4z"
-        />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 12l2 2 4-4"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "instructors",
-    label: "Instructors",
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "parents",
-    label: "Parents",
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "swimmers",
-    label: "Swimmers",
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+          d="M17 20h5v-2a4 4 0 00-5.356-3.76M17 20H7m10 0v-2c0-.653-.126-1.277-.356-1.848M7 20H2v-2a4 4 0 015.356-3.76M7 20v-2c0-.653.126-1.277.356-1.848m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
         />
       </svg>
     ),
@@ -319,10 +216,7 @@ function getInitials(name: string) {
 }
 
 /**
- * EntityEditor - Reusable CRUD UI for any entity type (skills, instructors, etc.)
- * Handles: adding, editing, deleting items with inline editing
- * Uses ENTITY_CONFIG to adapt labels, API paths, and display names dynamically
- * Keyboard shortcuts: Enter to save, Escape to cancel
+ * EntityEditor - Reusable CRUD UI for dashboard entities.
  */
 function EntityEditor({
   type,
@@ -346,28 +240,6 @@ function EntityEditor({
   onEditNameChange: (value: string) => void;
 }) {
   const config = ENTITY_CONFIG[type];
-  const [searchFilter, setSearchFilter] = useState("");
-
-  // Deduplicate swimmers by name to handle database duplicates
-  const deduplicatedList =
-    type === "swimmers"
-      ? Array.from(
-        new Map(
-          state.list.map((item) => {
-            const displayName = config.displayName(item);
-            return [displayName.toLowerCase(), item];
-          }),
-        ).values(),
-      )
-      : state.list;
-
-  // Filter list by name if searching
-  const filteredList = searchFilter.trim()
-    ? deduplicatedList.filter((item) => {
-      const displayName = config.displayName(item).toLowerCase();
-      return displayName.includes(searchFilter.toLowerCase());
-    })
-    : deduplicatedList;
 
   return (
     <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
@@ -394,19 +266,6 @@ function EntityEditor({
         </button>
       </div>
 
-      {/* Search Filter - for swimmers tab */}
-      {type === "swimmers" && deduplicatedList.length > 0 && (
-        <div className="mb-4">
-          <input
-            type="text"
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            placeholder="Search swimmers by name..."
-            className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-          />
-        </div>
-      )}
-
       {/* Items List */}
       {state.loading ? (
         <div className="flex items-center justify-center py-6 sm:py-8">
@@ -416,13 +275,9 @@ function EntityEditor({
         <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">
           No {config.pluralLabel.toLowerCase()} yet. Add one above!
         </p>
-      ) : filteredList.length === 0 ? (
-        <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">
-          No {config.pluralLabel.toLowerCase()} match "{searchFilter}"
-        </p>
       ) : (
         <div className="space-y-3">
-          {filteredList.map((item) => (
+          {state.list.map((item) => (
             <div
               key={item.id}
               className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 group"
@@ -522,37 +377,6 @@ function EntityEditor({
                   </>
                 )}
               </div>
-
-              {/* Show children for parents */}
-              {type === "parents" &&
-                (item as any).children &&
-                (item as any).children.length > 0 && (
-                  <div className="mt-2 ml-3 pl-3 border-l-2 border-gray-300">
-                    <p className="text-xs text-gray-600 font-semibold mb-1">
-                      Children:
-                    </p>
-                    <div className="space-y-1">
-                      {(item as any).children.map((child: any) => (
-                        <div
-                          key={child.member_id}
-                          className="text-xs text-gray-700"
-                        >
-                          {`${child.first_name || ""} ${child.last_name || ""}`.trim() ||
-                            "Unnamed"}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              {type === "parents" &&
-                (!(item as any).children ||
-                  (item as any).children.length === 0) && (
-                  <div className="mt-2 ml-3 pl-3 border-l-2 border-gray-300">
-                    <p className="text-xs text-gray-500 italic">
-                      No children linked
-                    </p>
-                  </div>
-                )}
             </div>
           ))}
         </div>
@@ -567,20 +391,9 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [admins, setAdmins] = useState<OrgPerson[]>([]);
-  const [adminCandidates, setAdminCandidates] = useState<OrgPerson[]>([]);
-  const [selectedAdminCandidate, setSelectedAdminCandidate] = useState("");
-  const [adminsLoading, setAdminsLoading] = useState(false);
-  const [promotingAdmin, setPromotingAdmin] = useState(false);
-  const [demotingAdmin, setDemotingAdmin] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [importTab, setImportTab] = useState<"roster" | "classes">("roster");
-  const [demoteConfirmDialog, setDemoteConfirmDialog] = useState<{
-    show: boolean;
-    personId: string | null;
-    personName: string;
-  }>({ show: false, personId: null, personName: "" });
   const [entityDeleteDialog, setEntityDeleteDialog] = useState<{
     show: boolean;
     type: EntityType | null;
@@ -624,38 +437,9 @@ export default function AdminDashboard() {
       .map((n) => n[0])
       .join("")
       .toUpperCase();
-  // Single generic state object manages all 5 entity types
-  // Structure: { skills: {...}, instructors: {...}, swimmers: {...}, parents: {...}, classes: {...} }
+  // Generic state object for dashboard entities
   const [entities, setEntities] = useState<Record<EntityType, EntityState>>({
     skills: {
-      list: [],
-      loading: false,
-      editingId: null,
-      editingName: "",
-      newName: "",
-    },
-    instructors: {
-      list: [],
-      loading: false,
-      editingId: null,
-      editingName: "",
-      newName: "",
-    },
-    swimmers: {
-      list: [],
-      loading: false,
-      editingId: null,
-      editingName: "",
-      newName: "",
-    },
-    parents: {
-      list: [],
-      loading: false,
-      editingId: null,
-      editingName: "",
-      newName: "",
-    },
-    classes: {
       list: [],
       loading: false,
       editingId: null,
@@ -773,99 +557,10 @@ export default function AdminDashboard() {
     [stats],
   );
 
-  // Load all entity types when user email is available
+  // Load entity data on mount
   useEffect(() => {
-    Object.keys(ENTITY_CONFIG).forEach((type) => {
-      fetchEntity(type as EntityType);
-    });
-    fetchAdmins();
+    fetchEntity("skills");
   }, []);
-
-  const getPersonDisplayName = (person: OrgPerson) => {
-    const name = `${person.first_name || ""} ${person.last_name || ""}`.trim();
-    return name || person.email || "Unknown";
-  };
-
-  const fetchAdmins = async () => {
-    setAdminsLoading(true);
-    try {
-      const headers = await createAuthenticatedHeaders();
-      const response = await fetch(`/api/admin/admins`, { headers });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Failed to load admins");
-      setAdmins(data.admins || []);
-      setAdminCandidates(data.candidates || []);
-    } catch (err) {
-      console.error("Error fetching admins:", err);
-    } finally {
-      setAdminsLoading(false);
-    }
-  };
-
-  const handlePromoteAdmin = async () => {
-    if (!selectedAdminCandidate) return;
-    setPromotingAdmin(true);
-    try {
-      const response = await fetch("/api/admin/admins", {
-        method: "POST",
-        headers: await createAuthenticatedHeaders({
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({
-          person_id: selectedAdminCandidate,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok)
-        throw new Error(data.error || "Failed to promote admin");
-      setSelectedAdminCandidate("");
-      await fetchAdmins();
-    } catch (err) {
-      console.error("Error promoting admin:", err);
-      showToast(
-        err instanceof Error ? err.message : "Failed to promote admin",
-        "error",
-      );
-    } finally {
-      setPromotingAdmin(false);
-    }
-  };
-
-  const confirmDemoteAdmin = (person: OrgPerson) => {
-    setDemoteConfirmDialog({
-      show: true,
-      personId: person.person_id,
-      personName: getPersonDisplayName(person),
-    });
-  };
-
-  const handleDemoteAdmin = async () => {
-    const personId = demoteConfirmDialog.personId;
-    if (!personId) return;
-
-    setDemoteConfirmDialog({ show: false, personId: null, personName: "" });
-    setDemotingAdmin(personId);
-
-    try {
-      const headers = await createAuthenticatedHeaders();
-      const response = await fetch(`/api/admin/admins?person_id=${personId}`, {
-        method: "DELETE",
-        headers,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Failed to demote admin");
-      await fetchAdmins();
-      showToast("Admin demoted successfully", "success");
-    } catch (err) {
-      console.error("Error demoting admin:", err);
-      showToast(
-        err instanceof Error ? err.message : "Failed to demote admin",
-        "error",
-      );
-    } finally {
-      setDemotingAdmin(null);
-    }
-  };
 
   // Fetch a specific entity type from API with loading state management
   const fetchEntity = async (type: EntityType) => {
@@ -1048,7 +743,7 @@ export default function AdminDashboard() {
       )}
 
       <aside
-        className={`fixed right-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-l border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "translate-x-full"
+        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "-translate-x-full"
           }`}
         aria-hidden={!sidebarVisible}
       >
@@ -1121,54 +816,11 @@ export default function AdminDashboard() {
       </aside>
 
       <div
-        className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pr-72" : ""}`}
+        className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pl-72" : ""}`}
       >
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
-                {logoUrl ? (
-                  <img
-                    src={logoUrl}
-                    alt="Organization Logo"
-                    className="h-full w-full object-contain"
-                    onError={() => setLogoUrl(null)}
-                  />
-                ) : (
-                  <svg
-                    className="h-4 w-4 text-gray-600 sm:h-5 sm:w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13 10V3L4 14h7v7l9-11h-7z"
-                    />
-                  </svg>
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
-                  {stats?.organizationName || "SAC Skill Tracker"}
-                </p>
-                <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">
-                  Administrator Dashboard
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="hidden text-right lg:block">
-                <p className="text-sm font-medium text-gray-900">{userName}</p>
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
-                  Administrator
-                </span>
-              </div>
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
-                {getInitials(userName)}
-              </div>
               {(!isDesktop || !sidebarVisible) && (
                 <button
                   onClick={toggleSidebar}
@@ -1197,6 +849,49 @@ export default function AdminDashboard() {
                   </svg>
                 </button>
               )}
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
+                {getInitials(userName)}
+              </div>
+              <div className="hidden text-left lg:block">
+                <p className="text-sm font-medium text-gray-900">{userName}</p>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                  Administrator
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt="Organization Logo"
+                    className="h-full w-full object-contain"
+                    onError={() => setLogoUrl(null)}
+                  />
+                ) : (
+                  <svg
+                    className="h-4 w-4 text-gray-600 sm:h-5 sm:w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                    />
+                  </svg>
+                )}
+              </div>
+              <div className="min-w-0 text-right">
+                <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
+                  {stats?.organizationName || "SAC Skill Tracker"}
+                </p>
+                <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">
+                  Administrator Dashboard
+                </p>
+              </div>
             </div>
           </div>
         </header>
@@ -1337,143 +1032,12 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {activeTab === "admins" && (
-            <div className="w-full min-h-[60vh]">
-              <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
-                  Organization Admins
-                </h2>
-
-                <div className="mb-4 sm:mb-6">
-                  <p className="text-xs sm:text-sm font-medium text-gray-800 mb-2">
-                    Promote instructor to admin
-                  </p>
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedAdminCandidate}
-                      onChange={(e) =>
-                        setSelectedAdminCandidate(e.target.value)
-                      }
-                      className="flex-1 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    >
-                      <option value="">Select an instructor...</option>
-                      {adminCandidates.map((person) => (
-                        <option key={person.person_id} value={person.person_id}>
-                          {getPersonDisplayName(person)}
-                          {person.email ? ` (${person.email})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handlePromoteAdmin}
-                      disabled={!selectedAdminCandidate || promotingAdmin}
-                      className="px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-600 text-white text-xs sm:text-sm rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition whitespace-nowrap"
-                    >
-                      {promotingAdmin ? "Promoting..." : "Promote"}
-                    </button>
-                  </div>
-                  <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5 sm:mt-2">
-                    Promoting keeps instructor permissions and adds admin
-                    permissions.
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs sm:text-sm font-medium text-gray-800 mb-2">
-                    Current admins
-                  </p>
-                  {adminsLoading ? (
-                    <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-500">
-                      <div className="animate-spin rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 border-b-2 border-blue-600"></div>
-                      Loading admins...
-                    </div>
-                  ) : admins.length === 0 ? (
-                    <p className="text-xs sm:text-sm text-gray-500">
-                      No admins found.
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {admins.map((person) => (
-                        <div
-                          key={person.person_id}
-                          className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-gray-100 bg-gray-50 flex items-center justify-between gap-2"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs sm:text-sm text-gray-900 truncate">
-                              {getPersonDisplayName(person)}
-                            </p>
-                            {person.email && (
-                              <p className="text-[10px] sm:text-xs text-gray-500 truncate">
-                                {person.email}
-                              </p>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => confirmDemoteAdmin(person)}
-                            disabled={demotingAdmin === person.person_id}
-                            className="px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-200 transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                            title="Demote to instructor"
-                          >
-                            {demotingAdmin === person.person_id
-                              ? "Demoting..."
-                              : "Demote"}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {demoteConfirmDialog.show && (
-                  <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Demote Admin
-                    </p>
-                    <p className="mt-1 text-xs sm:text-sm text-gray-600">
-                      Demote{" "}
-                      <span className="font-medium">
-                        {demoteConfirmDialog.personName}
-                      </span>
-                      ? They will keep instructor permissions but lose admin
-                      access.
-                    </p>
-                    <div className="mt-3 flex justify-end gap-2">
-                      <button
-                        onClick={() =>
-                          setDemoteConfirmDialog({
-                            show: false,
-                            personId: null,
-                            personName: "",
-                          })
-                        }
-                        className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleDemoteAdmin}
-                        className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
-                      >
-                        Demote
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           <div
             className={
-              activeTab === "instructors" ? "w-full min-h-[60vh]" : "hidden"
+              activeTab === "accounts" ? "w-full min-h-[60vh]" : "hidden"
             }
           >
-            <InstructorManager
-              onRefresh={() => {
-                fetchStats();
-                fetchEntity("instructors");
-              }}
-            />
+            <AccountsManager onRefresh={fetchStats} />
           </div>
 
           <div
@@ -1484,7 +1048,6 @@ export default function AdminDashboard() {
             <ClassManager
               onRefresh={() => {
                 fetchStats();
-                fetchEntity("classes");
               }}
             />
           </div>
@@ -1497,65 +1060,55 @@ export default function AdminDashboard() {
             <InstructorAssignmentManager />
           </div>
 
-          {activeTab !== "roster" &&
-            activeTab !== "admins" &&
-            activeTab !== "instructors" &&
-            activeTab !== "classes" &&
-            activeTab !== "assignments" &&
-            activeTab !== "settings" && (
-              <div className="w-full min-h-[60vh]">
-                <EntityEditor
-                  type={activeTab as EntityType}
-                  state={entities[activeTab as EntityType]}
-                  onAdd={() => handleAdd(activeTab as EntityType)}
-                  onUpdate={(id) => handleUpdate(activeTab as EntityType, id)}
-                  onDelete={(id) =>
-                    requestDeleteEntity(activeTab as EntityType, id)
-                  }
-                  onStartEdit={(item) =>
-                    setEntities((prev) => ({
-                      ...prev,
-                      [activeTab]: {
-                        ...prev[activeTab as EntityType],
-                        editingId: item.id,
-                        editingName:
-                          ENTITY_CONFIG[activeTab as EntityType].displayName(
-                            item,
-                          ),
-                      },
-                    }))
-                  }
-                  onCancelEdit={() =>
-                    setEntities((prev) => ({
-                      ...prev,
-                      [activeTab]: {
-                        ...prev[activeTab as EntityType],
-                        editingId: null,
-                        editingName: "",
-                      },
-                    }))
-                  }
-                  onNewNameChange={(value) =>
-                    setEntities((prev) => ({
-                      ...prev,
-                      [activeTab]: {
-                        ...prev[activeTab as EntityType],
-                        newName: value,
-                      },
-                    }))
-                  }
-                  onEditNameChange={(value) =>
-                    setEntities((prev) => ({
-                      ...prev,
-                      [activeTab]: {
-                        ...prev[activeTab as EntityType],
-                        editingName: value,
-                      },
-                    }))
-                  }
-                />
-              </div>
-            )}
+          {activeTab === "skills" && (
+            <div className="w-full min-h-[60vh]">
+              <EntityEditor
+                type="skills"
+                state={entities.skills}
+                onAdd={() => handleAdd("skills")}
+                onUpdate={(id) => handleUpdate("skills", id)}
+                onDelete={(id) => requestDeleteEntity("skills", id)}
+                onStartEdit={(item) =>
+                  setEntities((prev) => ({
+                    ...prev,
+                    skills: {
+                      ...prev.skills,
+                      editingId: item.id,
+                      editingName: ENTITY_CONFIG.skills.displayName(item),
+                    },
+                  }))
+                }
+                onCancelEdit={() =>
+                  setEntities((prev) => ({
+                    ...prev,
+                    skills: {
+                      ...prev.skills,
+                      editingId: null,
+                      editingName: "",
+                    },
+                  }))
+                }
+                onNewNameChange={(value) =>
+                  setEntities((prev) => ({
+                    ...prev,
+                    skills: {
+                      ...prev.skills,
+                      newName: value,
+                    },
+                  }))
+                }
+                onEditNameChange={(value) =>
+                  setEntities((prev) => ({
+                    ...prev,
+                    skills: {
+                      ...prev.skills,
+                      editingName: value,
+                    },
+                  }))
+                }
+              />
+            </div>
+          )}
 
           <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
             {toasts.map((toast) => (
