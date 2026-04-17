@@ -10,6 +10,7 @@ export interface AdminStats {
   totalInstructors: number;
   activeClasses: number;
   skillLevels: number;
+  swimmersWithNoEval: number;
   organizationName: string;
   organizationId: string;
   organizationLogoUrl?: string | null;
@@ -51,7 +52,7 @@ export async function loadAdminDashboardBootstrap(
   supabase: any,
   organizationId: string,
 ): Promise<AdminDashboardBootstrapPayload> {
-  const [organization, memberCountResultRaw, classesCountResultRaw, skillsResultRaw] =
+  const [organization, memberCountResultRaw, memberListResultRaw, classesCountResultRaw, skillsResultRaw] =
     await Promise.all([
       timedQuery("organization", () =>
         getOrganizationById(supabase, organizationId),
@@ -60,6 +61,12 @@ export async function loadAdminDashboardBootstrap(
         supabase
           .from("member")
           .select("member_id", { count: "exact", head: true })
+          .eq("organization_id", organizationId),
+      ),
+      timedQuery("members", () =>
+        supabase
+          .from("member")
+          .select("member_id")
           .eq("organization_id", organizationId),
       ),
       timedQuery("class-count", () =>
@@ -78,6 +85,7 @@ export async function loadAdminDashboardBootstrap(
     ]);
 
   const memberCountResult = memberCountResultRaw as any;
+  const memberListResult = memberListResultRaw as any;
   const classesCountResult = classesCountResultRaw as any;
   const skillsResult = skillsResultRaw as any;
 
@@ -89,12 +97,61 @@ export async function loadAdminDashboardBootstrap(
     throw new Error(`Failed to load members: ${memberCountResult.error.message}`);
   }
 
+  if (memberListResult.error) {
+    throw new Error(`Failed to load member list: ${memberListResult.error.message}`);
+  }
+
   if (classesCountResult.error) {
     throw new Error(`Failed to load classes: ${classesCountResult.error.message}`);
   }
 
   if (skillsResult.error) {
     throw new Error(`Failed to load skills: ${skillsResult.error.message}`);
+  }
+
+  const organizationMemberIds =
+    ((memberListResult.data as Array<{ member_id: string }> | null) ?? [])
+      .map((row) => row.member_id)
+      .filter(Boolean);
+
+  const evaluatedMemberIds = new Set<string>();
+  let swimmersWithNoEval = 0;
+
+  if (organizationMemberIds.length > 0) {
+    try {
+      await timedQuery("evaluated-member-ids", async () => {
+        const CHUNK_SIZE = 100;
+
+        for (let index = 0; index < organizationMemberIds.length; index += CHUNK_SIZE) {
+          const chunk = organizationMemberIds.slice(index, index + CHUNK_SIZE);
+          const evaluationResult = await supabase
+            .from("evaluation")
+            .select("member_id")
+            .in("member_id", chunk);
+
+          if (evaluationResult.error) {
+            throw new Error(`Failed to load evaluations: ${evaluationResult.error.message}`);
+          }
+
+          const rows =
+            (evaluationResult.data as Array<{ member_id: string }> | null) ?? [];
+
+          rows.forEach((row) => {
+            if (row.member_id) {
+              evaluatedMemberIds.add(row.member_id);
+            }
+          });
+        }
+      });
+
+      swimmersWithNoEval = Math.max(
+        0,
+        organizationMemberIds.length - evaluatedMemberIds.size,
+      );
+    } catch (error) {
+      console.warn("[admin-dashboard-bootstrap] Failed to compute swimmersWithNoEval:", error);
+      swimmersWithNoEval = 0;
+    }
   }
 
   const instructorRoleId = await timedQuery("instructor-role-id", () =>
@@ -262,6 +319,7 @@ export async function loadAdminDashboardBootstrap(
       totalInstructors,
       activeClasses: classesCountResult.count ?? 0,
       skillLevels: skills.length,
+      swimmersWithNoEval,
       organizationName: organization.name,
       organizationId: organization.organization_id,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),

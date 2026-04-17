@@ -14,6 +14,7 @@ interface AdminDashboardStats {
   totalInstructors: number;
   activeClasses: number;
   skillLevels: number;
+  swimmersWithNoEval: number;
   organizationName: string;
   organizationId: string;
   organizationLogoUrl?: string | null;

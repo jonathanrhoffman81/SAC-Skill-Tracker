@@ -77,6 +77,7 @@ interface AdminStats {
   totalInstructors: number;
   activeClasses: number;
   skillLevels: number;
+  swimmersWithNoEval: number;
   organizationName: string;
   organizationId: string;
   organizationLogoUrl?: string | null;
@@ -808,8 +809,8 @@ export default function AdminDashboard() {
         ),
       },
       {
-        label: "Skill Levels",
-        value: stats?.skillLevels ?? 0,
+        label: "Swimmers With No Eval",
+        value: stats?.swimmersWithNoEval ?? 0,
         icon: (
           <svg
             className="w-8 h-8 text-orange-400"
@@ -821,7 +822,7 @@ export default function AdminDashboard() {
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={1.5}
-              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              d="M9 12h6m-6 4h6M9 8h6m3 11H6a2 2 0 01-2-2V7a2 2 0 012-2h8l6 6v6a2 2 0 01-2 2z"
             />
           </svg>
         ),
