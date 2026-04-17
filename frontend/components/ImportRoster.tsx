@@ -16,6 +16,9 @@ export default function ImportRoster({
     useState<number>(0);
   const [importedAdminCount, setImportedAdminCount] = useState<number>(0);
   const [errors, setErrors] = useState<string[]>([]);
+  const [status, setStatus] = useState<
+    { type: "success" | "error"; message: string } | null
+  >(null);
 
   const allowedBillingGroups = [
     "Group 1",
@@ -40,9 +43,11 @@ export default function ImportRoster({
 
   const handleFile = (file: File) => {
     if (file.type !== "text/csv") {
-      alert("Only CSV files allowed");
+      setStatus({ type: "error", message: "Only CSV files are allowed." });
       return;
     }
+
+    setStatus(null);
 
     Papa.parse(file, {
       header: true,
@@ -55,6 +60,7 @@ export default function ImportRoster({
         );
 
         if (missingHeaders.length > 0) {
+          setStatus({ type: "error", message: "CSV validation failed." });
           setErrors([`Missing columns: ${missingHeaders.join(", ")}`]);
           return;
         }
@@ -109,10 +115,12 @@ export default function ImportRoster({
         });
 
         if (validationErrors.length > 0) {
+          setStatus({ type: "error", message: "CSV validation failed." });
           setErrors(validationErrors.slice(0, 10)); // show first 10
           return;
         }
 
+        setStatus({ type: "success", message: "File validated. Ready to import." });
         setErrors([]);
         setSelectedFile(file);
         setImportedMemberCount(0);
@@ -151,14 +159,17 @@ export default function ImportRoster({
         setImportedMemberCount(data.importedMembers);
         setImportedAdminCount(data.importedAdmins);
         setImportedInstructorCount(data.importedInstructors);
+        setStatus({ type: "success", message: "Roster imported successfully." });
 
         setSelectedFile(null); // reset file after success
         onImportComplete?.();
       } else {
-        setErrors([data.error || "Import failed"]);
+        setStatus({ type: "error", message: data.error || "Import failed." });
+        setErrors([data.error || "Import failed."]);
       }
     } catch (err: any) {
-      setErrors([err.message || "Unexpected error"]);
+      setStatus({ type: "error", message: err.message || "Unexpected error." });
+      setErrors([err.message || "Unexpected error."]);
     } finally {
       setIsLoading(false);
     }
@@ -166,6 +177,18 @@ export default function ImportRoster({
 
   return (
     <div className="p-4 sm:p-6">
+      {status && (
+        <div
+          className={`mb-4 rounded-lg border px-3 py-2 text-xs sm:text-sm ${
+            status.type === "success"
+              ? "border-green-200 bg-green-50 text-green-800"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {status.message}
+        </div>
+      )}
+
       <div
         onDragOver={(e) => {
           e.preventDefault();

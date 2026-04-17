@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
 export default function LogoManage({
@@ -10,7 +10,10 @@ export default function LogoManage({
 }) {
   const [fileSelected, setFileSelected] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [logoExists, setLogoExists] = useState(false);
+  const [logoExists, setLogoExists] = useState(Boolean(organizationLogoUrl));
+  const [status, setStatus] = useState<
+    { type: "success" | "error"; message: string } | null
+  >(null);
 
   const preview = fileSelected
     ? URL.createObjectURL(fileSelected)
@@ -20,6 +23,7 @@ export default function LogoManage({
     if (!window.confirm("Are you sure you want to delete the logo?")) return;
 
     setLoading(true);
+    setStatus(null);
     try {
       const headers = await createAuthenticatedHeaders();
 
@@ -33,8 +37,10 @@ export default function LogoManage({
 
       setFileSelected(null);
       setLogoExists(false);
+      setStatus({ type: "success", message: "Logo deleted successfully." });
     } catch (err) {
       console.error("Delete failed:", err);
+      setStatus({ type: "error", message: err instanceof Error ? err.message : "Failed to delete logo." });
     } finally {
       setLoading(false);
     }
@@ -43,6 +49,7 @@ export default function LogoManage({
   const handleUpload = async (file: File) => {
     try {
       setLoading(true);
+      setStatus(null);
 
       const headers = await createAuthenticatedHeaders();
 
@@ -61,9 +68,11 @@ export default function LogoManage({
       if (data.publicUrl) {
         setFileSelected(null);
         setLogoExists(true);
+        setStatus({ type: "success", message: "Logo uploaded successfully." });
       }
     } catch (err) {
       console.error("Upload failed:", err);
+      setStatus({ type: "error", message: err instanceof Error ? err.message : "Failed to upload logo." });
     } finally {
       setLoading(false);
     }
@@ -71,6 +80,18 @@ export default function LogoManage({
 
   return (
     <div className="space-y-4">
+      {status && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs sm:text-sm ${
+            status.type === "success"
+              ? "border-green-200 bg-green-50 text-green-800"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {status.message}
+        </div>
+      )}
+
       {/* Preview */}
       <div className="flex flex-col items-center">
         {preview ? (
@@ -108,10 +129,11 @@ export default function LogoManage({
             const file = e.target.files?.[0];
             if (file) {
               if (file.size > 2 * 1024 * 1024) {
-                alert("File must be under 2MB");
+                setStatus({ type: "error", message: "File must be under 2MB." });
                 return;
               }
               setFileSelected(file);
+              setStatus({ type: "success", message: `Selected file: ${file.name}` });
             }
           }}
         />

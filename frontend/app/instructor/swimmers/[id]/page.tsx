@@ -6,7 +6,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { createAuthenticatedHeaders } from '@/lib/clientAuth';
 
 interface SwimmerDetail {
@@ -61,7 +61,35 @@ function getInitials(name: string) {
 export default function InstructorSwimmerDetail() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const swimmerId = params.id as string;
+  const returnTo = searchParams.get('returnTo');
+
+  const navigateBack = () => {
+    const fallback = '/admin/dashboard?tab=evaluations';
+
+    if (!returnTo) {
+      router.back();
+      return;
+    }
+
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    try {
+      const url = new URL(returnTo, window.location.origin);
+      if (url.pathname === '/admin/dashboard' && !url.searchParams.get('tab')) {
+        url.searchParams.set('tab', 'evaluations');
+      }
+      router.replace(`${url.pathname}${url.search}`, { scroll: false });
+      return;
+    } catch {
+      router.replace(fallback, { scroll: false });
+      return;
+    }
+  };
 
   const [skillNotes, setSkillNotes] = useState<Record<string, string>>({});
 
@@ -122,6 +150,26 @@ export default function InstructorSwimmerDetail() {
     [masteredCount, skills.length]
   );
 
+  const instructorNames = useMemo(() => {
+    const names = new Set<string>();
+
+    sessionNotes.forEach((note) => {
+      if (note.author?.trim()) {
+        names.add(note.author.trim());
+      }
+    });
+
+    skills.forEach((skill) => {
+      skill.notes.forEach((note) => {
+        if (note.author?.trim()) {
+          names.add(note.author.trim());
+        }
+      });
+    });
+
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [sessionNotes, skills]);
+
   const handleSubmitSkill = async (skill: Skill) => {
     try {
       const note = skillNotes[skill.id]?.trim() ?? '';
@@ -174,7 +222,7 @@ export default function InstructorSwimmerDetail() {
         <div className="text-center max-w-lg px-6">
           <p className="text-red-700 text-sm">{error || 'Swimmer not found.'}</p>
           <button
-            onClick={() => router.back()}
+            onClick={navigateBack}
             className="mt-4 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             Go Back
@@ -190,7 +238,7 @@ export default function InstructorSwimmerDetail() {
         <div className="max-w-4xl mx-auto px-6 py-4">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => router.back()}
+              onClick={navigateBack}
               className="p-2 -ml-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -241,6 +289,24 @@ export default function InstructorSwimmerDetail() {
         </section>
 
         <section className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Instructors</h3>
+          {instructorNames.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {instructorNames.map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs text-blue-700"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No instructor evaluations recorded yet.</p>
+          )}
+        </section>
+
+        <section className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Session Notes</h3>
@@ -281,8 +347,8 @@ export default function InstructorSwimmerDetail() {
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                       <span
                         className={`rounded-full px-2 py-0.5 ${skill.progress === 100
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-gray-100 text-gray-600'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-gray-100 text-gray-600'
                           }`}
                       >
                         {skill.progress}% progress

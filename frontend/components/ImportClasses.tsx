@@ -69,6 +69,9 @@ export default function ImportClasses({
     null,
   );
   const [errors, setErrors] = useState<string[]>([]);
+  const [status, setStatus] = useState<
+    { type: "success" | "error"; message: string } | null
+  >(null);
 
   /* ---- File handling ---- */
   const handleFile = useCallback(
@@ -81,10 +84,12 @@ export default function ImportClasses({
 
       if (!organizationId) {
         setErrors(["Organization ID is missing."]);
+        setStatus({ type: "error", message: "Organization ID is missing." });
         return;
       }
 
       setErrors([]);
+      setStatus(null);
       setIsParsing(true);
 
       try {
@@ -99,7 +104,8 @@ export default function ImportClasses({
         const data = await res.json();
 
         if (!res.ok) {
-          setErrors([data.error ?? "Failed to parse file"]);
+          setStatus({ type: "error", message: data.error ?? "Failed to parse file." });
+          setErrors([data.error ?? "Failed to parse file."]);
           return;
         }
 
@@ -122,8 +128,10 @@ export default function ImportClasses({
         );
 
         setStep("configure");
+        setStatus({ type: "success", message: "File parsed successfully. Configure class schedules to continue." });
       } catch (err: any) {
-        setErrors([err.message ?? "Unexpected error"]);
+        setStatus({ type: "error", message: err.message ?? "Unexpected error." });
+        setErrors([err.message ?? "Unexpected error."]);
       } finally {
         setIsParsing(false);
       }
@@ -164,6 +172,7 @@ export default function ImportClasses({
     // Only validate start date for new classes
     const invalid = schedules.filter((s) => !s.start_date);
     if (invalid.length > 0) {
+      setStatus({ type: "error", message: "Please complete required class schedule fields." });
       setErrors([
         `Please set a start date for: ${invalid.map((s) => s.name).join(", ")}`,
       ]);
@@ -171,6 +180,7 @@ export default function ImportClasses({
     }
 
     setErrors([]);
+    setStatus(null);
     setStep("importing");
 
     try {
@@ -187,16 +197,19 @@ export default function ImportClasses({
       const data = await res.json();
 
       if (!res.ok) {
-        setErrors([data.error ?? "Import failed"]);
+        setStatus({ type: "error", message: data.error ?? "Import failed." });
+        setErrors([data.error ?? "Import failed."]);
         setStep("configure");
         return;
       }
 
       setConfirmResult(data as ConfirmResult);
+      setStatus({ type: "success", message: "Classes imported successfully." });
       setStep("done");
       onImportComplete?.();
     } catch (err: any) {
-      setErrors([err.message ?? "Unexpected error"]);
+      setStatus({ type: "error", message: err.message ?? "Unexpected error." });
+      setErrors([err.message ?? "Unexpected error."]);
       setStep("configure");
     }
   };
@@ -214,6 +227,18 @@ export default function ImportClasses({
 
   return (
     <div className="p-4 sm:p-6">
+      {status && (
+        <div
+          className={`mb-4 rounded-lg border px-3 py-2 text-xs sm:text-sm ${
+            status.type === "success"
+              ? "border-green-200 bg-green-50 text-green-800"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {status.message}
+        </div>
+      )}
+
       {/* ── Step 1: Upload ─────────────────────────────────────────── */}
       {step === "upload" && (
         <div

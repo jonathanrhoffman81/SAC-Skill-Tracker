@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
+import { normalizeRole } from '@/lib/authRoles';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
-const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
+const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'org-admin', 'super-admin', 'superadmin']);
 
 async function resolveInstructorEmail(
   request: NextRequest,
@@ -23,7 +24,7 @@ async function resolveInstructorEmail(
 
   if (sessionPerson?.email) {
     const hasAllowedRole = sessionPerson.roleNames.some((role) =>
-      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase()),
+      INSTRUCTOR_ROUTE_ROLE_SET.has(normalizeRole(role)),
     );
 
     if (!hasAllowedRole) {

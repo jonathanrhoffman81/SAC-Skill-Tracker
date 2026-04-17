@@ -5,18 +5,71 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   createAuthenticatedHeaders,
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
-import ClassManager from "@/components/ClassManager";
-import InstructorAssignmentManager from "@/components/InstructorAssignmentManager";
-import ImportRoster from "@/components/ImportRoster";
-import ImportClasses from "@/components/ImportClasses";
-import LogoManage from "@/components/LogoManage";
-import AccountsManager from "@/components/AccountsManager";
+
+const TabSkeleton = ({ title }: { title: string }) => (
+  <div className="w-full min-h-[60vh] rounded-lg border border-gray-200 bg-white p-4 sm:rounded-xl sm:p-6">
+    <div className="mb-4 flex items-center gap-3">
+      <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600" />
+      <p className="text-sm font-medium text-gray-700">Loading {title}...</p>
+    </div>
+    <div className="space-y-3 animate-pulse">
+      <div className="h-10 rounded-lg bg-gray-100" />
+      <div className="h-24 rounded-lg bg-gray-100" />
+      <div className="h-24 rounded-lg bg-gray-100" />
+    </div>
+  </div>
+);
+
+const loadClassManager = () => import("@/components/ClassManager");
+const loadInstructorAssignmentManager = () => import("@/components/InstructorAssignmentManager");
+const loadImportRoster = () => import("@/components/ImportRoster");
+const loadImportClasses = () => import("@/components/ImportClasses");
+const loadLogoManage = () => import("@/components/LogoManage");
+const loadAccountsManager = () => import("@/components/AccountsManager");
+const loadAdminInstructorEvaluations = () => import("@/components/AdminInstructorEvaluations");
+
+const ClassManager = dynamic(loadClassManager, {
+  loading: () => <TabSkeleton title="classes" />,
+});
+const InstructorAssignmentManager = dynamic(
+  loadInstructorAssignmentManager,
+  {
+    loading: () => <TabSkeleton title="assignments" />,
+  },
+);
+const ImportRoster = dynamic(loadImportRoster, {
+  loading: () => <TabSkeleton title="roster" />,
+});
+const ImportClasses = dynamic(loadImportClasses, {
+  loading: () => <TabSkeleton title="classes import" />,
+});
+const LogoManage = dynamic(loadLogoManage, {
+  loading: () => <TabSkeleton title="settings" />,
+});
+const AccountsManager = dynamic(loadAccountsManager, {
+  loading: () => <TabSkeleton title="accounts" />,
+});
+const AdminInstructorEvaluations = dynamic(
+  loadAdminInstructorEvaluations,
+  {
+    loading: () => <TabSkeleton title="instructor info" />,
+  },
+);
+
+const MemoAccountsManager = memo(AccountsManager);
+const MemoClassManager = memo(ClassManager);
+const MemoInstructorAssignmentManager = memo(InstructorAssignmentManager);
+const MemoAdminInstructorEvaluations = memo(AdminInstructorEvaluations);
+const MemoImportRoster = memo(ImportRoster);
+const MemoImportClasses = memo(ImportClasses);
+const MemoLogoManage = memo(LogoManage);
 
 // Dashboard statistics from admin API
 interface AdminStats {
@@ -50,9 +103,35 @@ type Tab =
   | EntityType
   | "roster"
   | "accounts"
+  | "evaluations"
   | "classes"
   | "assignments"
   | "settings";
+
+const ALL_ADMIN_TABS: Tab[] = [
+  "assignments",
+  "skills",
+  "accounts",
+  "evaluations",
+  "classes",
+  "roster",
+  "settings",
+];
+
+const ADMIN_STATS_CACHE_KEY = "admin-dashboard-stats-cache";
+const ADMIN_STATS_CACHE_TTL_MS = 5 * 60 * 1000;
+const ENTITY_CACHE_KEY_PREFIX = "admin-dashboard-entity-cache:";
+const ENTITY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface AdminStatsCachePayload {
+  savedAt: number;
+  stats: AdminStats;
+}
+
+interface EntityCachePayload {
+  savedAt: number;
+  list: Entity[];
+}
 
 interface ToastMessage {
   id: number;
@@ -137,6 +216,25 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M17 20h5v-2a4 4 0 00-5.356-3.76M17 20H7m10 0v-2c0-.653-.126-1.277-.356-1.848M7 20H2v-2a4 4 0 015.356-3.76M7 20v-2c0-.653.126-1.277.356-1.848m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: "evaluations",
+    label: "Instructor Info",
+    icon: (
+      <svg
+        className="w-4 h-4"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M9 12h6m-6 4h6M9 8h6m3 11H6a2 2 0 01-2-2V7a2 2 0 012-2h8l6 6v6a2 2 0 01-2 2z"
         />
       </svg>
     ),
@@ -388,6 +486,9 @@ function EntityEditor({
 export default function AdminDashboard() {
   const [userName, setUserName] = useState("Admin User");
   const [activeTab, setActiveTab] = useState<Tab>("assignments");
+  const [visitedTabs] = useState<Set<Tab>>(
+    new Set(ALL_ADMIN_TABS),
+  );
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +502,42 @@ export default function AdminDashboard() {
     entityLabel: string;
   }>({ show: false, type: null, entityId: null, entityLabel: "" });
 
+  const readCachedStats = useCallback((): AdminStats | null => {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const raw = window.sessionStorage.getItem(ADMIN_STATS_CACHE_KEY);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as AdminStatsCachePayload;
+      if (!parsed?.savedAt || !parsed?.stats) return null;
+
+      if (Date.now() - parsed.savedAt > ADMIN_STATS_CACHE_TTL_MS) {
+        window.sessionStorage.removeItem(ADMIN_STATS_CACHE_KEY);
+        return null;
+      }
+
+      return parsed.stats;
+    } catch {
+      window.sessionStorage.removeItem(ADMIN_STATS_CACHE_KEY);
+      return null;
+    }
+  }, []);
+
+  const writeCachedStats = useCallback((nextStats: AdminStats) => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const payload: AdminStatsCachePayload = {
+        savedAt: Date.now(),
+        stats: nextStats,
+      };
+      window.sessionStorage.setItem(ADMIN_STATS_CACHE_KEY, JSON.stringify(payload));
+    } catch {
+      window.sessionStorage.removeItem(ADMIN_STATS_CACHE_KEY);
+    }
+  }, []);
+
   const showToast = (message: string, type: "success" | "error" = "error") => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -408,6 +545,48 @@ export default function AdminDashboard() {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 3500);
   };
+
+  const validTabIds = useMemo(
+    () =>
+      new Set<Tab>([
+        "assignments",
+        "skills",
+        "accounts",
+        "evaluations",
+        "classes",
+        "roster",
+        "settings",
+      ]),
+    [],
+  );
+
+  const selectTab = (tab: Tab) => {
+    setActiveTab(tab);
+
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === tab) return;
+    params.set("tab", tab);
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const applyTabFromUrl = () => {
+      const requestedTab = new URLSearchParams(window.location.search).get("tab");
+      if (!requestedTab) return;
+      if (!validTabIds.has(requestedTab as Tab)) return;
+
+      setActiveTab((currentTab) =>
+        currentTab === (requestedTab as Tab) ? currentTab : (requestedTab as Tab),
+      );
+    };
+
+    applyTabFromUrl();
+    window.addEventListener("popstate", applyTabFromUrl);
+    return () => window.removeEventListener("popstate", applyTabFromUrl);
+  }, [validTabIds]);
 
   useEffect(() => {
     const fetchLogo = async () => {
@@ -448,20 +627,73 @@ export default function AdminDashboard() {
     },
   });
 
+  const readCachedEntity = useCallback((type: EntityType): Entity[] | null => {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const raw = window.sessionStorage.getItem(`${ENTITY_CACHE_KEY_PREFIX}${type}`);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as EntityCachePayload;
+      if (!parsed?.savedAt || !Array.isArray(parsed?.list)) return null;
+
+      if (Date.now() - parsed.savedAt > ENTITY_CACHE_TTL_MS) {
+        window.sessionStorage.removeItem(`${ENTITY_CACHE_KEY_PREFIX}${type}`);
+        return null;
+      }
+
+      return parsed.list;
+    } catch {
+      window.sessionStorage.removeItem(`${ENTITY_CACHE_KEY_PREFIX}${type}`);
+      return null;
+    }
+  }, []);
+
+  const writeCachedEntity = useCallback((type: EntityType, list: Entity[]) => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const payload: EntityCachePayload = {
+        savedAt: Date.now(),
+        list,
+      };
+      window.sessionStorage.setItem(
+        `${ENTITY_CACHE_KEY_PREFIX}${type}`,
+        JSON.stringify(payload),
+      );
+    } catch {
+      window.sessionStorage.removeItem(`${ENTITY_CACHE_KEY_PREFIX}${type}`);
+    }
+  }, []);
+
   // Fetch dashboard statistics
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async (options?: { force?: boolean }) => {
+    if (!options?.force) {
+      const cachedStats = readCachedStats();
+      if (cachedStats) {
+        setStats(cachedStats);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const headers = await createAuthenticatedHeaders();
       const response = await fetch(`/api/admin/dashboard`, { headers });
       if (!response.ok) throw new Error("Failed to load stats");
-      const data = await response.json();
+      const data = (await response.json()) as AdminStats;
       setStats(data);
+      writeCachedStats(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [readCachedStats, writeCachedStats]);
+
+  const refreshStats = useCallback(() => {
+    void fetchStats({ force: true });
+  }, [fetchStats]);
 
   // Load user info and dashboard statistics on mount
   useEffect(() => {
@@ -470,9 +702,9 @@ export default function AdminDashboard() {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
       } catch { }
-      fetchStats();
+      void fetchStats();
     })();
-  }, []);
+  }, [fetchStats]);
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -557,13 +789,19 @@ export default function AdminDashboard() {
     [stats],
   );
 
-  // Load entity data on mount
-  useEffect(() => {
-    fetchEntity("skills");
-  }, []);
-
   // Fetch a specific entity type from API with loading state management
-  const fetchEntity = async (type: EntityType) => {
+  const fetchEntity = async (type: EntityType, options?: { force?: boolean }) => {
+    if (!options?.force) {
+      const cachedList = readCachedEntity(type);
+      if (cachedList) {
+        setEntities((prev) => ({
+          ...prev,
+          [type]: { ...prev[type], list: cachedList, loading: false },
+        }));
+        return;
+      }
+    }
+
     setEntities((prev) => ({
       ...prev,
       [type]: { ...prev[type], loading: true },
@@ -579,6 +817,7 @@ export default function AdminDashboard() {
         ...item,
         id: item[config.idField],
       }));
+      writeCachedEntity(type, listWithIds);
       setEntities((prev) => ({
         ...prev,
         [type]: { ...prev[type], list: listWithIds },
@@ -592,6 +831,67 @@ export default function AdminDashboard() {
       }));
     }
   };
+
+  useEffect(() => {
+    if (activeTab !== "skills") return;
+    if (entities.skills.loading) return;
+    if (entities.skills.list.length > 0) return;
+    fetchEntity("skills");
+  }, [activeTab, entities.skills.loading, entities.skills.list.length]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+
+    const preloaders = [
+      loadInstructorAssignmentManager,
+      loadAdminInstructorEvaluations,
+      loadAccountsManager,
+      loadClassManager,
+      loadImportRoster,
+      loadImportClasses,
+      loadLogoManage,
+    ];
+
+    let index = 0;
+
+    const runChunk = (deadline?: IdleDeadline) => {
+      if (cancelled) return;
+
+      while (index < preloaders.length && (!deadline || deadline.timeRemaining() > 8)) {
+        void preloaders[index++]();
+      }
+
+      if (index >= preloaders.length || cancelled) return;
+
+      if ("requestIdleCallback" in window) {
+        idleId = window.requestIdleCallback(runChunk, { timeout: 1200 });
+      } else {
+        timeoutId = window.setTimeout(() => runChunk(), 120);
+      }
+    };
+
+    timeoutId = window.setTimeout(() => {
+      if ("requestIdleCallback" in window) {
+        idleId = window.requestIdleCallback(runChunk, { timeout: 1200 });
+      } else {
+        runChunk();
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      if (idleId !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+    };
+  }, []);
 
   // Create new entity. Uses entity-specific API path and field names from config.
   const handleAdd = async (type: EntityType) => {
@@ -611,7 +911,7 @@ export default function AdminDashboard() {
         ...prev,
         [type]: { ...prev[type], newName: "" },
       }));
-      await fetchEntity(type);
+      await fetchEntity(type, { force: true });
     } catch (err) {
       console.error(`Error adding ${type}:`, err);
       showToast(`Failed to add ${ENTITY_CONFIG[type].singularLabel}`, "error");
@@ -639,7 +939,7 @@ export default function AdminDashboard() {
         ...prev,
         [type]: { ...prev[type], editingId: null, editingName: "" },
       }));
-      await fetchEntity(type);
+      await fetchEntity(type, { force: true });
       showToast(`${ENTITY_CONFIG[type].singularLabel} updated`, "success");
     } catch (err) {
       console.error(`Error updating ${type}:`, err);
@@ -720,7 +1020,7 @@ export default function AdminDashboard() {
         },
       );
       if (!response.ok) throw new Error(`Failed to delete ${type}`);
-      await fetchEntity(type);
+      await fetchEntity(type, { force: true });
       showToast(`${ENTITY_CONFIG[type].singularLabel} deleted`, "success");
     } catch (err) {
       console.error(`Error deleting ${type}:`, err);
@@ -777,7 +1077,7 @@ export default function AdminDashboard() {
             <button
               key={tab.id}
               onClick={() => {
-                setActiveTab(tab.id);
+                selectTab(tab.id);
                 if (!isDesktop) {
                   setSidebarOpen(false);
                 }
@@ -963,8 +1263,8 @@ export default function AdminDashboard() {
             ))}
           </div>
 
-          {activeTab === "roster" && (
-            <div className="w-full min-h-[60vh]">
+          {visitedTabs.has("roster") && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "roster" ? "" : "hidden"}`}>
               {/* Tabs */}
               <div className="flex border-b border-gray-200 mb-4">
                 <button
@@ -997,9 +1297,9 @@ export default function AdminDashboard() {
                     </h2>
                   </div>
 
-                  <ImportRoster
+                  <MemoImportRoster
                     organizationId={stats?.organizationId}
-                    onImportComplete={() => fetchStats()}
+                    onImportComplete={refreshStats}
                   />
                 </div>
               )}
@@ -1012,56 +1312,52 @@ export default function AdminDashboard() {
                     </h2>
                   </div>
 
-                  <ImportClasses
+                  <MemoImportClasses
                     organizationId={stats?.organizationId}
-                    onImportComplete={() => fetchStats()}
+                    onImportComplete={refreshStats}
                   />
                 </div>
               )}
             </div>
           )}
 
-          {activeTab === "settings" && stats?.organizationId && (
-            <div className="w-full min-h-[60vh]">
+          {visitedTabs.has("settings") && stats?.organizationId && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "settings" ? "" : "hidden"}`}>
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
                 <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
-                <LogoManage organizationLogoUrl={stats.organizationLogoUrl} />
+                <MemoLogoManage organizationLogoUrl={stats.organizationLogoUrl} />
               </div>
             </div>
           )}
 
-          <div
-            className={
-              activeTab === "accounts" ? "w-full min-h-[60vh]" : "hidden"
-            }
-          >
-            <AccountsManager onRefresh={fetchStats} />
-          </div>
+          {visitedTabs.has("accounts") && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "accounts" ? "" : "hidden"}`}>
+            <MemoAccountsManager onRefresh={refreshStats} />
+            </div>
+          )}
 
-          <div
-            className={
-              activeTab === "classes" ? "w-full min-h-[60vh]" : "hidden"
-            }
-          >
-            <ClassManager
-              onRefresh={() => {
-                fetchStats();
-              }}
-            />
-          </div>
+          {visitedTabs.has("evaluations") && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "evaluations" ? "" : "hidden"}`}>
+            <MemoAdminInstructorEvaluations />
+            </div>
+          )}
 
-          <div
-            className={
-              activeTab === "assignments" ? "w-full min-h-[60vh]" : "hidden"
-            }
-          >
-            <InstructorAssignmentManager />
-          </div>
+          {visitedTabs.has("classes") && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "classes" ? "" : "hidden"}`}>
+            <MemoClassManager onRefresh={refreshStats} />
+            </div>
+          )}
 
-          {activeTab === "skills" && (
-            <div className="w-full min-h-[60vh]">
+          {visitedTabs.has("assignments") && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "assignments" ? "" : "hidden"}`}>
+            <MemoInstructorAssignmentManager />
+            </div>
+          )}
+
+          {visitedTabs.has("skills") && (
+            <div className={`w-full min-h-[60vh] ${activeTab === "skills" ? "" : "hidden"}`}>
               <EntityEditor
                 type="skills"
                 state={entities.skills}

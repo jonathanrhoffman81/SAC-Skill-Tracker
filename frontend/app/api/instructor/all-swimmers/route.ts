@@ -3,12 +3,15 @@ import {
   AuthContextError,
   getCurrentPersonFromRequest,
 } from "@/lib/serverAuth";
+import { normalizeRole } from "@/lib/authRoles";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 interface DashboardClassPayload {
   id: string;
   name: string;
   schedule: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 interface DashboardSkillPayload {
@@ -24,6 +27,16 @@ interface DashboardSwimmerPayload {
   name: string;
   classes: DashboardClassPayload[];
   skills: DashboardSkillPayload[];
+  skillSummary?: {
+    totalSkills: number;
+    masteredSkills: number;
+    averageProficiency: number;
+  };
+  evaluationSummary: {
+    evaluationCount: number;
+    lastEvaluationDate?: string;
+    instructors: string[];
+  };
 }
 
 interface DashboardPayload {
@@ -43,10 +56,11 @@ interface DashboardPayload {
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set([
   "instructor",
   "admin",
+  "org-admin",
   "super-admin",
   "superadmin",
 ]);
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 
 function parsePage(request: NextRequest): number {
   const rawPage = Number(request.nextUrl.searchParams.get("page") ?? "1");
@@ -56,6 +70,16 @@ function parsePage(request: NextRequest): number {
 
 function parseSearchQuery(request: NextRequest): string {
   return (request.nextUrl.searchParams.get("q") ?? "").trim();
+}
+
+function parseLightweightMode(request: NextRequest): boolean {
+  const rawValue = (request.nextUrl.searchParams.get("lightweight") ?? "").trim().toLowerCase();
+  return rawValue === "1" || rawValue === "true";
+}
+
+function parseFetchAll(request: NextRequest): boolean {
+  const rawValue = (request.nextUrl.searchParams.get("all") ?? "").trim().toLowerCase();
+  return rawValue === "1" || rawValue === "true";
 }
 
 function buildPagination(page: number, pageSize: number, total: number) {
@@ -108,7 +132,7 @@ async function resolveInstructorEmail(request: NextRequest): Promise<string> {
 
   if (sessionPerson?.email) {
     const hasAllowedRole = sessionPerson.roleNames.some((role) =>
-      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase()),
+      INSTRUCTOR_ROUTE_ROLE_SET.has(normalizeRole(role)),
     );
 
     if (!hasAllowedRole) {
@@ -133,6 +157,8 @@ export async function GET(request: NextRequest) {
     const email = await resolveInstructorEmail(request);
     const page = parsePage(request);
     const searchQuery = parseSearchQuery(request);
+    const lightweight = parseLightweightMode(request);
+    const fetchAll = parseFetchAll(request);
 
     const supabaseAdmin = getSupabaseAdminClient();
 
@@ -206,53 +232,85 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let memberCountQuery = supabaseAdmin
-      .from("member")
-      .select("member_id", { count: "exact", head: true })
-      .eq("organization_id", organizationId);
+    let pagination = buildPagination(page, PAGE_SIZE, 0);
+    let members: Array<{ member_id: string; first_name: string | null; last_name: string | null }> = [];
 
-    if (searchQuery) {
-      memberCountQuery = memberCountQuery.or(
-        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
-      );
-    }
+    if (fetchAll) {
+      let allMembersQuery = supabaseAdmin
+        .from("member")
+        .select("member_id, first_name, last_name")
+        .eq("organization_id", organizationId)
+        .order("first_name", { ascending: true })
+        .order("last_name", { ascending: true });
 
-    const { count: totalCount, error: memberCountError } =
-      await memberCountQuery;
-    if (memberCountError) {
-      console.error("Member count error:", memberCountError);
-      return NextResponse.json(
-        { error: `Failed to count members: ${memberCountError.message}` },
-        { status: 500 },
-      );
-    }
+      if (searchQuery) {
+        allMembersQuery = allMembersQuery.or(
+          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+        );
+      }
 
-    const pagination = buildPagination(page, PAGE_SIZE, totalCount ?? 0);
-    const from = (pagination.page - 1) * pagination.pageSize;
-    const to = from + pagination.pageSize - 1;
+      const { data: allMembers, error: allMembersError } = await allMembersQuery;
+      if (allMembersError) {
+        console.error("Members error:", allMembersError);
+        return NextResponse.json(
+          { error: `Failed to load members: ${allMembersError.message}` },
+          { status: 500 },
+        );
+      }
 
-    let pagedMembersQuery = supabaseAdmin
-      .from("member")
-      .select("member_id, first_name, last_name")
-      .eq("organization_id", organizationId)
-      .order("first_name", { ascending: true })
-      .order("last_name", { ascending: true })
-      .range(from, to);
+      members = allMembers ?? [];
+      pagination = buildPagination(1, PAGE_SIZE, members.length);
+    } else {
+      let memberCountQuery = supabaseAdmin
+        .from("member")
+        .select("member_id", { count: "exact", head: true })
+        .eq("organization_id", organizationId);
 
-    if (searchQuery) {
-      pagedMembersQuery = pagedMembersQuery.or(
-        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
-      );
-    }
+      if (searchQuery) {
+        memberCountQuery = memberCountQuery.or(
+          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+        );
+      }
 
-    const { data: members, error: membersError } = await pagedMembersQuery;
+      const { count: totalCount, error: memberCountError } =
+        await memberCountQuery;
+      if (memberCountError) {
+        console.error("Member count error:", memberCountError);
+        return NextResponse.json(
+          { error: `Failed to count members: ${memberCountError.message}` },
+          { status: 500 },
+        );
+      }
 
-    if (membersError) {
-      console.error("Members error:", membersError);
-      return NextResponse.json(
-        { error: `Failed to load members: ${membersError.message}` },
-        { status: 500 },
-      );
+      pagination = buildPagination(page, PAGE_SIZE, totalCount ?? 0);
+      const from = (pagination.page - 1) * pagination.pageSize;
+      const to = from + pagination.pageSize - 1;
+
+      let pagedMembersQuery = supabaseAdmin
+        .from("member")
+        .select("member_id, first_name, last_name")
+        .eq("organization_id", organizationId)
+        .order("first_name", { ascending: true })
+        .order("last_name", { ascending: true })
+        .range(from, to);
+
+      if (searchQuery) {
+        pagedMembersQuery = pagedMembersQuery.or(
+          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+        );
+      }
+
+      const { data: pagedMembers, error: membersError } = await pagedMembersQuery;
+
+      if (membersError) {
+        console.error("Members error:", membersError);
+        return NextResponse.json(
+          { error: `Failed to load members: ${membersError.message}` },
+          { status: 500 },
+        );
+      }
+
+      members = pagedMembers ?? [];
     }
 
     if (!members || members.length === 0) {
@@ -292,61 +350,97 @@ export async function GET(request: NextRequest) {
       return batches;
     }
 
-    // Get all skills for organization
-    const { data: orgSkills, error: orgSkillsError } = await supabaseAdmin
-      .from("skill")
-      .select("skill_id, name")
-      .eq("organization_id", organizationId)
-      .order("name", { ascending: true });
+    const loadOrgSkillsPromise = !lightweight
+      ? supabaseAdmin
+        .from("skill")
+        .select("skill_id, name")
+        .eq("organization_id", organizationId)
+        .order("name", { ascending: true })
+      : supabaseAdmin
+        .from("skill")
+        .select("skill_id", { count: "exact", head: true })
+        .eq("organization_id", organizationId);
 
-    if (orgSkillsError) {
-      console.error("Org skills error:", orgSkillsError);
-      return NextResponse.json(
-        { error: `Failed to load skills: ${orgSkillsError.message}` },
-        { status: 500 },
-      );
-    }
-
-    // Get member skills in batches
-    let memberSkillRows: any[] = [];
-    if (memberIds.length > 0) {
-      try {
-        memberSkillRows = await batchQuery(
+    const loadMemberSkillsPromise =
+      memberIds.length > 0
+        ? batchQuery(
           "member_skill",
           "member_id, skill_id, progress, date_acquired",
           memberIds,
           "member_id",
-        );
-      } catch (error) {
-        console.error("Member skills error:", error);
-        return NextResponse.json(
-          {
-            error: `Failed to load member skills: ${error instanceof Error ? error.message : String(error)}`,
-          },
-          { status: 500 },
-        );
-      }
-    }
+        )
+        : Promise.resolve([] as any[]);
 
-    // Get enrollments in batches
-    let enrollments: any[] = [];
-    if (memberIds.length > 0) {
-      try {
-        enrollments = await batchQuery(
-          "enrollment",
-          "member_id, class_id",
+    const loadEnrollmentsPromise =
+      memberIds.length > 0
+        ? batchQuery("enrollment", "member_id, class_id", memberIds, "member_id")
+        : Promise.resolve([] as any[]);
+
+    const loadEvaluationsPromise =
+      memberIds.length > 0
+        ? batchQuery(
+          "evaluation",
+          "member_id, evaluation_date, instructor_person_id",
           memberIds,
           "member_id",
-        );
-      } catch (error) {
-        console.error("Enrollments error:", error);
-        return NextResponse.json(
-          {
-            error: `Failed to load enrollments: ${error instanceof Error ? error.message : String(error)}`,
-          },
-          { status: 500 },
-        );
+        )
+        : Promise.resolve([] as any[]);
+
+    let orgSkills: Array<{ skill_id: string; name: string }> = [];
+    let totalOrgSkills = 0;
+    let memberSkillRows: any[] = [];
+    let enrollments: any[] = [];
+    let evaluations: any[] = [];
+
+    try {
+      const [orgSkillsResult, loadedMemberSkills, loadedEnrollments, loadedEvaluations] =
+        await Promise.all([
+          loadOrgSkillsPromise,
+          loadMemberSkillsPromise,
+          loadEnrollmentsPromise,
+          loadEvaluationsPromise,
+        ]);
+
+      if (!lightweight) {
+        const skillRows = (orgSkillsResult as { data: Array<{ skill_id: string; name: string }> | null; error: any }).data;
+        const orgSkillsError = (orgSkillsResult as { data: Array<{ skill_id: string; name: string }> | null; error: any }).error;
+
+        if (orgSkillsError) {
+          console.error("Org skills error:", orgSkillsError);
+          return NextResponse.json(
+            { error: `Failed to load skills: ${orgSkillsError.message}` },
+            { status: 500 },
+          );
+        }
+
+        orgSkills = skillRows ?? [];
+        totalOrgSkills = orgSkills.length;
+      } else {
+        const skillCount = (orgSkillsResult as { count: number | null; error: any }).count;
+        const skillCountError = (orgSkillsResult as { count: number | null; error: any }).error;
+
+        if (skillCountError) {
+          console.error("Org skill count error:", skillCountError);
+          return NextResponse.json(
+            { error: `Failed to count skills: ${skillCountError.message}` },
+            { status: 500 },
+          );
+        }
+
+        totalOrgSkills = skillCount ?? 0;
       }
+
+      memberSkillRows = loadedMemberSkills;
+      enrollments = loadedEnrollments;
+      evaluations = loadedEvaluations;
+    } catch (error) {
+      console.error("Parallel instructor dashboard query error:", error);
+      return NextResponse.json(
+        {
+          error: `Failed to load evaluation data: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        { status: 500 },
+      );
     }
 
     console.log(
@@ -363,7 +457,7 @@ export async function GET(request: NextRequest) {
       try {
         classes = await batchQuery(
           "class_entity",
-          "class_id, name, schedule",
+          "class_id, name, schedule, start_date, end_date",
           classIds,
           "class_id",
         );
@@ -384,7 +478,79 @@ export async function GET(request: NextRequest) {
         id: row.class_id,
         name: row.name,
         schedule: row.schedule ?? "Schedule TBD",
+        startDate: row.start_date ?? undefined,
+        endDate: row.end_date ?? undefined,
       });
+    });
+
+    const instructorIds = Array.from(
+      new Set(
+        (evaluations ?? [])
+          .map((evaluation) => evaluation.instructor_person_id)
+          .filter(Boolean),
+      ),
+    );
+
+    const instructorNameById = new Map<string, string>();
+    if (instructorIds.length > 0) {
+      try {
+        const instructors = await batchQuery(
+          "person",
+          "person_id, first_name, last_name",
+          instructorIds,
+          "person_id",
+        );
+
+        instructors.forEach((row: any) => {
+          instructorNameById.set(
+            row.person_id,
+            `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Instructor",
+          );
+        });
+      } catch (error) {
+        console.error("Instructor names error:", error);
+        return NextResponse.json(
+          {
+            error: `Failed to load instructor names: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          { status: 500 },
+        );
+      }
+    }
+
+    const evaluationSummaryByMemberId = new Map<
+      string,
+      { evaluationCount: number; lastEvaluationDate?: string; instructors: string[] }
+    >();
+
+    (evaluations ?? []).forEach((row) => {
+      const existing =
+        evaluationSummaryByMemberId.get(row.member_id) ??
+        {
+          evaluationCount: 0,
+          lastEvaluationDate: undefined,
+          instructors: [],
+        };
+
+      existing.evaluationCount += 1;
+
+      if (row.evaluation_date) {
+        const currentLastDate = existing.lastEvaluationDate
+          ? new Date(existing.lastEvaluationDate)
+          : null;
+        const incomingDate = new Date(row.evaluation_date);
+
+        if (!currentLastDate || incomingDate > currentLastDate) {
+          existing.lastEvaluationDate = row.evaluation_date;
+        }
+      }
+
+      const instructorName = instructorNameById.get(row.instructor_person_id);
+      if (instructorName && !existing.instructors.includes(instructorName)) {
+        existing.instructors.push(instructorName);
+      }
+
+      evaluationSummaryByMemberId.set(row.member_id, existing);
     });
 
     const classesByMemberId = new Map<string, DashboardClassPayload[]>();
@@ -412,9 +578,34 @@ export async function GET(request: NextRequest) {
       });
     });
 
+    const skillSummaryByMemberId = new Map<
+      string,
+      { masteredSkills: number; totalProgressPercent: number }
+    >();
+
+    (memberSkillRows ?? []).forEach((row) => {
+      const existing = skillSummaryByMemberId.get(row.member_id) ?? {
+        masteredSkills: 0,
+        totalProgressPercent: 0,
+      };
+
+      const progress = Number(row.progress ?? 0);
+      existing.totalProgressPercent += Number.isFinite(progress) ? progress : 0;
+      if (progress === 100 || Boolean(row.date_acquired)) {
+        existing.masteredSkills += 1;
+      }
+
+      skillSummaryByMemberId.set(row.member_id, existing);
+    });
+
     const swimmers: DashboardSwimmerPayload[] = members.map((member) => {
-      const memberSkills: DashboardSkillPayload[] = (orgSkills ?? []).map(
-        (skill) => {
+      const memberSkillSummary = skillSummaryByMemberId.get(member.member_id) ?? {
+        masteredSkills: 0,
+        totalProgressPercent: 0,
+      };
+
+      const memberSkills: DashboardSkillPayload[] = !lightweight
+        ? (orgSkills ?? []).map((skill) => {
           const memberSkill = memberSkillByKey.get(
             `${member.member_id}:${skill.skill_id}`,
           );
@@ -427,8 +618,13 @@ export async function GET(request: NextRequest) {
             mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
             dateAcquired: memberSkill?.dateAcquired,
           };
-        },
-      );
+        })
+        : [];
+
+      const averageProficiency =
+        totalOrgSkills > 0
+          ? Math.round(memberSkillSummary.totalProgressPercent / totalOrgSkills)
+          : 0;
 
       return {
         id: member.member_id,
@@ -437,6 +633,20 @@ export async function GET(request: NextRequest) {
           "Unnamed swimmer",
         classes: classesByMemberId.get(member.member_id) ?? [],
         skills: memberSkills,
+        skillSummary: {
+          totalSkills: totalOrgSkills,
+          masteredSkills: memberSkillSummary.masteredSkills,
+          averageProficiency,
+        },
+        evaluationSummary: {
+          evaluationCount:
+            evaluationSummaryByMemberId.get(member.member_id)?.evaluationCount ?? 0,
+          lastEvaluationDate: formatDate(
+            evaluationSummaryByMemberId.get(member.member_id)?.lastEvaluationDate,
+          ),
+          instructors:
+            evaluationSummaryByMemberId.get(member.member_id)?.instructors ?? [],
+        },
       };
     });
 
