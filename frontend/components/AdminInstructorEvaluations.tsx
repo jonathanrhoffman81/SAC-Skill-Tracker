@@ -40,7 +40,7 @@ interface DashboardSwimmer {
 }
 
 interface InitialEvaluationFilters {
-    classes?: Array<{ value: string; label: string }>;
+    classes?: Array<{ value: string; label: string; startDate?: string; endDate?: string }>;
     instructors?: Array<{ value: string; label: string }>;
     groups?: Array<{ value: string; label: string; classId?: string }>;
     memberIdsByGroupId?: Record<string, string[]>;
@@ -119,11 +119,13 @@ interface PersistedData {
     savedAt: number;
     searchKey: string;
     swimmers: DashboardSwimmer[];
-    fallbackClassOptions: Array<{ value: string; label: string }>;
+    fallbackClassOptions: Array<{ value: string; label: string; startDate?: string; endDate?: string }>;
     fallbackInstructorOptions: Array<{ value: string; label: string }>;
     fallbackGroupOptions: Array<{ value: string; label: string }>;
     memberIdsByGroupId: Record<string, string[]>;
 }
+
+const CLASS_FILTER_RECENT_DAYS = 7;
 
 function readPersistedState(): PersistedState | null {
     if (typeof window === "undefined") return null;
@@ -225,6 +227,35 @@ function progressToPercent(progress: 0 | 1 | 2 | 3 | 4) {
     return mapping[progress] ?? 0;
 }
 
+function toDateAtMidnight(dateValue?: string) {
+    if (!dateValue) return null;
+
+    const normalized = dateValue.includes("T") ? dateValue.slice(0, 10) : dateValue;
+    const parsed = new Date(`${normalized}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+}
+
+function isClassCurrentOrRecent(startDate?: string, endDate?: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const recentCutoff = new Date(today);
+    recentCutoff.setDate(recentCutoff.getDate() - CLASS_FILTER_RECENT_DAYS);
+
+    const start = toDateAtMidnight(startDate);
+    const end = toDateAtMidnight(endDate);
+
+    const isActive = (!start || start <= today) && (!end || end >= today);
+    const endedRecently = Boolean(end && end < today && end >= recentCutoff);
+
+    return isActive || endedRecently;
+}
+
 function buildCacheKey(page: number, search: string) {
     return search.toLowerCase();
 }
@@ -261,7 +292,7 @@ export default function AdminInstructorEvaluations({
     const [detailBySwimmerId, setDetailBySwimmerId] = useState<
         Record<string, { classes: DashboardClass[]; skills: DashboardSkill[]; loading: boolean; error?: string }>
     >({});
-    const [fallbackClassOptions, setFallbackClassOptions] = useState<Array<{ value: string; label: string }>>(() =>
+    const [fallbackClassOptions, setFallbackClassOptions] = useState<Array<{ value: string; label: string; startDate?: string; endDate?: string }>>(() =>
         initialFilters?.classes ?? [],
     );
     const [fallbackInstructorOptions, setFallbackInstructorOptions] = useState<Array<{ value: string; label: string }>>(() =>
@@ -394,7 +425,6 @@ export default function AdminInstructorEvaluations({
             if (search) {
                 params.set("q", search);
             }
-            params.set("lightweight", "1");
             params.set("all", "1");
 
             const headers = await createAuthenticatedHeaders();
@@ -540,7 +570,11 @@ export default function AdminInstructorEvaluations({
 
         if (!options?.forceRefresh) {
             const cachedAll = allSearchCacheRef.current.get(searchCacheKey);
-            if (cachedAll) {
+            const shouldUseCachedAll =
+                Boolean(cachedAll) &&
+                ((cachedAll?.length ?? 0) > 0 || activeSearch.length > 0);
+
+            if (shouldUseCachedAll && cachedAll) {
                 setError("");
                 setSwimmers(cachedAll);
                 setIsLoading(false);
@@ -842,6 +876,10 @@ export default function AdminInstructorEvaluations({
 
         swimmers.forEach((swimmer) => {
             swimmer.classes.forEach((classItem) => {
+                if (!isClassCurrentOrRecent(classItem.startDate, classItem.endDate)) {
+                    return;
+                }
+
                 if (!classMap.has(classItem.id)) {
                     classMap.set(classItem.id, classItem.name);
                 }
@@ -854,6 +892,10 @@ export default function AdminInstructorEvaluations({
 
         fallbackClassOptions.forEach((option) => {
             if (!classMap.has(option.value)) {
+                if (!isClassCurrentOrRecent(option.startDate, option.endDate)) {
+                    return;
+                }
+
                 classMap.set(option.value, option.label);
                 options.push(option);
             }
@@ -1007,7 +1049,7 @@ export default function AdminInstructorEvaluations({
         const start = (safeCurrentPage - 1) * PAGE_SIZE;
         return displayedSwimmers.slice(start, start + PAGE_SIZE);
     }, [displayedSwimmers, safeCurrentPage]);
-    const shouldVirtualize = openSwimmerId === null && displayedSwimmers.length > 30;
+    const shouldVirtualize = false;
     const swimmersForRender = shouldVirtualize ? displayedSwimmers : pagedSwimmers;
 
     const virtualWindow = useMemo(() => {
@@ -1086,7 +1128,7 @@ export default function AdminInstructorEvaluations({
                 </p>
             </div>
 
-            <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
+            <div className="relative overflow-visible rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
                 <div className="mb-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
                     <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-gray-900">All Swimmers</p>
@@ -1117,6 +1159,7 @@ export default function AdminInstructorEvaluations({
                                     setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals");
                                     setCurrentPage(1);
                                 }}
+                                ui="app"
                                 options={[
                                     { value: "overview", label: "All swimmers" },
                                     { value: "active-classes", label: "Active classes" },
@@ -1135,6 +1178,7 @@ export default function AdminInstructorEvaluations({
                                     setClassFilter(value);
                                     setCurrentPage(1);
                                 }}
+                                ui="app"
                                 options={classFilterOptions}
                                 ariaLabel="Filter swimmers by class"
                             />
@@ -1148,6 +1192,7 @@ export default function AdminInstructorEvaluations({
                                     setInstructorFilter(value);
                                     setCurrentPage(1);
                                 }}
+                                ui="app"
                                 options={instructorFilterOptions}
                                 ariaLabel="Filter swimmers by instructor"
                             />
@@ -1161,6 +1206,7 @@ export default function AdminInstructorEvaluations({
                                     setGroupFilter(value);
                                     setCurrentPage(1);
                                 }}
+                                ui="app"
                                 options={groupFilterOptions}
                                 ariaLabel="Filter swimmers by group"
                             />

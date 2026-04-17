@@ -75,6 +75,77 @@ async function timed<T>(label: string, operation: () => Promise<T>): Promise<T> 
   }
 }
 
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const code = (error as { code?: string }).code;
+  if (code === "42P01") return true;
+
+  const message = String((error as { message?: string }).message ?? "").toLowerCase();
+  return message.includes("does not exist") || message.includes("relation") || message.includes("undefined table");
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+      error?: unknown;
+    };
+
+    const pieces = [
+      typeof candidate.message === "string" ? candidate.message : "",
+      typeof candidate.details === "string" ? candidate.details : "",
+      typeof candidate.hint === "string" ? candidate.hint : "",
+      typeof candidate.code === "string" ? `code=${candidate.code}` : "",
+      typeof candidate.error === "string" ? candidate.error : "",
+    ].filter(Boolean);
+
+    if (pieces.length > 0) {
+      return pieces.join(" | ");
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+
+  return String(error);
+}
+
+function normalizeInstructorIds(rawValue: unknown): string[] {
+  if (Array.isArray(rawValue)) {
+    return rawValue
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      return trimmed
+        .slice(1, -1)
+        .split(",")
+        .map((item) => item.replace(/^"|"$/g, "").trim())
+        .filter(Boolean);
+    }
+
+    return [trimmed];
+  }
+
+  return [];
+}
+
 function withCacheHeaders(response: NextResponse, cacheStatus: string) {
   response.headers.set("Cache-Control", "private, max-age=20, stale-while-revalidate=120");
   response.headers.set("X-Cache-Status", cacheStatus);
@@ -372,6 +443,26 @@ export async function GET(request: NextRequest) {
       return batches;
     }
 
+    async function batchQueryOptional(
+      table: string,
+      selectStr: string,
+      ids: string[],
+      filterColumn: string,
+    ): Promise<any[] | null> {
+      try {
+        return await batchQuery(table, selectStr, ids, filterColumn);
+      } catch (error) {
+        if (isMissingRelationError(error)) {
+          console.warn(
+            `[all-swimmers] Optional relation unavailable (${table}); falling back to base-table summary computation.`,
+          );
+          return null;
+        }
+
+        throw error;
+      }
+    }
+
     const loadOrgSkillsPromise = !lightweight
       ? supabaseAdmin
         .from("skill")
@@ -395,13 +486,13 @@ export async function GET(request: NextRequest) {
 
     const loadMemberSkillSummaryPromise =
       lightweight && memberIds.length > 0
-        ? batchQuery(
+        ? batchQueryOptional(
           "member_skill_summary_mv",
           "member_id, mastered_skills, avg_progress_percent",
           memberIds,
           "member_id",
         )
-        : Promise.resolve([] as any[]);
+        : Promise.resolve([] as any[] | null);
 
     const loadEnrollmentsPromise =
       memberIds.length > 0
@@ -420,21 +511,21 @@ export async function GET(request: NextRequest) {
 
     const loadEvaluationSummaryPromise =
       lightweight && memberIds.length > 0
-        ? batchQuery(
+        ? batchQueryOptional(
           "member_evaluation_summary_mv",
           "member_id, evaluation_count, last_evaluation_date, instructor_person_ids",
           memberIds,
           "member_id",
         )
-        : Promise.resolve([] as any[]);
+        : Promise.resolve([] as any[] | null);
 
     let orgSkills: Array<{ skill_id: string; name: string }> = [];
     let totalOrgSkills = 0;
     let memberSkillRows: any[] = [];
-    let memberSkillSummaryRows: any[] = [];
+    let memberSkillSummaryRows: any[] | null = [];
     let enrollments: any[] = [];
     let evaluationRows: any[] = [];
-    let evaluationSummaryRows: any[] = [];
+    let evaluationSummaryRows: any[] | null = [];
 
     try {
       const [
@@ -482,6 +573,30 @@ export async function GET(request: NextRequest) {
       enrollments = loadedEnrollments;
       evaluationRows = loadedEvaluations;
       evaluationSummaryRows = loadedEvaluationSummaries;
+
+      if (lightweight && memberIds.length > 0 && memberSkillSummaryRows === null) {
+        memberSkillRows = await timed("fallback-member-skill-rows", () =>
+          batchQuery(
+            "member_skill",
+            "member_id, skill_id, progress, date_acquired",
+            memberIds,
+            "member_id",
+          ),
+        );
+        memberSkillSummaryRows = [];
+      }
+
+      if (lightweight && memberIds.length > 0 && evaluationSummaryRows === null) {
+        evaluationRows = await timed("fallback-evaluation-rows", () =>
+          batchQuery(
+            "evaluation",
+            "member_id, evaluation_date, instructor_person_id",
+            memberIds,
+            "member_id",
+          ),
+        );
+        evaluationSummaryRows = [];
+      }
     } catch (error) {
       console.error("Parallel instructor dashboard query error:", error);
       throw new Error(
@@ -490,7 +605,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(
-      `Retrieved ${memberSkillRows.length} member skill rows, ${memberSkillSummaryRows.length} skill summary rows, ${evaluationRows.length} evaluation rows, and ${evaluationSummaryRows.length} evaluation summary rows`,
+      `Retrieved ${memberSkillRows.length} member skill rows, ${(memberSkillSummaryRows ?? []).length} skill summary rows, ${evaluationRows.length} evaluation rows, and ${(evaluationSummaryRows ?? []).length} evaluation summary rows`,
     );
 
     const classIds = Array.from(
@@ -528,8 +643,13 @@ export async function GET(request: NextRequest) {
 
     const instructorIds = Array.from(
       new Set(
-        (!lightweight ? (evaluationRows ?? []) : (evaluationSummaryRows ?? []).flatMap((evaluation) => evaluation.instructor_person_ids ?? []))
-          .map((instructorPersonId) => instructorPersonId)
+        (!lightweight
+          ? (evaluationRows ?? []).flatMap((evaluation) =>
+            normalizeInstructorIds(evaluation.instructor_person_id),
+          )
+          : (evaluationSummaryRows ?? []).flatMap((evaluation) =>
+            normalizeInstructorIds(evaluation.instructor_person_ids),
+          ))
           .filter(Boolean),
       ),
     );
@@ -551,9 +671,9 @@ export async function GET(request: NextRequest) {
           );
         });
       } catch (error) {
-        console.error("Instructor names error:", error);
-        throw new Error(
-          `Failed to load instructor names: ${error instanceof Error ? error.message : String(error)}`,
+        console.error(
+          "Instructor names lookup failed; continuing without instructor name labels:",
+          formatUnknownError(error),
         );
       }
     }
@@ -595,7 +715,7 @@ export async function GET(request: NextRequest) {
       });
     } else {
       (evaluationSummaryRows ?? []).forEach((row) => {
-        const instructorNames = ((row.instructor_person_ids ?? []) as string[])
+        const instructorNames = normalizeInstructorIds(row.instructor_person_ids)
           .map((personId) => instructorNameById.get(personId))
           .filter((name): name is string => Boolean(name));
 
