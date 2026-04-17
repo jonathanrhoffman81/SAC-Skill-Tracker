@@ -846,7 +846,7 @@ export async function GET(request: NextRequest) {
 
     const cacheEligible = fetchAll && lightweight;
     if (cacheEligible) {
-      const cacheKey = `instructor-all-swimmers:${organizationId}:q=${searchQuery.toLowerCase()}`;
+      const cacheKey = `instructor-all-swimmers:${organizationId}:person=${person.person_id}:q=${searchQuery.toLowerCase()}`;
       const { value, cacheStatus } = await getCachedOrRevalidate({
         key: cacheKey,
         maxAgeMs: CACHE_MAX_AGE_MS,
