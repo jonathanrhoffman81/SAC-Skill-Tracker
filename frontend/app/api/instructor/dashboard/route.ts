@@ -3,6 +3,7 @@ import {
   AuthContextError,
   getCurrentPersonFromRequest,
 } from "@/lib/serverAuth";
+import { normalizeRole } from "@/lib/authRoles";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 interface DashboardClassPayload {
@@ -78,6 +79,7 @@ function getOrganizationLogoUrl(organizationId: string | undefined) {
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set([
   "instructor",
   "admin",
+  "org-admin",
   "super-admin",
   "superadmin",
 ]);
@@ -491,7 +493,7 @@ async function resolveInstructorEmail(
 
   if (sessionPerson?.email) {
     const hasAllowedRole = sessionPerson.roleNames.some((role) =>
-      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase()),
+      INSTRUCTOR_ROUTE_ROLE_SET.has(normalizeRole(role)),
     );
 
     if (!hasAllowedRole) {

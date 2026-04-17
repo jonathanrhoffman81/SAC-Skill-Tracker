@@ -154,17 +154,17 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
     // Save edited class
     const saveEdit = async (class_id: string) => {
         if (!editingName.trim()) {
-            showToast('Class name is required', 'error');
+            showToast('Class name is required.', 'error');
             return;
         }
 
         if (editingLengthMinutes && parseInt(editingLengthMinutes) <= 0) {
-            showToast('Length must be a positive number', 'error');
+            showToast('Length must be a positive number.', 'error');
             return;
         }
 
         if (editingStartDate && editingEndDate && editingEndDate < editingStartDate) {
-            showToast('End date cannot be before start date', 'error');
+            showToast('End date cannot be before start date.', 'error');
             return;
         }
 
@@ -189,12 +189,12 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
             }
 
             cancelEdit();
-            showToast('Class updated successfully', 'success');
+            showToast('Class updated successfully.', 'success');
             await fetchClasses();
             onRefresh();
         } catch (error) {
             console.error('Failed to update class:', error);
-            showToast(error instanceof Error ? error.message : 'Failed to update class', 'error');
+            showToast(error instanceof Error ? error.message : 'Failed to update class.', 'error');
         }
     };
 
@@ -220,12 +220,12 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 throw new Error(data.error || 'Failed to delete class');
             }
 
-            showToast('Class deleted successfully', 'success');
+            showToast('Class deleted successfully.', 'success');
             await fetchClasses();
             onRefresh();
         } catch (error) {
             console.error('Failed to delete class:', error);
-            showToast(error instanceof Error ? error.message : 'Failed to delete class', 'error');
+            showToast(error instanceof Error ? error.message : 'Failed to delete class.', 'error');
         }
     };
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
+import DropdownButton from "@/components/DropdownButton";
 
 type RoleKey = "admin" | "instructor" | "parent" | "swimmer";
 
@@ -235,27 +236,30 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                             placeholder="Search by name or email"
                             className="sm:col-span-2 w-full px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         />
-                        <select
+                        <DropdownButton
                             value={roleFilter}
-                            onChange={(event) => setRoleFilter(event.target.value as "all" | RoleKey | "account")}
-                            className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        >
-                            <option value="all">All roles</option>
-                            {ROLE_ORDER.map((role) => (
-                                <option key={role} value={role}>
-                                    {ROLE_LABELS[role]}
-                                </option>
-                            ))}
-                            <option value="account">Account</option>
-                        </select>
+                            onChange={(value) => setRoleFilter(value as "all" | RoleKey | "account")}
+                            options={[
+                                { value: "all", label: "All roles" },
+                                ...ROLE_ORDER.map((role) => ({
+                                    value: role,
+                                    label: ROLE_LABELS[role],
+                                })),
+                                { value: "account", label: "Account" },
+                            ]}
+                            ariaLabel="Filter accounts by role"
+                        />
                     </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6">
 
                     {loading ? (
-                        <div className="flex items-center justify-center py-6 sm:py-8">
-                            <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-blue-600" />
+                        <div className="space-y-3 animate-pulse py-2">
+                            <div className="h-10 rounded-lg bg-gray-100" />
+                            <div className="h-20 rounded-lg bg-gray-100" />
+                            <div className="h-20 rounded-lg bg-gray-100" />
+                            <div className="h-20 rounded-lg bg-gray-100" />
                         </div>
                     ) : filteredAccounts.length === 0 ? (
                         <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">

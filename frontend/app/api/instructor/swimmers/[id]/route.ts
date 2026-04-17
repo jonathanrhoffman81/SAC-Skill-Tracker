@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
+import { normalizeRole } from '@/lib/authRoles';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 interface RouteParams {
@@ -50,7 +51,7 @@ interface SwimmerProfilePayload {
 }
 
 const VALID_PROGRESS_VALUES = new Set([0, 25, 50, 75, 100]);
-const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'super-admin', 'superadmin']);
+const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'org-admin', 'super-admin', 'superadmin']);
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
@@ -176,8 +177,9 @@ async function resolveInstructorPersonForRequest(
   }
 
   if (sessionPerson) {
+    const normalizedRoleNames = sessionPerson.roleNames.map((role) => normalizeRole(role));
     const hasAllowedRole = sessionPerson.roleNames.some((role) =>
-      INSTRUCTOR_ROUTE_ROLE_SET.has(role.toLowerCase())
+      INSTRUCTOR_ROUTE_ROLE_SET.has(normalizeRole(role))
     );
 
     if (!hasAllowedRole) {
@@ -191,6 +193,11 @@ async function resolveInstructorPersonForRequest(
         first_name: sessionPerson.firstName,
         last_name: sessionPerson.lastName,
       },
+      hasAdminAccess:
+        normalizedRoleNames.includes('admin') ||
+        normalizedRoleNames.includes('org-admin') ||
+        normalizedRoleNames.includes('super-admin') ||
+        normalizedRoleNames.includes('superadmin'),
       source: 'session' as const,
     };
   }
@@ -202,6 +209,7 @@ async function resolveInstructorPersonForRequest(
 
   return {
     person: instructorResolution.person,
+    hasAdminAccess: false,
     source: 'email' as const,
   };
 }
@@ -367,8 +375,13 @@ async function getSharedClassIdsForInstructorAndMember(
   return { sharedClassIds: Array.from(new Set(sharedClassIds)) };
 }
 
-async function buildSwimmerProfileFallback(email: string, memberId: string): Promise<SwimmerProfilePayload> {
+async function buildSwimmerProfileFallback(
+  email: string,
+  memberId: string,
+  options?: { hasAdminAccess?: boolean }
+): Promise<SwimmerProfilePayload> {
   const supabaseAdmin = getSupabaseAdminClient();
+  const hasAdminAccess = Boolean(options?.hasAdminAccess);
 
   const instructorResolution = await resolveInstructorPersonId(email);
   if ('error' in instructorResolution) {
@@ -376,15 +389,31 @@ async function buildSwimmerProfileFallback(email: string, memberId: string): Pro
   }
   const instructor = instructorResolution.person;
 
-  const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-  if (!accessCheck.ok) {
-    const error = accessCheck.error ?? 'You do not have access to this swimmer.';
-    const prefixedError = error.startsWith('Failed') ? error : `FORBIDDEN:${error}`;
-    throw new Error(prefixedError);
+  if (!hasAdminAccess) {
+    const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
+    if (!accessCheck.ok) {
+      const error = accessCheck.error ?? 'You do not have access to this swimmer.';
+      const prefixedError = error.startsWith('Failed') ? error : `FORBIDDEN:${error}`;
+      throw new Error(prefixedError);
+    }
   }
 
-  const { sharedClassIds, error: sharedClassError } =
-    await getSharedClassIdsForInstructorAndMember(instructor.person_id, memberId);
+  const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
+    .from('enrollment')
+    .select('class_id')
+    .eq('member_id', memberId);
+
+  if (memberEnrollmentsError) {
+    throw new Error(`Failed to load member enrollments: ${memberEnrollmentsError.message}`);
+  }
+
+  const enrolledClassIds = Array.from(
+    new Set((memberEnrollments ?? []).map((row) => row.class_id).filter(Boolean))
+  );
+
+  const { sharedClassIds, error: sharedClassError } = hasAdminAccess
+    ? { sharedClassIds: enrolledClassIds, error: undefined }
+    : await getSharedClassIdsForInstructorAndMember(instructor.person_id, memberId);
   if (sharedClassError) {
     throw new Error(sharedClassError);
   }
@@ -603,25 +632,30 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
     const email = instructorResolution.person.email;
+    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
 
     const supabaseAdmin = getSupabaseAdminClient();
-    const { data, error } = await supabaseAdmin.rpc('get_instructor_swimmer_profile_payload', {
-      instructor_email: email,
-      swimmer_member_id: memberId,
-    });
+    if (!hasAdminAccess) {
+      const { data, error } = await supabaseAdmin.rpc('get_instructor_swimmer_profile_payload', {
+        instructor_email: email,
+        swimmer_member_id: memberId,
+      });
 
-    if (!error) {
-      const payload = normalizeRpcSwimmerProfilePayload(
-        data as SwimmerProfilePayload | SwimmerProfilePayload[] | null
-      );
-      if (payload) {
-        return NextResponse.json(payload);
+      if (!error) {
+        const payload = normalizeRpcSwimmerProfilePayload(
+          data as SwimmerProfilePayload | SwimmerProfilePayload[] | null
+        );
+        if (payload) {
+          return NextResponse.json(payload);
+        }
+      } else {
+        console.warn('Instructor swimmer profile RPC unavailable, using fallback:', error.message);
       }
-    } else {
-      console.warn('Instructor swimmer profile RPC unavailable, using fallback:', error.message);
     }
 
-    const fallbackPayload = await buildSwimmerProfileFallback(email, memberId);
+    const fallbackPayload = await buildSwimmerProfileFallback(email, memberId, {
+      hasAdminAccess,
+    });
     return NextResponse.json(fallbackPayload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
@@ -671,6 +705,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
     const instructor = instructorResolution.person;
+    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
 
     const skillUpdates = normalizeSkillUpdates(body);
 
@@ -681,12 +716,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-    if (!accessCheck.ok) {
-      return NextResponse.json(
-        { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
-        { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
-      );
+    if (!hasAdminAccess) {
+      const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
+      if (!accessCheck.ok) {
+        return NextResponse.json(
+          { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
+          { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
+        );
+      }
     }
 
     const skillUpdate = skillUpdates[0];
@@ -752,6 +789,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
     const instructor = instructorResolution.person;
+    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
 
     const trimmedNote = body.note?.trim() ?? '';
     const skillUpdates = normalizeSkillUpdates(body);
@@ -796,16 +834,35 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-    if (!accessCheck.ok) {
+    if (!hasAdminAccess) {
+      const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
+      if (!accessCheck.ok) {
+        return NextResponse.json(
+          { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
+          { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
+        );
+      }
+    }
+
+    const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
+      .from('enrollment')
+      .select('class_id')
+      .eq('member_id', memberId);
+
+    if (memberEnrollmentsError) {
       return NextResponse.json(
-        { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
-        { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
+        { error: `Failed to load member enrollments: ${memberEnrollmentsError.message}` },
+        { status: 500 }
       );
     }
 
-    const { sharedClassIds, error: sharedClassError } =
-      await getSharedClassIdsForInstructorAndMember(instructor.person_id, memberId);
+    const enrolledClassIds = Array.from(
+      new Set((memberEnrollments ?? []).map((row) => row.class_id).filter(Boolean))
+    );
+
+    const { sharedClassIds, error: sharedClassError } = hasAdminAccess
+      ? { sharedClassIds: enrolledClassIds, error: undefined }
+      : await getSharedClassIdsForInstructorAndMember(instructor.person_id, memberId);
     if (sharedClassError) {
       return NextResponse.json({ error: sharedClassError }, { status: 500 });
     }
