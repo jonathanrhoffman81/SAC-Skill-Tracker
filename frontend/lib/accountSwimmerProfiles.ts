@@ -7,44 +7,22 @@ export interface SwimmerProfileNote {
   author: string;
 }
 
-export interface SessionClassItem {
+export interface SkillProgressHistoryItem {
   id: string;
-  name: string;
-  schedule: string;
+  date: string;
+  progress: number;
+  dateAcquired?: string;
 }
 
-export interface SessionSkillItem {
+export interface ClassHistorySkillItem {
   id: string;
   name: string;
   mastered: boolean;
   progress: number;
   dateAcquired?: string;
-  obtainedInSession?: boolean;
-  progressHistory?: Array<{
-    id: string;
-    date: string;
-    progress: number;
-    dateAcquired?: string;
-  }>;
+  obtainedInClass?: boolean;
   notes: SwimmerProfileNote[];
-}
-
-export interface SessionPayload {
-  id: string;
-  name: string;
-  startDate?: string;
-  endDate?: string;
-  isCurrent: boolean;
-  isSynthetic: boolean;
-  classes: SessionClassItem[];
-  skills: SessionSkillItem[];
-  sessionNotes: SwimmerProfileNote[];
-  summary: {
-    progressPct: number;
-    masteredCount: number;
-    totalSkills: number;
-    noteCount: number;
-  };
+  progressHistory: SkillProgressHistoryItem[];
 }
 
 export interface ClassHistoryPayload {
@@ -56,7 +34,7 @@ export interface ClassHistoryPayload {
   endDate?: string;
   isCurrent: boolean;
   isGeneral: boolean;
-  skills: SessionSkillItem[];
+  skills: ClassHistorySkillItem[];
   classNotes: SwimmerProfileNote[];
   summary: {
     progressPct: number;
@@ -76,8 +54,6 @@ export interface SwimmerProfilePayload {
   };
   classHistories: ClassHistoryPayload[];
   defaultClassHistoryId: string;
-  sessions: SessionPayload[];
-  defaultSessionId: string;
 }
 
 interface MemberSkillCurrentRow {
@@ -87,6 +63,7 @@ interface MemberSkillCurrentRow {
   progress: number | null;
   date_acquired: string | null;
   updated_at: string | null;
+  evaluation_id: string | null;
 }
 
 interface MemberSkillHistoryRow {
@@ -96,6 +73,7 @@ interface MemberSkillHistoryRow {
   progress: number | null;
   date_acquired: string | null;
   updated_at: string | null;
+  evaluation_id: string | null;
 }
 
 interface EvaluationRow {
@@ -137,10 +115,10 @@ function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(
-      Number(value.slice(0, 4)),
-      Number(value.slice(5, 7)) - 1,
-      Number(value.slice(8, 10)),
-    )
+        Number(value.slice(0, 4)),
+        Number(value.slice(5, 7)) - 1,
+        Number(value.slice(8, 10)),
+      )
     : new Date(value);
 
   return parsed.toLocaleDateString("en-US", {
@@ -154,10 +132,10 @@ function calculateAge(dateOfBirth?: string | null): number | null {
   if (!dateOfBirth) return null;
   const dob = /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)
     ? new Date(
-      Number(dateOfBirth.slice(0, 4)),
-      Number(dateOfBirth.slice(5, 7)) - 1,
-      Number(dateOfBirth.slice(8, 10)),
-    )
+        Number(dateOfBirth.slice(0, 4)),
+        Number(dateOfBirth.slice(5, 7)) - 1,
+        Number(dateOfBirth.slice(8, 10)),
+      )
     : new Date(dateOfBirth);
   const now = new Date();
   let age = now.getFullYear() - dob.getFullYear();
@@ -171,14 +149,6 @@ function calculateAge(dateOfBirth?: string | null): number | null {
 function isSkillFormattedFeedback(feedback?: string | null): boolean {
   if (!feedback) return false;
   return /skill\s*notes?:|^\s*skill\s*:/im.test(feedback);
-}
-
-function isDateWithinSession(
-  dateValue: string,
-  sessionStartDate: string,
-  sessionEndDate: string,
-) {
-  return dateValue >= sessionStartDate && dateValue <= sessionEndDate;
 }
 
 function toUtcEndOfDayMillis(dateValue: string): number {
@@ -200,9 +170,21 @@ function toIsoDate(value?: string | null): string | null {
   return parsed.toISOString().slice(0, 10);
 }
 
+function formatClassSchedule(row: ClassRow): string {
+  if (row.schedule?.trim()) {
+    return row.schedule.trim();
+  }
+
+  const dayText = Array.isArray(row.schedule_days)
+    ? row.schedule_days.filter(Boolean).join("/")
+    : "";
+  const timeText = row.schedule_time?.trim() ?? "";
+  return [dayText, timeText].filter(Boolean).join(" ") || "Schedule TBD";
+}
+
 function computeSummary(
-  skills: SessionSkillItem[],
-  sessionNotes: SwimmerProfileNote[],
+  skills: ClassHistorySkillItem[],
+  classNotes: SwimmerProfileNote[],
 ) {
   const totalSkills = skills.length;
   const masteredCount = skills.filter((skill) => skill.mastered).length;
@@ -210,12 +192,12 @@ function computeSummary(
     totalSkills === 0
       ? 0
       : Math.round(
-        (skills.reduce((total, skill) => total + skill.progress, 0) /
-          (totalSkills * 4)) *
-        100,
-      );
+          (skills.reduce((total, skill) => total + skill.progress, 0) /
+            (totalSkills * 4)) *
+            100,
+        );
   const noteCount =
-    sessionNotes.length +
+    classNotes.length +
     skills.reduce((total, skill) => total + skill.notes.length, 0);
 
   return {
@@ -262,40 +244,32 @@ function findLatestSkillStateBefore(
   return null;
 }
 
-function findSkillObtainedDate(historyRows: MemberSkillHistoryRow[]) {
+function findSkillObtainedRow(historyRows: MemberSkillHistoryRow[]) {
   for (const row of historyRows) {
     if ((row.progress ?? 0) >= 4 || row.date_acquired) {
-      return row.date_acquired ?? toIsoDate(row.updated_at);
+      return row;
     }
   }
 
   return null;
 }
 
-function buildProgressHistory(
-  historyRows: MemberSkillHistoryRow[],
-  sessionEndDate?: string,
-): Array<{
-  id: string;
-  date: string;
-  progress: number;
-  dateAcquired?: string;
-}> {
-  const entries = historyRows
-    .filter((row) => {
-      if (!sessionEndDate) return true;
-      const rowDate = toIsoDate(row.updated_at);
-      return Boolean(rowDate && rowDate <= sessionEndDate);
-    })
-    .map((row) => ({
-      id: row.member_skill_id,
-      date: formatDate(row.updated_at) ?? "",
-      progress: row.progress ?? 0,
-      dateAcquired: formatDate(row.date_acquired) ?? undefined,
-    }))
-    .filter((entry) => entry.date.length > 0);
+function getSkillObtainedDate(row: MemberSkillHistoryRow | null) {
+  if (!row) return null;
+  return row.date_acquired ?? toIsoDate(row.updated_at);
+}
 
-  return entries;
+function isHistoryRowBeforeCutoff(
+  row: MemberSkillHistoryRow,
+  cutoffMillis?: number,
+) {
+  if (typeof cutoffMillis !== "number") return true;
+
+  const updatedAtMillis = row.updated_at
+    ? new Date(row.updated_at).getTime()
+    : Number.NaN;
+
+  return !Number.isNaN(updatedAtMillis) && updatedAtMillis <= cutoffMillis;
 }
 
 async function loadAccessibleMemberIds(
@@ -373,13 +347,13 @@ export async function buildParentSwimmerProfiles(
     supabaseAdmin
       .from("member_skill_current")
       .select(
-        "member_skill_id, member_id, skill_id, progress, date_acquired, updated_at",
+        "member_skill_id, member_id, skill_id, progress, date_acquired, updated_at, evaluation_id",
       )
       .in("member_id", allowedMemberIds),
     supabaseAdmin
       .from("member_skill")
       .select(
-        "member_skill_id, member_id, skill_id, progress, date_acquired, updated_at",
+        "member_skill_id, member_id, skill_id, progress, date_acquired, updated_at, evaluation_id",
       )
       .in("member_id", allowedMemberIds)
       .order("updated_at", { ascending: true })
@@ -393,7 +367,7 @@ export async function buildParentSwimmerProfiles(
       .order("evaluation_date", { ascending: false }),
     supabaseAdmin
       .from("enrollment")
-      .select("member_id, class_id")
+      .select("member_id, class_id, group_id")
       .in("member_id", allowedMemberIds),
   ]);
 
@@ -475,22 +449,27 @@ export async function buildParentSwimmerProfiles(
     );
   }
 
+  const enrollmentRows = (enrollments ?? []) as EnrollmentRow[];
+  const evaluationClassIds = (evaluationRows ?? [])
+    .map((row) => row.class_id)
+    .filter((id: string | null | undefined): id is string => Boolean(id));
   const classIds = Array.from(
-    new Set((enrollments ?? []).map((row) => row.class_id).filter(Boolean)),
+    new Set([
+      ...enrollmentRows.map((row) => row.class_id).filter(Boolean),
+      ...evaluationClassIds,
+    ]),
   );
   const { data: classRows, error: classRowsError } = classIds.length
     ? await supabaseAdmin
-      .from("class_entity")
-      .select("class_id, name, schedule")
-      .in("class_id", classIds)
+        .from("class_entity")
+        .select(
+          "class_id, name, schedule, schedule_days, schedule_time, start_date, end_date",
+        )
+        .in("class_id", classIds)
     : {
-      data: [] as Array<{
-        class_id: string;
-        name: string;
-        schedule: string | null;
-      }>,
-      error: null,
-    };
+        data: [] as ClassRow[],
+        error: null,
+      };
 
   if (classRowsError) {
     throw new Error(`Failed to load class history: ${classRowsError.message}`);
@@ -546,52 +525,91 @@ export async function buildParentSwimmerProfiles(
   });
 
   const evaluationsByMemberId = new Map<string, EvaluationRow[]>();
+  const evaluationById = new Map<string, EvaluationRow>();
   ((evaluationRows ?? []) as EvaluationRow[]).forEach((row) => {
     const existing = evaluationsByMemberId.get(row.member_id) ?? [];
     existing.push(row);
     evaluationsByMemberId.set(row.member_id, existing);
+    evaluationById.set(row.evaluation_id, row);
   });
 
   const classRowById = new Map(
-    (classRows ?? []).map((row) => [row.class_id, row]),
+    ((classRows ?? []) as ClassRow[]).map((row) => [row.class_id, row]),
   );
 
-  const classesByMemberId = new Map<
-    string,
-    Array<{
-      id: string;
-      name: string;
-      schedule: string;
-    }>
-  >();
-  (enrollments ?? []).forEach((row) => {
+  const classesByMemberId = new Map<string, ClassRow[]>();
+  enrollmentRows.forEach((row) => {
     const classRow = classRowById.get(row.class_id);
     if (!classRow) return;
 
     const existing = classesByMemberId.get(row.member_id) ?? [];
-    existing.push({
-      id: classRow.class_id,
-      name: classRow.name,
-      schedule: classRow.schedule ?? "Schedule TBD",
-    });
+    if (!existing.some((item) => item.class_id === classRow.class_id)) {
+      existing.push(classRow);
+    }
     classesByMemberId.set(row.member_id, existing);
   });
+
+  ((evaluationRows ?? []) as EvaluationRow[]).forEach((row) => {
+    if (!row.class_id) return;
+    const classRow = classRowById.get(row.class_id);
+    if (!classRow) return;
+
+    const existing = classesByMemberId.get(row.member_id) ?? [];
+    if (!existing.some((item) => item.class_id === classRow.class_id)) {
+      existing.push(classRow);
+    }
+    classesByMemberId.set(row.member_id, existing);
+  });
+
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   members.forEach((member) => {
     const orgSkills =
       orgSkillsByOrganizationId.get(member.organization_id) ?? [];
     const currentSkillById =
-      currentSkillByMemberSkill.get(member.member_id) ?? new Map();
+      currentSkillByMemberSkill.get(member.member_id) ??
+      new Map<string, MemberSkillCurrentRow>();
     const skillHistoryById =
-      skillHistoryByMemberSkill.get(member.member_id) ?? new Map();
+      skillHistoryByMemberSkill.get(member.member_id) ??
+      new Map<string, MemberSkillHistoryRow[]>();
     const memberEvaluations = evaluationsByMemberId.get(member.member_id) ?? [];
-    const enrolledClasses = classesByMemberId.get(member.member_id) ?? [];
-    const buildSessionSkills = (options: {
+    const memberClasses = classesByMemberId.get(member.member_id) ?? [];
+
+    const sortedClasses = [...memberClasses].sort((a, b) => {
+      const aIsCurrent =
+        a.start_date &&
+        a.end_date &&
+        a.start_date <= todayIso &&
+        a.end_date >= todayIso
+          ? 1
+          : 0;
+      const bIsCurrent =
+        b.start_date &&
+        b.end_date &&
+        b.start_date <= todayIso &&
+        b.end_date >= todayIso
+          ? 1
+          : 0;
+
+      if (aIsCurrent !== bIsCurrent) {
+        return bIsCurrent - aIsCurrent;
+      }
+
+      const aStart = a.start_date ?? "";
+      const bStart = b.start_date ?? "";
+      if (aStart !== bStart) {
+        return bStart.localeCompare(aStart);
+      }
+
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    });
+    const buildClassSkills = (options: {
+      classId: string | null;
       cutoffMillis?: number;
-      sessionStartDate?: string;
-      sessionEndDate?: string;
+      classEndDate?: string | null;
       noteRows: EvaluationRow[];
       fallbackToCurrent?: boolean;
+      isGeneral?: boolean;
     }) => {
       const skillNotesBySkillId = new Map<string, SwimmerProfileNote[]>();
       options.noteRows
@@ -610,12 +628,46 @@ export async function buildParentSwimmerProfiles(
           findLatestSkillStateBefore(history, options.cutoffMillis) ??
           (options.fallbackToCurrent ? (currentSkill ?? null) : null);
         const progress = snapshotRow?.progress ?? 0;
-        const obtainedDate = findSkillObtainedDate(history);
+        const obtainedRow = findSkillObtainedRow(history);
+        const obtainedDate = getSkillObtainedDate(obtainedRow);
         const visibleObtainedDate =
           obtainedDate &&
-            (!options.sessionEndDate || obtainedDate <= options.sessionEndDate)
+          (!options.classEndDate || obtainedDate <= options.classEndDate)
             ? obtainedDate
             : null;
+        const obtainedEvaluation = obtainedRow?.evaluation_id
+          ? evaluationById.get(obtainedRow.evaluation_id)
+          : null;
+        const obtainedClassId = obtainedEvaluation?.class_id ?? null;
+        const obtainedInClass = options.isGeneral
+          ? Boolean(visibleObtainedDate && !obtainedClassId)
+          : Boolean(
+              visibleObtainedDate &&
+                options.classId &&
+                obtainedClassId === options.classId,
+            );
+        const progressHistory = history
+          .filter((row) => isHistoryRowBeforeCutoff(row, options.cutoffMillis))
+          .filter((row) => {
+            if (!options.isGeneral) return true;
+            if (!row.evaluation_id) return true;
+            const sourceEvaluation = evaluationById.get(row.evaluation_id);
+            return !sourceEvaluation?.class_id;
+          })
+          .map((row) => {
+            const sourceEvaluation = row.evaluation_id
+              ? evaluationById.get(row.evaluation_id)
+              : null;
+
+            return {
+              id: row.member_skill_id,
+              date:
+                formatDate(sourceEvaluation?.evaluation_date ?? row.updated_at) ??
+                "Date unknown",
+              progress: row.progress ?? 0,
+              dateAcquired: formatDate(row.date_acquired),
+            };
+          });
 
         return {
           id: skill.skill_id,
@@ -623,83 +675,101 @@ export async function buildParentSwimmerProfiles(
           mastered: progress >= 4 || Boolean(visibleObtainedDate),
           progress,
           dateAcquired: formatDate(visibleObtainedDate) ?? undefined,
-          obtainedInSession: Boolean(
-            visibleObtainedDate &&
-            options.sessionStartDate &&
-            options.sessionEndDate &&
-            isDateWithinSession(
-              visibleObtainedDate,
-              options.sessionStartDate,
-              options.sessionEndDate,
-            ),
-          ),
-          progressHistory: buildProgressHistory(
-            history,
-            options.sessionEndDate,
-          ),
+          obtainedInClass,
           notes: skillNotesBySkillId.get(skill.skill_id) ?? [],
+          progressHistory,
         };
       });
     };
 
-    const classItems = enrolledClasses
-      .map((classItem) => ({
-        id: classItem.id,
-        name: classItem.name,
-        schedule: classItem.schedule,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const classHistories: ClassHistoryPayload[] = sortedClasses.map(
+      (classRow) => {
+        const noteRows = memberEvaluations.filter(
+          (row) => row.class_id === classRow.class_id,
+        );
 
-    const sessionNotes = memberEvaluations
-      .filter(
-        (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
-      )
-      .map((row) => buildNoteEntry(row, authorNameById));
+        const classNotes = noteRows
+          .filter(
+            (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
+          )
+          .map((row) => buildNoteEntry(row, authorNameById));
 
-    const skills = buildSessionSkills({
-      noteRows: memberEvaluations,
-      fallbackToCurrent: true,
-    });
+        const hasEndDate = Boolean(classRow.end_date);
+        const skills = buildClassSkills({
+          classId: classRow.class_id,
+          cutoffMillis: classRow.end_date
+            ? toUtcEndOfDayMillis(classRow.end_date)
+            : undefined,
+          classEndDate: classRow.end_date,
+          noteRows,
+          fallbackToCurrent: !hasEndDate,
+        });
 
-    const sessions: SessionPayload[] = [
-      {
-        id: "current-progress",
-        name: "Current Progress",
-        startDate: undefined,
-        endDate: undefined,
-        isCurrent: true,
-        isSynthetic: true,
-        classes: classItems,
-        skills,
-        sessionNotes,
-        summary: computeSummary(skills, sessionNotes),
+        return {
+          id: classRow.class_id,
+          classId: classRow.class_id,
+          name: classRow.name ?? "Unnamed class",
+          schedule: formatClassSchedule(classRow),
+          startDate: formatDate(classRow.start_date),
+          endDate: formatDate(classRow.end_date),
+          isCurrent: Boolean(
+            classRow.start_date &&
+              classRow.end_date &&
+              classRow.start_date <= todayIso &&
+              classRow.end_date >= todayIso,
+          ),
+          isGeneral: false,
+          skills,
+          classNotes,
+          summary: computeSummary(skills, classNotes),
+        };
       },
-    ];
+    );
 
-    const classHistories: ClassHistoryPayload[] = [
-      {
-        id: "current-progress",
+    const generalNoteRows = memberEvaluations.filter((row) => !row.class_id);
+    const hasGeneralSkillHistory = Array.from(skillHistoryById.values()).some(
+      (historyRows) =>
+        historyRows.some((row) => {
+          if (!row.evaluation_id) return true;
+          const sourceEvaluation = evaluationById.get(row.evaluation_id);
+          return !sourceEvaluation?.class_id;
+        }),
+    );
+
+    if (
+      generalNoteRows.length > 0 ||
+      hasGeneralSkillHistory ||
+      classHistories.length === 0
+    ) {
+      const generalClassNotes = generalNoteRows
+        .filter(
+          (row) => !row.skill_id && !isSkillFormattedFeedback(row.feedback),
+        )
+        .map((row) => buildNoteEntry(row, authorNameById));
+      const generalSkills = buildClassSkills({
         classId: null,
-        name: "Current Progress",
-        schedule:
-          classItems.length > 0
-            ? classItems.map((item) => item.name).join(", ")
-            : "No class linked",
-        startDate: undefined,
-        endDate: undefined,
-        isCurrent: true,
+        noteRows: generalNoteRows,
+        fallbackToCurrent: true,
         isGeneral: true,
-        skills,
-        classNotes: sessionNotes,
-        summary: computeSummary(skills, sessionNotes),
-      },
-    ];
+      });
 
-    const defaultSessionId = sessions[0]?.id ?? "current-progress";
+      classHistories.push({
+        id: "general-history",
+        classId: null,
+        name: "General / Team History",
+        schedule: "No class linked",
+        isCurrent: classHistories.length === 0,
+        isGeneral: true,
+        skills: generalSkills,
+        classNotes: generalClassNotes,
+        summary: computeSummary(generalSkills, generalClassNotes),
+      });
+    }
+
     const defaultClassHistoryId =
       classHistories.find((item) => item.isCurrent)?.id ??
       classHistories[0]?.id ??
-      "current-progress";
+      "general-history";
 
     profileByMemberId.set(member.member_id, {
       swimmer: {
@@ -711,8 +781,6 @@ export async function buildParentSwimmerProfiles(
       },
       classHistories,
       defaultClassHistoryId,
-      sessions,
-      defaultSessionId,
     });
   });
 
