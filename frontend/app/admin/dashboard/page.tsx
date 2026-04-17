@@ -82,6 +82,23 @@ interface AdminStats {
   organizationLogoUrl?: string | null;
 }
 
+interface DashboardBootstrapPayload {
+  stats: AdminStats;
+  tabEssentials?: {
+    skills?: Array<{ skill_id: string; name: string }>;
+    evaluationFilters?: {
+      classes?: Array<{ value: string; label: string }>;
+      instructors?: Array<{ value: string; label: string }>;
+      groups?: Array<{ value: string; label: string; classId: string }>;
+      memberIdsByGroupId?: Record<string, string[]>;
+    };
+  };
+}
+
+type EvaluationFilterBootstrap = NonNullable<
+  DashboardBootstrapPayload["tabEssentials"]
+>["evaluationFilters"];
+
 // Generic entity with normalized id field for consistent handling
 interface Entity {
   id: string; // Normalized from skill_id, person_id, class_id, etc.
@@ -501,6 +518,7 @@ export default function AdminDashboard() {
     entityId: string | null;
     entityLabel: string;
   }>({ show: false, type: null, entityId: null, entityLabel: "" });
+  const [evaluationFilterBootstrap, setEvaluationFilterBootstrap] = useState<EvaluationFilterBootstrap | null>(null);
 
   const readCachedStats = useCallback((): AdminStats | null => {
     if (typeof window === "undefined") return null;
@@ -666,34 +684,57 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  // Fetch dashboard statistics
-  const fetchStats = useCallback(async (options?: { force?: boolean }) => {
+  // Fetch dashboard bootstrap (stats + tab essentials)
+  const fetchBootstrap = useCallback(async (options?: { force?: boolean }) => {
     if (!options?.force) {
       const cachedStats = readCachedStats();
       if (cachedStats) {
         setStats(cachedStats);
         setLoading(false);
-        return;
       }
     }
 
     try {
       const headers = await createAuthenticatedHeaders();
-      const response = await fetch(`/api/admin/dashboard`, { headers });
+      const response = await fetch(`/api/admin/dashboard/bootstrap`, { headers });
       if (!response.ok) throw new Error("Failed to load stats");
-      const data = (await response.json()) as AdminStats;
-      setStats(data);
-      writeCachedStats(data);
+      const data = (await response.json()) as DashboardBootstrapPayload;
+
+      if (data.stats) {
+        setStats(data.stats);
+        writeCachedStats(data.stats);
+      }
+
+      const bootstrapSkills = (data.tabEssentials?.skills ?? []).map((item) => ({
+        ...item,
+        id: item.skill_id,
+      }));
+
+      if (bootstrapSkills.length > 0) {
+        setEntities((prev) => ({
+          ...prev,
+          skills: {
+            ...prev.skills,
+            list: bootstrapSkills,
+            loading: false,
+          },
+        }));
+        writeCachedEntity("skills", bootstrapSkills);
+      }
+
+      if (data.tabEssentials?.evaluationFilters) {
+        setEvaluationFilterBootstrap(data.tabEssentials.evaluationFilters);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
     }
-  }, [readCachedStats, writeCachedStats]);
+  }, [readCachedStats, writeCachedStats, writeCachedEntity]);
 
   const refreshStats = useCallback(() => {
-    void fetchStats({ force: true });
-  }, [fetchStats]);
+    void fetchBootstrap({ force: true });
+  }, [fetchBootstrap]);
 
   // Load user info and dashboard statistics on mount
   useEffect(() => {
@@ -702,9 +743,9 @@ export default function AdminDashboard() {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
       } catch { }
-      void fetchStats();
+      void fetchBootstrap();
     })();
-  }, [fetchStats]);
+  }, [fetchBootstrap]);
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -843,7 +884,7 @@ export default function AdminDashboard() {
     if (typeof window === "undefined") return;
 
     let cancelled = false;
-    let timeoutId: number | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let idleId: number | null = null;
 
     const preloaders = [
@@ -870,11 +911,11 @@ export default function AdminDashboard() {
       if ("requestIdleCallback" in window) {
         idleId = window.requestIdleCallback(runChunk, { timeout: 1200 });
       } else {
-        timeoutId = window.setTimeout(() => runChunk(), 120);
+        timeoutId = globalThis.setTimeout(() => runChunk(), 120);
       }
     };
 
-    timeoutId = window.setTimeout(() => {
+    timeoutId = globalThis.setTimeout(() => {
       if ("requestIdleCallback" in window) {
         idleId = window.requestIdleCallback(runChunk, { timeout: 1200 });
       } else {
@@ -1340,7 +1381,7 @@ export default function AdminDashboard() {
 
           {visitedTabs.has("evaluations") && (
             <div className={`w-full min-h-[60vh] ${activeTab === "evaluations" ? "" : "hidden"}`}>
-            <MemoAdminInstructorEvaluations />
+            <MemoAdminInstructorEvaluations initialFilters={evaluationFilterBootstrap ?? undefined} />
             </div>
           )}
 

@@ -5,6 +5,7 @@ import {
 } from "@/lib/serverAuth";
 import { normalizeRole } from "@/lib/authRoles";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { getCachedOrRevalidate } from "@/lib/serverRouteCache";
 
 interface DashboardClassPayload {
   id: string;
@@ -61,6 +62,24 @@ const INSTRUCTOR_ROUTE_ROLE_SET = new Set([
   "superadmin",
 ]);
 const PAGE_SIZE = 10;
+const CACHE_MAX_AGE_MS = 20 * 1000;
+const CACHE_STALE_REVALIDATE_MS = 2 * 60 * 1000;
+
+async function timed<T>(label: string, operation: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    const durationMs = Date.now() - startedAt;
+    console.info(`[all-swimmers] ${label} took ${durationMs}ms`);
+  }
+}
+
+function withCacheHeaders(response: NextResponse, cacheStatus: string) {
+  response.headers.set("Cache-Control", "private, max-age=20, stale-while-revalidate=120");
+  response.headers.set("X-Cache-Status", cacheStatus);
+  return response;
+}
 
 function parsePage(request: NextRequest): number {
   const rawPage = Number(request.nextUrl.searchParams.get("page") ?? "1");
@@ -232,95 +251,98 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let pagination = buildPagination(page, PAGE_SIZE, 0);
-    let members: Array<{ member_id: string; first_name: string | null; last_name: string | null }> = [];
+    const buildPayload = async (): Promise<DashboardPayload> => {
+      let pagination = buildPagination(page, PAGE_SIZE, 0);
+      let members: Array<{ member_id: string; first_name: string | null; last_name: string | null }> = [];
 
-    if (fetchAll) {
-      let allMembersQuery = supabaseAdmin
-        .from("member")
-        .select("member_id, first_name, last_name")
-        .eq("organization_id", organizationId)
-        .order("first_name", { ascending: true })
-        .order("last_name", { ascending: true });
+      if (fetchAll) {
+        let allMembersQuery = supabaseAdmin
+          .from("member")
+          .select("member_id, first_name, last_name")
+          .eq("organization_id", organizationId)
+          .order("first_name", { ascending: true })
+          .order("last_name", { ascending: true });
 
-      if (searchQuery) {
-        allMembersQuery = allMembersQuery.or(
-          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+        if (searchQuery) {
+          allMembersQuery = allMembersQuery.or(
+            `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+          );
+        }
+
+        const allMembersResult = await timed<any>(
+          "load-members-all",
+          async () => await allMembersQuery,
         );
+        const { data: allMembers, error: allMembersError } = allMembersResult;
+        if (allMembersError) {
+          console.error("Members error:", allMembersError);
+          throw new Error(`Failed to load members: ${allMembersError.message}`);
+        }
+
+        members = allMembers ?? [];
+        pagination = buildPagination(1, PAGE_SIZE, members.length);
+      } else {
+        let memberCountQuery = supabaseAdmin
+          .from("member")
+          .select("member_id", { count: "exact", head: true })
+          .eq("organization_id", organizationId);
+
+        if (searchQuery) {
+          memberCountQuery = memberCountQuery.or(
+            `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+          );
+        }
+
+        const memberCountResult = await timed<any>(
+          "count-members",
+          async () => await memberCountQuery,
+        );
+        const { count: totalCount, error: memberCountError } = memberCountResult;
+        if (memberCountError) {
+          console.error("Member count error:", memberCountError);
+          throw new Error(`Failed to count members: ${memberCountError.message}`);
+        }
+
+        pagination = buildPagination(page, PAGE_SIZE, totalCount ?? 0);
+        const from = (pagination.page - 1) * pagination.pageSize;
+        const to = from + pagination.pageSize - 1;
+
+        let pagedMembersQuery = supabaseAdmin
+          .from("member")
+          .select("member_id, first_name, last_name")
+          .eq("organization_id", organizationId)
+          .order("first_name", { ascending: true })
+          .order("last_name", { ascending: true })
+          .range(from, to);
+
+        if (searchQuery) {
+          pagedMembersQuery = pagedMembersQuery.or(
+            `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
+          );
+        }
+
+        const pagedMembersResult = await timed<any>(
+          "load-members-page",
+          async () => await pagedMembersQuery,
+        );
+        const { data: pagedMembers, error: membersError } = pagedMembersResult;
+
+        if (membersError) {
+          console.error("Members error:", membersError);
+          throw new Error(`Failed to load members: ${membersError.message}`);
+        }
+
+        members = pagedMembers ?? [];
       }
 
-      const { data: allMembers, error: allMembersError } = await allMembersQuery;
-      if (allMembersError) {
-        console.error("Members error:", allMembersError);
-        return NextResponse.json(
-          { error: `Failed to load members: ${allMembersError.message}` },
-          { status: 500 },
-        );
+      if (!members || members.length === 0) {
+        return {
+          userName,
+          organizationName: organization?.name || "SAC Skill Tracker",
+          swimmers: [],
+          pagination,
+        } as DashboardPayload;
       }
-
-      members = allMembers ?? [];
-      pagination = buildPagination(1, PAGE_SIZE, members.length);
-    } else {
-      let memberCountQuery = supabaseAdmin
-        .from("member")
-        .select("member_id", { count: "exact", head: true })
-        .eq("organization_id", organizationId);
-
-      if (searchQuery) {
-        memberCountQuery = memberCountQuery.or(
-          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
-        );
-      }
-
-      const { count: totalCount, error: memberCountError } =
-        await memberCountQuery;
-      if (memberCountError) {
-        console.error("Member count error:", memberCountError);
-        return NextResponse.json(
-          { error: `Failed to count members: ${memberCountError.message}` },
-          { status: 500 },
-        );
-      }
-
-      pagination = buildPagination(page, PAGE_SIZE, totalCount ?? 0);
-      const from = (pagination.page - 1) * pagination.pageSize;
-      const to = from + pagination.pageSize - 1;
-
-      let pagedMembersQuery = supabaseAdmin
-        .from("member")
-        .select("member_id, first_name, last_name")
-        .eq("organization_id", organizationId)
-        .order("first_name", { ascending: true })
-        .order("last_name", { ascending: true })
-        .range(from, to);
-
-      if (searchQuery) {
-        pagedMembersQuery = pagedMembersQuery.or(
-          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`,
-        );
-      }
-
-      const { data: pagedMembers, error: membersError } = await pagedMembersQuery;
-
-      if (membersError) {
-        console.error("Members error:", membersError);
-        return NextResponse.json(
-          { error: `Failed to load members: ${membersError.message}` },
-          { status: 500 },
-        );
-      }
-
-      members = pagedMembers ?? [];
-    }
-
-    if (!members || members.length === 0) {
-      return NextResponse.json({
-        userName,
-        organizationName: organization?.name || "SAC Skill Tracker",
-        swimmers: [],
-        pagination,
-      } as DashboardPayload);
-    }
 
     const memberIds = members.map((m) => m.member_id);
 
@@ -361,11 +383,21 @@ export async function GET(request: NextRequest) {
         .select("skill_id", { count: "exact", head: true })
         .eq("organization_id", organizationId);
 
-    const loadMemberSkillsPromise =
-      memberIds.length > 0
+    const loadMemberSkillRowsPromise =
+      !lightweight && memberIds.length > 0
         ? batchQuery(
           "member_skill",
           "member_id, skill_id, progress, date_acquired",
+          memberIds,
+          "member_id",
+        )
+        : Promise.resolve([] as any[]);
+
+    const loadMemberSkillSummaryPromise =
+      lightweight && memberIds.length > 0
+        ? batchQuery(
+          "member_skill_summary_mv",
+          "member_id, mastered_skills, avg_progress_percent",
           memberIds,
           "member_id",
         )
@@ -376,8 +408,8 @@ export async function GET(request: NextRequest) {
         ? batchQuery("enrollment", "member_id, class_id", memberIds, "member_id")
         : Promise.resolve([] as any[]);
 
-    const loadEvaluationsPromise =
-      memberIds.length > 0
+    const loadEvaluationRowsPromise =
+      !lightweight && memberIds.length > 0
         ? batchQuery(
           "evaluation",
           "member_id, evaluation_date, instructor_person_id",
@@ -386,20 +418,41 @@ export async function GET(request: NextRequest) {
         )
         : Promise.resolve([] as any[]);
 
+    const loadEvaluationSummaryPromise =
+      lightweight && memberIds.length > 0
+        ? batchQuery(
+          "member_evaluation_summary_mv",
+          "member_id, evaluation_count, last_evaluation_date, instructor_person_ids",
+          memberIds,
+          "member_id",
+        )
+        : Promise.resolve([] as any[]);
+
     let orgSkills: Array<{ skill_id: string; name: string }> = [];
     let totalOrgSkills = 0;
     let memberSkillRows: any[] = [];
+    let memberSkillSummaryRows: any[] = [];
     let enrollments: any[] = [];
-    let evaluations: any[] = [];
+    let evaluationRows: any[] = [];
+    let evaluationSummaryRows: any[] = [];
 
     try {
-      const [orgSkillsResult, loadedMemberSkills, loadedEnrollments, loadedEvaluations] =
-        await Promise.all([
+      const [
+        orgSkillsResult,
+        loadedMemberSkills,
+        loadedMemberSkillSummaries,
+        loadedEnrollments,
+        loadedEvaluations,
+        loadedEvaluationSummaries,
+      ] =
+        await timed("parallel-core-data", () => Promise.all([
           loadOrgSkillsPromise,
-          loadMemberSkillsPromise,
+          loadMemberSkillRowsPromise,
+          loadMemberSkillSummaryPromise,
           loadEnrollmentsPromise,
-          loadEvaluationsPromise,
-        ]);
+          loadEvaluationRowsPromise,
+          loadEvaluationSummaryPromise,
+        ]));
 
       if (!lightweight) {
         const skillRows = (orgSkillsResult as { data: Array<{ skill_id: string; name: string }> | null; error: any }).data;
@@ -407,10 +460,7 @@ export async function GET(request: NextRequest) {
 
         if (orgSkillsError) {
           console.error("Org skills error:", orgSkillsError);
-          return NextResponse.json(
-            { error: `Failed to load skills: ${orgSkillsError.message}` },
-            { status: 500 },
-          );
+          throw new Error(`Failed to load skills: ${orgSkillsError.message}`);
         }
 
         orgSkills = skillRows ?? [];
@@ -421,30 +471,26 @@ export async function GET(request: NextRequest) {
 
         if (skillCountError) {
           console.error("Org skill count error:", skillCountError);
-          return NextResponse.json(
-            { error: `Failed to count skills: ${skillCountError.message}` },
-            { status: 500 },
-          );
+          throw new Error(`Failed to count skills: ${skillCountError.message}`);
         }
 
         totalOrgSkills = skillCount ?? 0;
       }
 
       memberSkillRows = loadedMemberSkills;
+      memberSkillSummaryRows = loadedMemberSkillSummaries;
       enrollments = loadedEnrollments;
-      evaluations = loadedEvaluations;
+      evaluationRows = loadedEvaluations;
+      evaluationSummaryRows = loadedEvaluationSummaries;
     } catch (error) {
       console.error("Parallel instructor dashboard query error:", error);
-      return NextResponse.json(
-        {
-          error: `Failed to load evaluation data: ${error instanceof Error ? error.message : String(error)}`,
-        },
-        { status: 500 },
+      throw new Error(
+        `Failed to load evaluation data: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
     console.log(
-      `Retrieved ${memberSkillRows.length} member skill records and ${enrollments.length} enrollment records`,
+      `Retrieved ${memberSkillRows.length} member skill rows, ${memberSkillSummaryRows.length} skill summary rows, ${evaluationRows.length} evaluation rows, and ${evaluationSummaryRows.length} evaluation summary rows`,
     );
 
     const classIds = Array.from(
@@ -455,19 +501,16 @@ export async function GET(request: NextRequest) {
     let classes: any[] = [];
     if (classIds.length > 0) {
       try {
-        classes = await batchQuery(
+        classes = await timed("load-classes", () => batchQuery(
           "class_entity",
           "class_id, name, schedule, start_date, end_date",
           classIds,
           "class_id",
-        );
+        ));
       } catch (error) {
         console.error("Classes error:", error);
-        return NextResponse.json(
-          {
-            error: `Failed to load classes: ${error instanceof Error ? error.message : String(error)}`,
-          },
-          { status: 500 },
+        throw new Error(
+          `Failed to load classes: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -485,8 +528,8 @@ export async function GET(request: NextRequest) {
 
     const instructorIds = Array.from(
       new Set(
-        (evaluations ?? [])
-          .map((evaluation) => evaluation.instructor_person_id)
+        (!lightweight ? (evaluationRows ?? []) : (evaluationSummaryRows ?? []).flatMap((evaluation) => evaluation.instructor_person_ids ?? []))
+          .map((instructorPersonId) => instructorPersonId)
           .filter(Boolean),
       ),
     );
@@ -494,12 +537,12 @@ export async function GET(request: NextRequest) {
     const instructorNameById = new Map<string, string>();
     if (instructorIds.length > 0) {
       try {
-        const instructors = await batchQuery(
+        const instructors = await timed("load-instructor-names", () => batchQuery(
           "person",
           "person_id, first_name, last_name",
           instructorIds,
           "person_id",
-        );
+        ));
 
         instructors.forEach((row: any) => {
           instructorNameById.set(
@@ -509,11 +552,8 @@ export async function GET(request: NextRequest) {
         });
       } catch (error) {
         console.error("Instructor names error:", error);
-        return NextResponse.json(
-          {
-            error: `Failed to load instructor names: ${error instanceof Error ? error.message : String(error)}`,
-          },
-          { status: 500 },
+        throw new Error(
+          `Failed to load instructor names: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -523,35 +563,49 @@ export async function GET(request: NextRequest) {
       { evaluationCount: number; lastEvaluationDate?: string; instructors: string[] }
     >();
 
-    (evaluations ?? []).forEach((row) => {
-      const existing =
-        evaluationSummaryByMemberId.get(row.member_id) ??
-        {
-          evaluationCount: 0,
-          lastEvaluationDate: undefined,
-          instructors: [],
-        };
+    if (!lightweight) {
+      (evaluationRows ?? []).forEach((row) => {
+        const existing =
+          evaluationSummaryByMemberId.get(row.member_id) ??
+          {
+            evaluationCount: 0,
+            lastEvaluationDate: undefined,
+            instructors: [],
+          };
 
-      existing.evaluationCount += 1;
+        existing.evaluationCount += 1;
 
-      if (row.evaluation_date) {
-        const currentLastDate = existing.lastEvaluationDate
-          ? new Date(existing.lastEvaluationDate)
-          : null;
-        const incomingDate = new Date(row.evaluation_date);
+        if (row.evaluation_date) {
+          const currentLastDate = existing.lastEvaluationDate
+            ? new Date(existing.lastEvaluationDate)
+            : null;
+          const incomingDate = new Date(row.evaluation_date);
 
-        if (!currentLastDate || incomingDate > currentLastDate) {
-          existing.lastEvaluationDate = row.evaluation_date;
+          if (!currentLastDate || incomingDate > currentLastDate) {
+            existing.lastEvaluationDate = row.evaluation_date;
+          }
         }
-      }
 
-      const instructorName = instructorNameById.get(row.instructor_person_id);
-      if (instructorName && !existing.instructors.includes(instructorName)) {
-        existing.instructors.push(instructorName);
-      }
+        const instructorName = instructorNameById.get(row.instructor_person_id);
+        if (instructorName && !existing.instructors.includes(instructorName)) {
+          existing.instructors.push(instructorName);
+        }
 
-      evaluationSummaryByMemberId.set(row.member_id, existing);
-    });
+        evaluationSummaryByMemberId.set(row.member_id, existing);
+      });
+    } else {
+      (evaluationSummaryRows ?? []).forEach((row) => {
+        const instructorNames = ((row.instructor_person_ids ?? []) as string[])
+          .map((personId) => instructorNameById.get(personId))
+          .filter((name): name is string => Boolean(name));
+
+        evaluationSummaryByMemberId.set(row.member_id, {
+          evaluationCount: Number(row.evaluation_count ?? 0),
+          lastEvaluationDate: row.last_evaluation_date ?? undefined,
+          instructors: instructorNames,
+        });
+      });
+    }
 
     const classesByMemberId = new Map<string, DashboardClassPayload[]>();
     (enrollments ?? []).forEach((row) => {
@@ -583,20 +637,30 @@ export async function GET(request: NextRequest) {
       { masteredSkills: number; totalProgressPercent: number }
     >();
 
-    (memberSkillRows ?? []).forEach((row) => {
-      const existing = skillSummaryByMemberId.get(row.member_id) ?? {
-        masteredSkills: 0,
-        totalProgressPercent: 0,
-      };
+    if (!lightweight) {
+      (memberSkillRows ?? []).forEach((row) => {
+        const existing = skillSummaryByMemberId.get(row.member_id) ?? {
+          masteredSkills: 0,
+          totalProgressPercent: 0,
+        };
 
-      const progress = Number(row.progress ?? 0);
-      existing.totalProgressPercent += Number.isFinite(progress) ? progress : 0;
-      if (progress === 100 || Boolean(row.date_acquired)) {
-        existing.masteredSkills += 1;
-      }
+        const progress = Number(row.progress ?? 0);
+        existing.totalProgressPercent += Number.isFinite(progress) ? progress : 0;
+        if (progress === 100 || Boolean(row.date_acquired)) {
+          existing.masteredSkills += 1;
+        }
 
-      skillSummaryByMemberId.set(row.member_id, existing);
-    });
+        skillSummaryByMemberId.set(row.member_id, existing);
+      });
+    } else {
+      (memberSkillSummaryRows ?? []).forEach((row) => {
+        const avgProgress = Number(row.avg_progress_percent ?? 0);
+        skillSummaryByMemberId.set(row.member_id, {
+          masteredSkills: Number(row.mastered_skills ?? 0),
+          totalProgressPercent: totalOrgSkills > 0 ? avgProgress * totalOrgSkills : 0,
+        });
+      });
+    }
 
     const swimmers: DashboardSwimmerPayload[] = members.map((member) => {
       const memberSkillSummary = skillSummaryByMemberId.get(member.member_id) ?? {
@@ -650,13 +714,30 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const payload: DashboardPayload = {
+      const payload: DashboardPayload = {
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
       swimmers,
       pagination,
     };
 
+      return payload;
+    };
+
+    const cacheEligible = fetchAll && lightweight;
+    if (cacheEligible) {
+      const cacheKey = `instructor-all-swimmers:${organizationId}:q=${searchQuery.toLowerCase()}`;
+      const { value, cacheStatus } = await getCachedOrRevalidate({
+        key: cacheKey,
+        maxAgeMs: CACHE_MAX_AGE_MS,
+        staleWhileRevalidateMs: CACHE_STALE_REVALIDATE_MS,
+        loader: buildPayload,
+      });
+
+      return withCacheHeaders(NextResponse.json(value), cacheStatus);
+    }
+
+    const payload = await buildPayload();
     return NextResponse.json(payload);
   } catch (error) {
     const message =

@@ -39,6 +39,17 @@ interface DashboardSwimmer {
     };
 }
 
+interface InitialEvaluationFilters {
+    classes?: Array<{ value: string; label: string }>;
+    instructors?: Array<{ value: string; label: string }>;
+    groups?: Array<{ value: string; label: string; classId?: string }>;
+    memberIdsByGroupId?: Record<string, string[]>;
+}
+
+interface AdminInstructorEvaluationsProps {
+    initialFilters?: InitialEvaluationFilters;
+}
+
 interface SwimmerDetailPayload {
     classes: DashboardClass[];
     skills: DashboardSkill[];
@@ -82,6 +93,8 @@ interface AssignmentFiltersPayload {
 }
 
 const PAGE_SIZE = 10;
+const VIRTUAL_ROW_HEIGHT = 184;
+const VIRTUAL_OVERSCAN = 5;
 const PERSISTED_STATE_KEY = "admin-instructor-evaluations-state";
 const PERSISTED_DATA_KEY = "admin-instructor-evaluations-data";
 const PERSISTED_STATE_TTL_MS = 15 * 60 * 1000;
@@ -192,6 +205,26 @@ function getInitials(name: string) {
         .toUpperCase();
 }
 
+function formatDateForSummary(date: Date): string {
+    return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+    });
+}
+
+function progressToPercent(progress: 0 | 1 | 2 | 3 | 4) {
+    const mapping: Record<number, number> = {
+        0: 0,
+        1: 25,
+        2: 50,
+        3: 75,
+        4: 100,
+    };
+
+    return mapping[progress] ?? 0;
+}
+
 function buildCacheKey(page: number, search: string) {
     return search.toLowerCase();
 }
@@ -200,7 +233,9 @@ function buildSearchCacheKey(search: string) {
     return search.toLowerCase();
 }
 
-export default function AdminInstructorEvaluations() {
+export default function AdminInstructorEvaluations({
+    initialFilters,
+}: AdminInstructorEvaluationsProps) {
     const router = useRouter();
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
@@ -226,10 +261,26 @@ export default function AdminInstructorEvaluations() {
     const [detailBySwimmerId, setDetailBySwimmerId] = useState<
         Record<string, { classes: DashboardClass[]; skills: DashboardSkill[]; loading: boolean; error?: string }>
     >({});
-    const [fallbackClassOptions, setFallbackClassOptions] = useState<Array<{ value: string; label: string }>>([]);
-    const [fallbackInstructorOptions, setFallbackInstructorOptions] = useState<Array<{ value: string; label: string }>>([]);
-    const [fallbackGroupOptions, setFallbackGroupOptions] = useState<Array<{ value: string; label: string }>>([]);
-    const [memberIdsByGroupId, setMemberIdsByGroupId] = useState<Record<string, Set<string>>>({});
+    const [fallbackClassOptions, setFallbackClassOptions] = useState<Array<{ value: string; label: string }>>(() =>
+        initialFilters?.classes ?? [],
+    );
+    const [fallbackInstructorOptions, setFallbackInstructorOptions] = useState<Array<{ value: string; label: string }>>(() =>
+        initialFilters?.instructors ?? [],
+    );
+    const [fallbackGroupOptions, setFallbackGroupOptions] = useState<Array<{ value: string; label: string }>>(() =>
+        (initialFilters?.groups ?? []).map((group) => ({
+            value: group.value,
+            label: group.label,
+        })),
+    );
+    const [memberIdsByGroupId, setMemberIdsByGroupId] = useState<Record<string, Set<string>>>(() =>
+        Object.fromEntries(
+            Object.entries(initialFilters?.memberIdsByGroupId ?? {}).map(([groupId, memberIds]) => [
+                groupId,
+                new Set(memberIds),
+            ]),
+        ) as Record<string, Set<string>>,
+    );
     const [hasRestoredState, setHasRestoredState] = useState(false);
     const cacheRef = useRef<Map<string, { swimmers: DashboardSwimmer[]; pagination: PaginationState }>>(new Map());
     const allSearchCacheRef = useRef<Map<string, DashboardSwimmer[]>>(new Map());
@@ -240,6 +291,40 @@ export default function AdminInstructorEvaluations() {
     const skipInitialPersistRef = useRef(true);
     const pendingRestoredScrollYRef = useRef<number | null>(null);
     const suppressAutoFocusRef = useRef(false);
+    const virtualListContainerRef = useRef<HTMLDivElement | null>(null);
+    const [virtualScrollTop, setVirtualScrollTop] = useState(0);
+    const [virtualContainerHeight, setVirtualContainerHeight] = useState(720);
+
+    const syncVirtualContainerHeight = () => {
+        const element = virtualListContainerRef.current;
+        if (!element) return;
+
+        setVirtualContainerHeight(element.clientHeight || 720);
+    };
+
+    useEffect(() => {
+        if (!initialFilters) return;
+
+        setFallbackClassOptions((prev) => prev.length > 0 ? prev : (initialFilters.classes ?? []));
+        setFallbackInstructorOptions((prev) => prev.length > 0 ? prev : (initialFilters.instructors ?? []));
+        setFallbackGroupOptions((prev) => {
+            if (prev.length > 0) return prev;
+            return (initialFilters.groups ?? []).map((group) => ({
+                value: group.value,
+                label: group.label,
+            }));
+        });
+        setMemberIdsByGroupId((prev) => {
+            if (Object.keys(prev).length > 0) return prev;
+
+            return Object.fromEntries(
+                Object.entries(initialFilters.memberIdsByGroupId ?? {}).map(([groupId, memberIds]) => [
+                    groupId,
+                    new Set(memberIds),
+                ]),
+            ) as Record<string, Set<string>>;
+        });
+    }, [initialFilters]);
 
     function persistDataCache(searchKey: string) {
         if (typeof window === "undefined") return;
@@ -651,6 +736,31 @@ export default function AdminInstructorEvaluations() {
                     error: undefined,
                 },
             }));
+
+            setSwimmers((prev) => prev.map((swimmer) => {
+                if (swimmer.id !== swimmerId) return swimmer;
+
+                const resolvedSkills = payload.skills ?? [];
+                const masteredSkills = resolvedSkills.filter((skill) => skill.mastered).length;
+                const averageProficiency = resolvedSkills.length > 0
+                    ? Math.round(
+                        resolvedSkills.reduce(
+                            (total, skill) => total + progressToPercent(skill.progress),
+                            0,
+                        ) / resolvedSkills.length,
+                    )
+                    : 0;
+
+                return {
+                    ...swimmer,
+                    classes: payload.classes ?? swimmer.classes,
+                    skillSummary: {
+                        totalSkills: resolvedSkills.length,
+                        masteredSkills,
+                        averageProficiency,
+                    },
+                };
+            }));
         } catch (loadError) {
             const message =
                 loadError instanceof Error
@@ -676,6 +786,23 @@ export default function AdminInstructorEvaluations() {
         if (!willOpen) return;
 
         await loadSwimmerDetail(swimmerId);
+    };
+
+    const applyOptimisticEvaluationPatch = (swimmerId: string) => {
+        const now = formatDateForSummary(new Date());
+
+        setSwimmers((prev) => prev.map((swimmer) => {
+            if (swimmer.id !== swimmerId) return swimmer;
+
+            return {
+                ...swimmer,
+                evaluationSummary: {
+                    ...swimmer.evaluationSummary,
+                    evaluationCount: (swimmer.evaluationSummary.evaluationCount ?? 0) + 1,
+                    lastEvaluationDate: now,
+                },
+            };
+        }));
     };
 
     const isPastClass = (classItem: DashboardClass) => {
@@ -880,6 +1007,39 @@ export default function AdminInstructorEvaluations() {
         const start = (safeCurrentPage - 1) * PAGE_SIZE;
         return displayedSwimmers.slice(start, start + PAGE_SIZE);
     }, [displayedSwimmers, safeCurrentPage]);
+    const shouldVirtualize = openSwimmerId === null && displayedSwimmers.length > 30;
+    const swimmersForRender = shouldVirtualize ? displayedSwimmers : pagedSwimmers;
+
+    const virtualWindow = useMemo(() => {
+        if (!shouldVirtualize) {
+            return {
+                startIndex: 0,
+                endIndex: swimmersForRender.length,
+                totalHeight: 0,
+            };
+        }
+
+        const estimatedVisibleCount = Math.ceil(virtualContainerHeight / VIRTUAL_ROW_HEIGHT);
+        const startIndex = Math.max(
+            0,
+            Math.floor(virtualScrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN,
+        );
+        const endIndex = Math.min(
+            swimmersForRender.length,
+            startIndex + estimatedVisibleCount + VIRTUAL_OVERSCAN * 2,
+        );
+
+        return {
+            startIndex,
+            endIndex,
+            totalHeight: swimmersForRender.length * VIRTUAL_ROW_HEIGHT,
+        };
+    }, [shouldVirtualize, swimmersForRender.length, virtualContainerHeight, virtualScrollTop]);
+
+    const virtualSlice = useMemo(
+        () => swimmersForRender.slice(virtualWindow.startIndex, virtualWindow.endIndex),
+        [swimmersForRender, virtualWindow.startIndex, virtualWindow.endIndex],
+    );
 
     useEffect(() => {
         if (currentPage > localTotalPages) {
@@ -897,6 +1057,25 @@ export default function AdminInstructorEvaluations() {
             hasPreviousPage: safeCurrentPage > 1,
         });
     }, [safeCurrentPage, totalFiltered, localTotalPages]);
+
+    useEffect(() => {
+        if (!shouldVirtualize) return;
+
+        syncVirtualContainerHeight();
+        if (typeof window === "undefined") return;
+
+        const onResize = () => syncVirtualContainerHeight();
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, [shouldVirtualize]);
+
+    useEffect(() => {
+        if (!shouldVirtualize) {
+            setVirtualScrollTop(0);
+        }
+    }, [shouldVirtualize]);
+
+    const swimmersToRender = shouldVirtualize ? virtualSlice : swimmersForRender;
 
     return (
         <div className="w-full min-h-[60vh] space-y-4">
@@ -1029,15 +1208,38 @@ export default function AdminInstructorEvaluations() {
                     </div>
                 )}
 
-                <div className="space-y-4">
-                    {isLoading && pagedSwimmers.length === 0 && (
+                <div
+                    ref={virtualListContainerRef}
+                    onScroll={shouldVirtualize
+                        ? (event) => setVirtualScrollTop(event.currentTarget.scrollTop)
+                        : undefined}
+                    className={shouldVirtualize ? "max-h-[70vh] overflow-y-auto" : ""}
+                >
+                    {isLoading && swimmersForRender.length === 0 && (
                         <div className="space-y-3 animate-pulse">
                             <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
                             <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
                             <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
                         </div>
                     )}
-                    {pagedSwimmers.map((swimmer) => {
+
+                    {shouldVirtualize && (
+                        <p className="mb-3 text-xs text-gray-500">
+                            Virtualized view enabled for {displayedSwimmers.length} swimmers.
+                        </p>
+                    )}
+
+                    <div
+                        className="space-y-4"
+                        style={shouldVirtualize
+                            ? {
+                                position: "relative",
+                                height: `${virtualWindow.totalHeight}px`,
+                                minHeight: "100%",
+                            }
+                            : undefined}
+                    >
+                    {swimmersToRender.map((swimmer, renderedIndex) => {
                         const mastered = swimmer.skillSummary?.masteredSkills ?? swimmer.skills.filter((skill) => skill.mastered).length;
                         const totalSkills = swimmer.skillSummary?.totalSkills ?? swimmer.skills.length;
                         const avgProficiency = swimmer.skillSummary?.averageProficiency ?? calculateAverageProficiency(swimmer.skills);
@@ -1045,11 +1247,22 @@ export default function AdminInstructorEvaluations() {
                         const activeClasses = swimmer.classes.filter((classItem) => !isPastClass(classItem));
                         const pastClasses = swimmer.classes.filter((classItem) => isPastClass(classItem));
                         const detail = detailBySwimmerId[swimmer.id];
+                        const absoluteIndex = shouldVirtualize
+                            ? virtualWindow.startIndex + renderedIndex
+                            : renderedIndex;
 
                         return (
                             <div
                                 key={swimmer.id}
                                 className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                                style={shouldVirtualize
+                                    ? {
+                                        position: "absolute",
+                                        left: 0,
+                                        right: 0,
+                                        top: `${absoluteIndex * VIRTUAL_ROW_HEIGHT}px`,
+                                    }
+                                    : undefined}
                             >
                                 <button
                                     ref={(element) => {
@@ -1148,9 +1361,7 @@ export default function AdminInstructorEvaluations() {
                                                 skills={detail.skills}
                                                 classes={detail.classes}
                                                 onSubmissionComplete={async () => {
-                                                    await loadData(currentPage, debouncedSearchQuery, {
-                                                        forceRefresh: true,
-                                                    });
+                                                    applyOptimisticEvaluationPatch(swimmer.id);
                                                     await loadSwimmerDetail(swimmer.id, true);
                                                 }}
                                             />
@@ -1162,9 +1373,10 @@ export default function AdminInstructorEvaluations() {
                             </div>
                         );
                     })}
+                    </div>
                 </div>
 
-                {!isLoading && !error && totalFiltered > PAGE_SIZE && (
+                {!isLoading && !error && !shouldVirtualize && totalFiltered > PAGE_SIZE && (
                     <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs text-gray-600 sm:text-sm">
                             Showing {(safeCurrentPage - 1) * PAGE_SIZE + 1}
@@ -1197,7 +1409,7 @@ export default function AdminInstructorEvaluations() {
                     </div>
                 )}
 
-                {!isLoading && !error && pagedSwimmers.length === 0 && (
+                {!isLoading && !error && swimmersForRender.length === 0 && (
                     <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
                         {emptyStateText}
                     </div>

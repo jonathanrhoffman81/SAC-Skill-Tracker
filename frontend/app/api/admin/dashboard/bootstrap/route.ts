@@ -1,23 +1,8 @@
-/**
- * Admin Dashboard API Route
- * Purpose: Fetch dashboard stats (members, instructors, classes, skills) for an organization
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { resolveAdminRequestContext } from "@/lib/adminQueries";
 import { loadAdminDashboardBootstrap } from "@/lib/adminDashboardBootstrap";
 import { getCachedOrRevalidate } from "@/lib/serverRouteCache";
-
-interface AdminDashboardStats {
-  totalMembers: number;
-  totalInstructors: number;
-  activeClasses: number;
-  skillLevels: number;
-  organizationName: string;
-  organizationId: string;
-  organizationLogoUrl?: string | null;
-}
 
 const CACHE_MAX_AGE_MS = 15 * 1000;
 const CACHE_STALE_REVALIDATE_MS = 2 * 60 * 1000;
@@ -37,48 +22,43 @@ export async function GET(request: NextRequest) {
       request.nextUrl.searchParams.get("email"),
     );
 
-    const cacheKey = `admin-dashboard-stats:${adminContext.organizationId}`;
+    const cacheKey = `admin-dashboard-bootstrap:${adminContext.organizationId}`;
+
     const { value, cacheStatus } = await getCachedOrRevalidate({
       key: cacheKey,
       maxAgeMs: CACHE_MAX_AGE_MS,
       staleWhileRevalidateMs: CACHE_STALE_REVALIDATE_MS,
-      loader: async () => {
-        const bootstrap = await loadAdminDashboardBootstrap(
-          supabase,
-          adminContext.organizationId,
-        );
-
-        const stats: AdminDashboardStats = {
-          ...bootstrap.stats,
-        };
-
-        return stats;
-      },
+      loader: async () =>
+        loadAdminDashboardBootstrap(supabase, adminContext.organizationId),
     });
 
     return withCacheHeaders(NextResponse.json(value), cacheStatus);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal server error";
-    console.error("Admin dashboard error:", error);
+    console.error("Admin dashboard bootstrap error:", error);
+
     if (message.startsWith("FORBIDDEN:")) {
       return NextResponse.json(
         { error: message.replace("FORBIDDEN:", "") },
         { status: 403 },
       );
     }
+
     if (message.startsWith("UNAUTHORIZED:")) {
       return NextResponse.json(
         { error: message.replace("UNAUTHORIZED:", "") },
         { status: 401 },
       );
     }
+
     if (
       message === "Missing admin email" ||
       message === "Failed to find organization"
     ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
+
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
