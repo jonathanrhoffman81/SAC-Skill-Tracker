@@ -55,7 +55,8 @@ as $$
   member_base as (
     select
       m.member_id,
-      trim(concat_ws(' ', m.first_name, m.last_name)) as name
+      trim(concat_ws(' ', m.first_name, m.last_name)) as name,
+      m.is_active
     from linked_members lm
     join member m on m.member_id = lm.member_id
   ),
@@ -129,9 +130,10 @@ as $$
           'id', mb.member_id,
           'name', mb.name,
           'nextClass', coalesce(mnc.next_class, 'No class enrollment'),
-          'classIds', coalesce(to_jsonb(mci.class_ids), '[]'::jsonb)
+          'classIds', coalesce(to_jsonb(mci.class_ids), '[]'::jsonb),
+          'isActive', mb.is_active
         )
-        order by mb.name asc
+        order by mb.is_active desc, mb.name asc
       ),
       '[]'::jsonb
     ) as swimmers

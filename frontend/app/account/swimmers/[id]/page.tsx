@@ -14,6 +14,7 @@ interface SwimmerDetail {
     age: number | null;
     enrollmentDate: string;
     organization: string;
+    isActive: boolean;
 }
 
 interface NoteItem {
@@ -48,6 +49,8 @@ interface ClassHistoryView {
     schedule: string;
     startDate?: string;
     endDate?: string;
+    startDateIso?: string;
+    endDateIso?: string;
     isCurrent: boolean;
     isGeneral: boolean;
     skills: ClassHistorySkill[];
@@ -112,6 +115,92 @@ function getClassWindowLabel(classHistory: ClassHistoryView | null) {
     if (classHistory.endDate) return `Through ${classHistory.endDate}`;
     if (classHistory.startDate) return `After ${classHistory.startDate}`;
     return classHistory.isGeneral ? "General history" : "Dates TBD";
+}
+
+function NoteCard({ note }: { note: NoteItem }) {
+    return (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span>{note.author}</span>
+                <span>{note.date}</span>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
+                {note.content}
+            </p>
+        </div>
+    );
+}
+
+function ClassNoteCard({ note }: { note: NoteItem }) {
+    return (
+        <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span>{note.author}</span>
+                <span>{note.date}</span>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
+                {note.content}
+            </p>
+        </div>
+    );
+}
+
+function getClassDropdownLabel(classHistory: ClassHistoryView) {
+    if (classHistory.isGeneral) return classHistory.name;
+    const window = getClassWindowLabel(classHistory);
+    const suffix = classHistory.isCurrent ? " · Current" : "";
+    return window ? `${classHistory.name} · ${window}${suffix}` : classHistory.name;
+}
+
+type ClassGroup = { label: string; items: ClassHistoryView[] };
+
+function groupClassHistories(
+    classHistories: ClassHistoryView[],
+    todayIso: string,
+): ClassGroup[] {
+    const active: ClassHistoryView[] = [];
+    const upcoming: ClassHistoryView[] = [];
+    const undated: ClassHistoryView[] = [];
+    const general: ClassHistoryView[] = [];
+    const pastByYear = new Map<string, ClassHistoryView[]>();
+
+    classHistories.forEach((ch) => {
+        if (ch.isGeneral) {
+            general.push(ch);
+            return;
+        }
+        if (ch.isCurrent) {
+            active.push(ch);
+            return;
+        }
+        if (ch.startDateIso && ch.startDateIso > todayIso) {
+            upcoming.push(ch);
+            return;
+        }
+        // Past or ended: group by year of end (fall back to start)
+        const yearSource = ch.endDateIso ?? ch.startDateIso;
+        if (!yearSource) {
+            undated.push(ch);
+            return;
+        }
+        const year = yearSource.slice(0, 4);
+        const bucket = pastByYear.get(year) ?? [];
+        bucket.push(ch);
+        pastByYear.set(year, bucket);
+    });
+
+    const groups: ClassGroup[] = [];
+    if (active.length) groups.push({ label: "Active", items: active });
+    if (upcoming.length) groups.push({ label: "Upcoming", items: upcoming });
+    // Past years, most recent year first
+    Array.from(pastByYear.keys())
+        .sort((a, b) => b.localeCompare(a))
+        .forEach((year) => {
+            groups.push({ label: year, items: pastByYear.get(year) ?? [] });
+        });
+    if (undated.length) groups.push({ label: "Undated", items: undated });
+    if (general.length) groups.push({ label: "General", items: general });
+    return groups;
 }
 
 export default function ParentSwimmerDetail() {
@@ -197,6 +286,7 @@ export default function ParentSwimmerDetail() {
                                     age: null,
                                     enrollmentDate: "",
                                     organization: "",
+                                    isActive: true,
                                 });
                                 setClassHistories([]);
                                 setSelectedClassHistoryId("");
@@ -255,6 +345,11 @@ export default function ParentSwimmerDetail() {
             null,
         [selectedClassHistoryId, classHistories],
     );
+
+    const classHistoryGroups = useMemo(() => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        return groupClassHistories(classHistories, todayIso);
+    }, [classHistories]);
 
     const masteredSkills = useMemo(() => {
         const map = new Map<
@@ -349,9 +444,16 @@ export default function ParentSwimmerDetail() {
                                 {getInitials(swimmer?.name ?? "Unknown")}
                             </div>
                             <div className="min-w-0">
-                                <h1 className="truncate text-lg font-semibold text-gray-900 sm:text-xl">
-                                    {swimmer?.name}
-                                </h1>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h1 className="truncate text-lg font-semibold text-gray-900 sm:text-xl">
+                                        {swimmer?.name}
+                                    </h1>
+                                    {swimmer && !swimmer.isActive && (
+                                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                                            Inactive
+                                        </span>
+                                    )}
+                                </div>
                                 <p className="text-xs text-gray-500">Parent View</p>
                             </div>
                         </div>
@@ -360,6 +462,18 @@ export default function ParentSwimmerDetail() {
             </header>
 
             <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
+                {swimmer && !swimmer.isActive && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <p className="text-sm font-semibold text-amber-800">
+                            This swimmer is inactive
+                        </p>
+                        <p className="mt-1 text-xs text-amber-700">
+                            {swimmer.name || "This swimmer"} is no longer active. Past class
+                            history, notes, and skill progress remain viewable below.
+                        </p>
+                    </div>
+                )}
+
                 <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <h3 className="text-sm font-semibold text-gray-900">
@@ -423,11 +537,14 @@ export default function ParentSwimmerDetail() {
                                 onChange={(e) => setSelectedClassHistoryId(e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             >
-                                {classHistories.map((classHistory) => (
-                                    <option key={classHistory.id} value={classHistory.id}>
-                                        {classHistory.name}
-                                        {classHistory.isCurrent ? " (Current)" : ""}
-                                    </option>
+                                {classHistoryGroups.map((group) => (
+                                    <optgroup key={group.label} label={group.label}>
+                                        {group.items.map((classHistory) => (
+                                            <option key={classHistory.id} value={classHistory.id}>
+                                                {getClassDropdownLabel(classHistory)}
+                                            </option>
+                                        ))}
+                                    </optgroup>
                                 ))}
                             </select>
                         </div>
@@ -546,17 +663,24 @@ export default function ParentSwimmerDetail() {
                                                     <span>
                                                         Progress history ({progressHistory.length})
                                                     </span>
-                                                    <span className="text-[11px] font-medium text-blue-600 group-open:hidden">
-                                                        Show
-                                                    </span>
-                                                    <span className="hidden text-[11px] font-medium text-blue-600 group-open:inline">
-                                                        Hide
-                                                    </span>
+                                                    <svg
+                                                        className="h-4 w-4 flex-shrink-0 text-gray-500 transition-transform group-open:rotate-180"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        viewBox="0 0 24 24"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M19 9l-7 7-7-7"
+                                                        />
+                                                    </svg>
                                                 </summary>
 
                                                 <div className="mt-3 space-y-2">
                                                     {progressHistory.length > 0 ? (
-                                                        progressHistory.map((entry) => (
+                                                        [...progressHistory].reverse().map((entry) => (
                                                             <div
                                                                 key={entry.id}
                                                                 className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
@@ -594,25 +718,45 @@ export default function ParentSwimmerDetail() {
                                             Notes for this skill
                                         </p>
                                         <div className="mt-3 space-y-3">
-                                            {skillNotes.length > 0 ? (
-                                                skillNotes.map((entry) => (
-                                                    <div
-                                                        key={entry.id}
-                                                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3"
-                                                    >
-                                                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                                            <span>{entry.author}</span>
-                                                            <span>{entry.date}</span>
-                                                        </div>
-                                                        <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
-                                                            {entry.content}
-                                                        </p>
-                                                    </div>
-                                                ))
-                                            ) : (
+                                            {skillNotes.length === 0 ? (
                                                 <p className="text-sm text-gray-500">
                                                     No notes for this skill in the selected class.
                                                 </p>
+                                            ) : (
+                                                <>
+                                                    <NoteCard note={skillNotes[0]} />
+                                                    {skillNotes.length > 1 && (
+                                                        <details className="group">
+                                                            <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                                                                <span className="group-open:hidden">
+                                                                    Show {skillNotes.length - 1} older note
+                                                                    {skillNotes.length - 1 === 1 ? "" : "s"}
+                                                                </span>
+                                                                <span className="hidden group-open:inline">
+                                                                    Hide older notes
+                                                                </span>
+                                                                <svg
+                                                                    className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                                                    fill="none"
+                                                                    stroke="currentColor"
+                                                                    viewBox="0 0 24 24"
+                                                                >
+                                                                    <path
+                                                                        strokeLinecap="round"
+                                                                        strokeLinejoin="round"
+                                                                        strokeWidth={2}
+                                                                        d="M19 9l-7 7-7-7"
+                                                                    />
+                                                                </svg>
+                                                            </summary>
+                                                            <div className="mt-3 space-y-3">
+                                                                {skillNotes.slice(1).map((entry) => (
+                                                                    <NoteCard key={entry.id} note={entry} />
+                                                                ))}
+                                                            </div>
+                                                        </details>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     </div>
@@ -638,25 +782,45 @@ export default function ParentSwimmerDetail() {
                         </p>
                     </div>
                     <div className="mt-4 space-y-3">
-                        {classNotes.length > 0 ? (
-                            classNotes.map((entry) => (
-                                <div
-                                    key={entry.id}
-                                    className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3"
-                                >
-                                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                        <span>{entry.author}</span>
-                                        <span>{entry.date}</span>
-                                    </div>
-                                    <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
-                                        {entry.content}
-                                    </p>
-                                </div>
-                            ))
-                        ) : (
+                        {classNotes.length === 0 ? (
                             <p className="text-sm text-gray-500">
                                 No general notes recorded for this class.
                             </p>
+                        ) : (
+                            <>
+                                <ClassNoteCard note={classNotes[0]} />
+                                {classNotes.length > 1 && (
+                                    <details className="group">
+                                        <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
+                                            <span className="group-open:hidden">
+                                                Show {classNotes.length - 1} older note
+                                                {classNotes.length - 1 === 1 ? "" : "s"}
+                                            </span>
+                                            <span className="hidden group-open:inline">
+                                                Hide older notes
+                                            </span>
+                                            <svg
+                                                className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M19 9l-7 7-7-7"
+                                                />
+                                            </svg>
+                                        </summary>
+                                        <div className="mt-3 space-y-3">
+                                            {classNotes.slice(1).map((entry) => (
+                                                <ClassNoteCard key={entry.id} note={entry} />
+                                            ))}
+                                        </div>
+                                    </details>
+                                )}
+                            </>
                         )}
                     </div>
                 </section>
