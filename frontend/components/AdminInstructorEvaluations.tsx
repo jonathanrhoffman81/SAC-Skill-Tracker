@@ -27,6 +27,7 @@ interface DashboardSwimmer {
     name: string;
     classes: DashboardClass[];
     skills: DashboardSkill[];
+    isActive?: boolean;
     evaluationSummary: {
         evaluationCount: number;
         lastEvaluationDate?: string;
@@ -37,6 +38,7 @@ interface DashboardSwimmer {
         masteredSkills: number;
         averageProficiency: number;
     };
+    isMySwimmer?: boolean;
 }
 
 interface InitialEvaluationFilters {
@@ -48,6 +50,10 @@ interface InitialEvaluationFilters {
 
 interface AdminInstructorEvaluationsProps {
     initialFilters?: InitialEvaluationFilters;
+    initialListView?: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers";
+    lockInitialListView?: boolean;
+    initialStatusFilter?: "all" | "active" | "inactive";
+    lockInitialStatusFilter?: boolean;
 }
 
 interface SwimmerDetailPayload {
@@ -72,6 +78,12 @@ interface DashboardPayload {
 }
 
 interface AssignmentFiltersPayload {
+    classes?: Array<{
+        value: string;
+        label: string;
+        startDate?: string;
+        endDate?: string;
+    }>;
     groups?: Array<{
         group_id: string;
         class_id: string;
@@ -79,7 +91,9 @@ interface AssignmentFiltersPayload {
         group_name?: string;
     }>;
     instructors?: Array<{
-        person_id: string;
+        person_id?: string;
+        value?: string;
+        label?: string;
         first_name?: string | null;
         last_name?: string | null;
         email?: string;
@@ -110,7 +124,8 @@ interface PersistedState {
     classFilter: string;
     instructorFilter: string;
     groupFilter: string;
-    listView: "overview" | "active-classes" | "past-classes" | "recent-evals";
+    statusFilter: "all" | "active" | "inactive";
+    listView: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers";
     currentPage: number;
 }
 
@@ -266,6 +281,10 @@ function buildSearchCacheKey(search: string) {
 
 export default function AdminInstructorEvaluations({
     initialFilters,
+    initialListView = "active-classes",
+    lockInitialListView = false,
+    initialStatusFilter = "all",
+    lockInitialStatusFilter = false,
 }: AdminInstructorEvaluationsProps) {
     const router = useRouter();
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
@@ -274,7 +293,8 @@ export default function AdminInstructorEvaluations({
     const [classFilter, setClassFilter] = useState("all");
     const [instructorFilter, setInstructorFilter] = useState("all");
     const [groupFilter, setGroupFilter] = useState("all");
-    const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals">("active-classes");
+    const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">(initialStatusFilter);
+    const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers">(initialListView);
     const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [pagination, setPagination] = useState<PaginationState>(
@@ -399,6 +419,7 @@ export default function AdminInstructorEvaluations({
                 classFilter,
                 instructorFilter,
                 groupFilter,
+                statusFilter,
                 listView,
                 currentPage,
             };
@@ -480,7 +501,13 @@ export default function AdminInstructorEvaluations({
     async function loadFilterOptionsFromAssignments() {
         try {
             const headers = await createAuthenticatedHeaders();
-            const response = await fetch("/api/admin/instructor-member-assignments", { headers });
+            // Try instructor endpoint first, fall back to admin endpoint
+            let response = await fetch("/api/instructor/filters", { headers });
+            
+            if (!response.ok && response.status === 404) {
+                response = await fetch("/api/admin/instructor-member-assignments", { headers });
+            }
+            
             const payload = (await response.json()) as AssignmentFiltersPayload & { error?: string };
 
             if (!response.ok) {
@@ -490,6 +517,11 @@ export default function AdminInstructorEvaluations({
             const classMap = new Map<string, string>();
             const groupMap = new Map<string, string>();
             const enrollmentMap: Record<string, Set<string>> = {};
+            (payload.classes ?? []).forEach((classOption) => {
+                if (!classOption.value) return;
+                classMap.set(classOption.value, classOption.label || "Unnamed class");
+            });
+
             (payload.groups ?? []).forEach((group) => {
                 if (!group.class_id) return;
                 if (!classMap.has(group.class_id)) {
@@ -518,7 +550,7 @@ export default function AdminInstructorEvaluations({
             const instructorList = (payload.instructors ?? [])
                 .map((instructor) => {
                     const fullName = `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim();
-                    const label = fullName || instructor.email || "Instructor";
+                    const label = fullName || instructor.label || instructor.email || "Instructor";
                     return label.trim();
                 })
                 .filter((label) => Boolean(label));
@@ -622,7 +654,8 @@ export default function AdminInstructorEvaluations({
             setClassFilter(restoredState.classFilter ?? "all");
             setInstructorFilter(restoredState.instructorFilter ?? "all");
             setGroupFilter(restoredState.groupFilter ?? "all");
-            setListView(restoredState.listView ?? "active-classes");
+            setStatusFilter(lockInitialStatusFilter ? initialStatusFilter : (restoredState.statusFilter ?? initialStatusFilter));
+            setListView(lockInitialListView ? initialListView : (restoredState.listView ?? initialListView));
             setCurrentPage(restoredState.currentPage || 1);
 
             if (typeof restoredState.scrollY === "number" && restoredState.scrollY > 0) {
@@ -868,6 +901,10 @@ export default function AdminInstructorEvaluations({
             return "No swimmers with evaluations found.";
         }
 
+        if (listView === "my-swimmers") {
+            return "No swimmers assigned to you found.";
+        }
+
         return "No swimmers found.";
     }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView]);
 
@@ -1003,6 +1040,18 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
+            if (listView === "my-swimmers" && !swimmer.isMySwimmer) {
+                return false;
+            }
+
+            if (statusFilter === "active" && swimmer.isActive === false) {
+                return false;
+            }
+
+            if (statusFilter === "inactive" && swimmer.isActive !== false) {
+                return false;
+            }
+
             if (classFilter !== "all") {
                 const hasSelectedClass = swimmer.classes.some((classItem) => classItem.id === classFilter);
                 if (!hasSelectedClass) return false;
@@ -1040,7 +1089,7 @@ export default function AdminInstructorEvaluations({
         });
 
         return sorted;
-    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, swimmers]);
+    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, statusFilter, swimmers]);
 
     const totalFiltered = displayedSwimmers.length;
     const localTotalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
@@ -1118,20 +1167,14 @@ export default function AdminInstructorEvaluations({
     }, [shouldVirtualize]);
 
     const swimmersToRender = shouldVirtualize ? virtualSlice : swimmersForRender;
+    const listViewTitle = listView === "my-swimmers" ? "My Swimmers" : "All Swimmers";
 
     return (
         <div className="w-full min-h-[60vh] space-y-4">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 sm:p-6">
-                <p className="text-sm font-semibold text-gray-900">Instructor Evaluations</p>
-                <p className="mt-2 text-sm text-gray-700">
-                    View and manage swimmer evaluations using the same table and scoring workflow as instructors.
-                </p>
-            </div>
-
             <div className="relative overflow-visible rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
                 <div className="mb-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
                     <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900">All Swimmers</p>
+                        <p className="text-sm font-semibold text-gray-900">{listViewTitle}</p>
                         {isLoading && (
                             <span className="inline-flex h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600" aria-label="Loading" />
                         )}
@@ -1156,12 +1199,13 @@ export default function AdminInstructorEvaluations({
                             <DropdownButton
                                 value={listView}
                                 onChange={(value) => {
-                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals");
+                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers");
                                     setCurrentPage(1);
                                 }}
                                 ui="app"
                                 options={[
                                     { value: "overview", label: "All swimmers" },
+                                    { value: "my-swimmers", label: "My swimmers" },
                                     { value: "active-classes", label: "Active classes" },
                                     { value: "past-classes", label: "Past classes" },
                                     { value: "recent-evals", label: "Recent evaluations" },
@@ -1209,6 +1253,24 @@ export default function AdminInstructorEvaluations({
                                 ui="app"
                                 options={groupFilterOptions}
                                 ariaLabel="Filter swimmers by group"
+                            />
+                        </div>
+
+                        <div className="space-y-1">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Status</p>
+                            <DropdownButton
+                                value={statusFilter}
+                                onChange={(value) => {
+                                    setStatusFilter(value as "all" | "active" | "inactive");
+                                    setCurrentPage(1);
+                                }}
+                                ui="app"
+                                options={[
+                                    { value: "all", label: "All statuses" },
+                                    { value: "active", label: "Active" },
+                                    { value: "inactive", label: "Inactive" },
+                                ]}
+                                ariaLabel="Filter swimmers by status"
                             />
                         </div>
                     </div>

@@ -28,6 +28,7 @@ interface DashboardSwimmerPayload {
   name: string;
   classes: DashboardClassPayload[];
   skills: DashboardSkillPayload[];
+  isActive?: boolean;
   skillSummary?: {
     totalSkills: number;
     masteredSkills: number;
@@ -38,6 +39,7 @@ interface DashboardSwimmerPayload {
     lastEvaluationDate?: string;
     instructors: string[];
   };
+  isMySwimmer?: boolean;
 }
 
 interface DashboardPayload {
@@ -322,14 +324,37 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Load members taught by this instructor
+    let mySwimmerIds = new Set<string>();
+    try {
+      const { data: groupInstructorRows } = await supabaseAdmin
+        .from("group_instructor")
+        .select("group_id")
+        .eq("instructor_person_id", person.person_id);
+
+      if (groupInstructorRows && groupInstructorRows.length > 0) {
+        const groupIds = groupInstructorRows.map((row: any) => row.group_id);
+        const { data: enrollmentRows } = await supabaseAdmin
+          .from("enrollment")
+          .select("member_id")
+          .in("group_id", groupIds);
+
+        if (enrollmentRows) {
+          mySwimmerIds = new Set(enrollmentRows.map((row: any) => row.member_id));
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to load instructor's swimmers:", error);
+    }
+
     const buildPayload = async (): Promise<DashboardPayload> => {
       let pagination = buildPagination(page, PAGE_SIZE, 0);
-      let members: Array<{ member_id: string; first_name: string | null; last_name: string | null }> = [];
+      let members: Array<{ member_id: string; first_name: string | null; last_name: string | null; is_active?: boolean | null }> = [];
 
       if (fetchAll) {
         let allMembersQuery = supabaseAdmin
           .from("member")
-          .select("member_id, first_name, last_name")
+          .select("member_id, first_name, last_name, is_active")
           .eq("organization_id", organizationId)
           .order("first_name", { ascending: true })
           .order("last_name", { ascending: true });
@@ -380,7 +405,7 @@ export async function GET(request: NextRequest) {
 
         let pagedMembersQuery = supabaseAdmin
           .from("member")
-          .select("member_id, first_name, last_name")
+          .select("member_id, first_name, last_name, is_active")
           .eq("organization_id", organizationId)
           .order("first_name", { ascending: true })
           .order("last_name", { ascending: true })
@@ -822,6 +847,7 @@ export async function GET(request: NextRequest) {
           masteredSkills: memberSkillSummary.masteredSkills,
           averageProficiency,
         },
+        isActive: member.is_active ?? true,
         evaluationSummary: {
           evaluationCount:
             evaluationSummaryByMemberId.get(member.member_id)?.evaluationCount ?? 0,
@@ -831,6 +857,7 @@ export async function GET(request: NextRequest) {
           instructors:
             evaluationSummaryByMemberId.get(member.member_id)?.instructors ?? [],
         },
+        isMySwimmer: mySwimmerIds.has(member.member_id),
       };
     });
 
