@@ -24,14 +24,15 @@ type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
 const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
 
-const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v4:";
-const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v4:";
+const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v5:";
+const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v5:";
 
 interface SwimmerCard {
   id: string;
   name: string;
   nextClass: string;
   classIds: string[];
+  isActive: boolean;
 }
 
 interface SkillItem {
@@ -57,7 +58,12 @@ interface SkillItem {
 interface DashboardPayload {
   userName: string;
   organizationName?: string;
-  swimmers: Array<Omit<SwimmerCard, "classIds"> & { classIds?: string[] }>;
+  swimmers: Array<
+    Omit<SwimmerCard, "classIds" | "isActive"> & {
+      classIds?: string[];
+      isActive?: boolean;
+    }
+  >;
   skillsBySwimmer: Record<string, SkillItem[]>;
   profilesBySwimmer?: Record<
     string,
@@ -97,6 +103,21 @@ interface DashboardPayload {
   >;
 }
 
+function SkillNoteCard({
+  note,
+}: {
+  note: { id: string; author: string; content: string; date: string };
+}) {
+  return (
+    <div className="rounded-md border border-gray-200 bg-gray-50 px-2 py-2">
+      <p className="text-[11px] text-gray-500">
+        {note.date} by {note.author}
+      </p>
+      <p className="mt-1 text-xs text-gray-700">{note.content}</p>
+    </div>
+  );
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -127,6 +148,7 @@ export default function AccountDashboard() {
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [openSwimmerIds, setOpenSwimmerIds] = useState<string[]>([]);
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [skillsBySwimmer, setSkillsBySwimmer] = useState<
     Record<string, SkillItem[]>
@@ -167,6 +189,8 @@ export default function AccountDashboard() {
         (payload.swimmers ?? []).map((swimmer) => ({
           ...swimmer,
           classIds: swimmer.classIds ?? [],
+          // Default missing isActive to true so pre-migration caches still render.
+          isActive: swimmer.isActive ?? true,
         })),
       );
       setSkillsBySwimmer(normalizeSkillsBySwimmer(payload.skillsBySwimmer));
@@ -247,19 +271,26 @@ export default function AccountDashboard() {
     return Array.from(deduped.values());
   }, [swimmers]);
 
-  useEffect(() => {
-    if (uniqueSwimmers.length === 0) {
-      setOpenSwimmerIds([]);
-      return;
-    }
+  const activeSwimmers = useMemo(
+    () => uniqueSwimmers.filter((s) => s.isActive),
+    [uniqueSwimmers],
+  );
+  const inactiveSwimmers = useMemo(
+    () => uniqueSwimmers.filter((s) => !s.isActive),
+    [uniqueSwimmers],
+  );
+  const visibleSwimmers = useMemo(
+    () => (showInactive ? uniqueSwimmers : activeSwimmers),
+    [showInactive, uniqueSwimmers, activeSwimmers],
+  );
 
-    setOpenSwimmerIds((current) => {
-      if (current.length > 0) {
-        return current;
-      }
-      return uniqueSwimmers.map((swimmer) => swimmer.id);
-    });
-  }, [uniqueSwimmers]);
+  useEffect(() => {
+    if (activeSwimmers.length === 0) {
+      setOpenSwimmerIds([]);
+    }
+    // Otherwise leave openSwimmerIds as-is — all swimmer cards start collapsed;
+    // parents expand the ones they want to view.
+  }, [activeSwimmers]);
 
   useEffect(() => {
     async function fetchLogo() {
@@ -421,14 +452,25 @@ export default function AccountDashboard() {
 
         {/* My Swimmers Section */}
         <section>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between gap-3">
             <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold">
               My Swimmers
             </span>
+            {inactiveSwimmers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowInactive((prev) => !prev)}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+              >
+                {showInactive
+                  ? `Hide ${inactiveSwimmers.length} inactive`
+                  : `Show ${inactiveSwimmers.length} inactive`}
+              </button>
+            )}
           </div>
 
           <div className="space-y-4">
-            {uniqueSwimmers.map((swimmer) => {
+            {visibleSwimmers.map((swimmer) => {
               const skills = skillsBySwimmer[swimmer.id] || [];
               const acquiredCount = skills.filter(
                 (s) => s.progress === 4,
@@ -439,7 +481,11 @@ export default function AccountDashboard() {
               return (
                 <div
                   key={swimmer.id}
-                  className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                  className={`overflow-hidden rounded-xl border bg-white shadow-sm ${
+                    swimmer.isActive
+                      ? "border-gray-200"
+                      : "border-gray-200 opacity-75"
+                  }`}
                 >
                   <button
                     className="w-full p-4 text-left transition hover:bg-gray-50 sm:p-6"
@@ -461,6 +507,11 @@ export default function AccountDashboard() {
                             <p className="break-words text-sm font-semibold text-gray-900">
                               {swimmer.name}
                             </p>
+                            {!swimmer.isActive && (
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                                Inactive
+                              </span>
+                            )}
                             <span
                               role="button"
                               tabIndex={0}
@@ -586,19 +637,38 @@ export default function AccountDashboard() {
 
                                 {skillNotes.length > 0 && (
                                   <div className="mt-2 space-y-2">
-                                    {skillNotes.map((note) => (
-                                      <div
-                                        key={note.id}
-                                        className="rounded-md border border-gray-200 bg-gray-50 px-2 py-2"
-                                      >
-                                        <p className="text-[11px] text-gray-500">
-                                          {note.date} by {note.author}
-                                        </p>
-                                        <p className="mt-1 text-xs text-gray-700">
-                                          {note.content}
-                                        </p>
-                                      </div>
-                                    ))}
+                                    <SkillNoteCard note={skillNotes[0]} />
+                                    {skillNotes.length > 1 && (
+                                      <details className="group">
+                                        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                                          <span className="group-open:hidden">
+                                            Show {skillNotes.length - 1} older note
+                                            {skillNotes.length - 1 === 1 ? "" : "s"}
+                                          </span>
+                                          <span className="hidden group-open:inline">
+                                            Hide older notes
+                                          </span>
+                                          <svg
+                                            className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                          >
+                                            <path
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              strokeWidth={2}
+                                              d="M19 9l-7 7-7-7"
+                                            />
+                                          </svg>
+                                        </summary>
+                                        <div className="mt-2 space-y-2">
+                                          {skillNotes.slice(1).map((note) => (
+                                            <SkillNoteCard key={note.id} note={note} />
+                                          ))}
+                                        </div>
+                                      </details>
+                                    )}
                                   </div>
                                 )}
                               </div>

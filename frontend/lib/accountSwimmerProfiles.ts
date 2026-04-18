@@ -32,6 +32,9 @@ export interface ClassHistoryPayload {
   schedule: string;
   startDate?: string;
   endDate?: string;
+  // Raw ISO yyyy-mm-dd strings, for sort/filter/grouping in the UI.
+  startDateIso?: string;
+  endDateIso?: string;
   isCurrent: boolean;
   isGeneral: boolean;
   skills: ClassHistorySkillItem[];
@@ -51,6 +54,7 @@ export interface SwimmerProfilePayload {
     age: number | null;
     enrollmentDate: string;
     organization: string;
+    isActive: boolean;
   };
   classHistories: ClassHistoryPayload[];
   defaultClassHistoryId: string;
@@ -109,6 +113,7 @@ interface MemberRow {
   last_name: string | null;
   date_of_birth: string | null;
   created_at: string;
+  is_active: boolean;
 }
 
 function formatDate(value?: string | null): string | undefined {
@@ -341,7 +346,7 @@ export async function buildParentSwimmerProfiles(
     supabaseAdmin
       .from("member")
       .select(
-        "member_id, organization_id, first_name, last_name, date_of_birth, created_at",
+        "member_id, organization_id, first_name, last_name, date_of_birth, created_at, is_active",
       )
       .in("member_id", allowedMemberIds),
     supabaseAdmin
@@ -575,30 +580,44 @@ export async function buildParentSwimmerProfiles(
     const memberEvaluations = evaluationsByMemberId.get(member.member_id) ?? [];
     const memberClasses = classesByMemberId.get(member.member_id) ?? [];
 
-    const sortedClasses = [...memberClasses].sort((a, b) => {
-      const aIsCurrent =
-        a.start_date &&
-        a.end_date &&
-        a.start_date <= todayIso &&
-        a.end_date >= todayIso
-          ? 1
-          : 0;
-      const bIsCurrent =
-        b.start_date &&
-        b.end_date &&
-        b.start_date <= todayIso &&
-        b.end_date >= todayIso
-          ? 1
-          : 0;
-
-      if (aIsCurrent !== bIsCurrent) {
-        return bIsCurrent - aIsCurrent;
+    // Bucket classes by lifecycle so parents can scan the dropdown top-to-bottom:
+    // 0 current → 1 upcoming → 2 past → 3 undated.
+    const classBucket = (row: ClassRow): number => {
+      if (!row.start_date && !row.end_date) return 3;
+      if (
+        row.start_date &&
+        row.end_date &&
+        row.start_date <= todayIso &&
+        row.end_date >= todayIso
+      ) {
+        return 0;
       }
+      if (row.start_date && row.start_date > todayIso) return 1;
+      if (row.end_date && row.end_date < todayIso) return 2;
+      // Partial date info (e.g. only start_date in the past with no end_date): treat as past.
+      return 2;
+    };
 
-      const aStart = a.start_date ?? "";
-      const bStart = b.start_date ?? "";
-      if (aStart !== bStart) {
-        return bStart.localeCompare(aStart);
+    const sortedClasses = [...memberClasses].sort((a, b) => {
+      const aBucket = classBucket(a);
+      const bBucket = classBucket(b);
+      if (aBucket !== bBucket) return aBucket - bBucket;
+
+      // Inside a bucket:
+      //   upcoming → soonest start first (asc)
+      //   past/current → most recent end first (desc)
+      //   undated → by name
+      if (aBucket === 1) {
+        const aStart = a.start_date ?? "";
+        const bStart = b.start_date ?? "";
+        if (aStart !== bStart) return aStart.localeCompare(bStart);
+      } else if (aBucket === 0 || aBucket === 2) {
+        const aEnd = a.end_date ?? "";
+        const bEnd = b.end_date ?? "";
+        if (aEnd !== bEnd) return bEnd.localeCompare(aEnd);
+        const aStart = a.start_date ?? "";
+        const bStart = b.start_date ?? "";
+        if (aStart !== bStart) return bStart.localeCompare(aStart);
       }
 
       return (a.name ?? "").localeCompare(b.name ?? "");
@@ -712,6 +731,8 @@ export async function buildParentSwimmerProfiles(
           schedule: formatClassSchedule(classRow),
           startDate: formatDate(classRow.start_date),
           endDate: formatDate(classRow.end_date),
+          startDateIso: classRow.start_date ?? undefined,
+          endDateIso: classRow.end_date ?? undefined,
           isCurrent: Boolean(
             classRow.start_date &&
               classRow.end_date &&
@@ -778,6 +799,7 @@ export async function buildParentSwimmerProfiles(
         age: calculateAge(member.date_of_birth),
         enrollmentDate: formatDate(member.created_at) ?? "",
         organization: organizationNameById.get(member.organization_id) ?? "",
+        isActive: member.is_active !== false,
       },
       classHistories,
       defaultClassHistoryId,
