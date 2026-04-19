@@ -7,6 +7,12 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseAdminClient();
     const sessionPerson = await getCurrentPersonFromRequest(request);
+    if (!sessionPerson) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
 
     const instructorPersonId = sessionPerson.personId;
 

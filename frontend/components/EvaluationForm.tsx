@@ -22,7 +22,29 @@ interface EvaluationFormProps {
   skills: SkillItem[];
   classes: ClassItem[];
   initialClassId?: string;
-  onSubmissionComplete?: () => void;
+  editingEvaluation?: {
+    evaluationId: string;
+    classId?: string;
+    isSkillNote: boolean;
+    skillId?: string;
+    feedback?: string;
+  };
+  onSubmissionComplete?: (result: {
+    mode: 'create' | 'edit';
+    classId?: string;
+    note?: string;
+    skillNotes: Array<{ skillId: string; skillName: string; note: string }>;
+    skillUpdates: Array<{ skillId: string; progress: SkillItem['progress'] }>;
+    savedAt: string;
+    createdEvaluations?: Array<{
+      evaluation_id: string;
+      class_id: string | null;
+      skill_id: string | null;
+      feedback: string | null;
+      evaluation_date: string;
+    }>;
+  }) => void;
+  closeDelayMs?: number;
 }
 
 const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
@@ -43,7 +65,9 @@ export default function EvaluationForm({
   skills,
   classes,
   initialClassId,
+  editingEvaluation,
   onSubmissionComplete,
+  closeDelayMs = 1200,
 }: EvaluationFormProps) {
   const [progressBySkillId, setProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
   const [initialProgressBySkillId, setInitialProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
@@ -63,6 +87,25 @@ export default function EvaluationForm({
     setInitialProgressBySkillId(nextProgress);
     setSkillNotesBySkillId({});
   }, [skills]);
+
+  useEffect(() => {
+    if (!editingEvaluation) {
+      setNote('');
+      setSkillNotesBySkillId({});
+      return;
+    }
+
+    if (editingEvaluation.isSkillNote && editingEvaluation.skillId) {
+      setNote('');
+      setSkillNotesBySkillId({
+        [editingEvaluation.skillId]: editingEvaluation.feedback ?? '',
+      });
+      return;
+    }
+
+    setNote(editingEvaluation.feedback ?? '');
+    setSkillNotesBySkillId({});
+  }, [editingEvaluation]);
 
   useEffect(() => {
     if (initialClassId && classes.some((classItem) => classItem.id === initialClassId)) {
@@ -118,7 +161,16 @@ export default function EvaluationForm({
     event.preventDefault();
 
     const trimmedNote = note.trim();
-    if (changedSkillUpdates.length === 0 && !trimmedNote && skillNoteEntries.length === 0) {
+    const editingSkillNoteText = editingEvaluation?.isSkillNote && editingEvaluation.skillId
+      ? (skillNotesBySkillId[editingEvaluation.skillId]?.trim() ?? '')
+      : '';
+    const hasEditingFeedback = editingEvaluation
+      ? editingEvaluation.isSkillNote
+        ? editingSkillNoteText.length > 0 || Boolean(editingEvaluation.feedback)
+        : trimmedNote.length > 0 || Boolean(editingEvaluation.feedback)
+      : false;
+
+    if (changedSkillUpdates.length === 0 && !trimmedNote && skillNoteEntries.length === 0 && !hasEditingFeedback) {
       setError('Update at least one skill or add notes before submitting.');
       return;
     }
@@ -132,23 +184,83 @@ export default function EvaluationForm({
         'Content-Type': 'application/json',
       });
 
-      const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          classId: selectedClassId || undefined,
-          note: trimmedNote || undefined,
-          skillNotes: skillNoteEntries.map((entry) => ({
-            skillId: entry.skillId,
-            note: entry.note,
-          })),
-          skillUpdates: changedSkillUpdates,
-        }),
-      });
+      let createdEvaluations: Array<{
+        evaluation_id: string;
+        class_id: string | null;
+        skill_id: string | null;
+        feedback: string | null;
+        evaluation_date: string;
+      }> = [];
 
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error || 'Failed to submit evaluation.');
+      const parseJsonPayload = async (response: Response) => {
+        const responseText = await response.text();
+        let payload: { error?: string; createdEvaluations?: typeof createdEvaluations } = {};
+
+        if (responseText.trim()) {
+          try {
+            payload = JSON.parse(responseText) as typeof payload;
+          } catch {
+            const fallbackMessage = response.ok
+              ? 'The server returned an unexpected response.'
+              : `The server returned an unexpected ${response.status} error page.`;
+            throw new Error(fallbackMessage);
+          }
+        }
+
+        if (!response.ok) {
+          throw new Error(payload.error || 'Failed to submit evaluation.');
+        }
+
+        return payload;
+      };
+
+      if (editingEvaluation) {
+        if (changedSkillUpdates.length > 0) {
+          for (const update of changedSkillUpdates) {
+            const progressResponse = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+              method: 'PATCH',
+              headers,
+              body: JSON.stringify({
+                skillId: update.skillId,
+                progress: update.progress,
+              }),
+            });
+
+            await parseJsonPayload(progressResponse);
+          }
+        }
+
+        const feedbackToSave = editingEvaluation.isSkillNote
+          ? editingSkillNoteText
+          : trimmedNote;
+
+        const editResponse = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({
+            evaluationId: editingEvaluation.evaluationId,
+            feedback: feedbackToSave || '',
+          }),
+        });
+
+        await parseJsonPayload(editResponse);
+      } else {
+        const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            classId: selectedClassId || undefined,
+            note: trimmedNote || undefined,
+            skillNotes: skillNoteEntries.map((entry) => ({
+              skillId: entry.skillId,
+              note: entry.note,
+            })),
+            skillUpdates: changedSkillUpdates,
+          }),
+        });
+
+        const payload = await parseJsonPayload(response);
+        createdEvaluations = payload.createdEvaluations ?? [];
       }
 
       const nextProgress = Object.fromEntries(
@@ -158,8 +270,36 @@ export default function EvaluationForm({
       setInitialProgressBySkillId(nextProgress);
       setSkillNotesBySkillId({});
       setNote('');
-      setSuccessMessage('Evaluation saved.');
-      onSubmissionComplete?.();
+      setSuccessMessage(editingEvaluation ? 'Evaluation updated.' : 'Evaluation saved.');
+      if (onSubmissionComplete) {
+        const savedAt = new Date().toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        });
+        window.setTimeout(() => {
+          onSubmissionComplete({
+            mode: editingEvaluation ? 'edit' : 'create',
+            classId: selectedClassId || undefined,
+            note: editingEvaluation?.isSkillNote ? undefined : trimmedNote || undefined,
+            skillNotes: editingEvaluation
+              ? (editingEvaluation.isSkillNote && editingEvaluation.skillId
+                ? skills
+                  .filter((skill) => skill.id === editingEvaluation.skillId)
+                  .map((skill) => ({
+                    skillId: skill.id,
+                    skillName: skill.name,
+                    note: editingSkillNoteText,
+                  }))
+                  .filter((entry) => entry.note.length > 0)
+                : [])
+              : skillNoteEntries,
+            skillUpdates: changedSkillUpdates,
+            savedAt,
+            createdEvaluations,
+          });
+        }, closeDelayMs);
+      }
     } catch (submitError) {
       const message =
         submitError instanceof Error ? submitError.message : 'Failed to submit evaluation.';
@@ -175,7 +315,9 @@ export default function EvaluationForm({
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Skill Evaluation</h3>
           <p className="text-xs text-gray-500">
-            All organization skills are shown below. Save only the changes you made.
+            {editingEvaluation
+              ? 'Update this evaluation and any related skill progress changes.'
+              : 'All organization skills are shown below. Save only the changes you made.'}
           </p>
         </div>
 
@@ -202,12 +344,6 @@ export default function EvaluationForm({
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
-        </div>
-      )}
-
-      {successMessage && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {successMessage}
         </div>
       )}
 
@@ -271,22 +407,26 @@ export default function EvaluationForm({
               </div>
 
               <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Skill note
-                </label>
-                <textarea
-                  value={skillNotesBySkillId[skill.id] ?? ''}
-                  onChange={(event) => {
-                    setSkillNotesBySkillId((prev) => ({
-                      ...prev,
-                      [skill.id]: event.target.value,
-                    }));
-                    setSuccessMessage('');
-                  }}
-                  placeholder={`Optional note for ${skill.name}`}
-                  rows={2}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                {(!editingEvaluation || (editingEvaluation.isSkillNote && editingEvaluation.skillId === skill.id)) && (
+                  <>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">
+                      Skill note
+                    </label>
+                    <textarea
+                      value={skillNotesBySkillId[skill.id] ?? ''}
+                      onChange={(event) => {
+                        setSkillNotesBySkillId((prev) => ({
+                          ...prev,
+                          [skill.id]: event.target.value,
+                        }));
+                        setSuccessMessage('');
+                      }}
+                      placeholder={`Optional note for ${skill.name}`}
+                      rows={2}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </>
+                )}
               </div>
             </div>
           );
@@ -299,6 +439,7 @@ export default function EvaluationForm({
         )}
       </div>
 
+      {!editingEvaluation?.isSkillNote && (
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <label className="mb-2 block text-sm font-medium text-gray-900">
           Session note
@@ -314,6 +455,7 @@ export default function EvaluationForm({
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
+      )}
 
       <div className="flex items-center justify-end gap-3">
         <p className="text-xs text-gray-500">
@@ -324,9 +466,15 @@ export default function EvaluationForm({
           disabled={isSubmitting}
           className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
         >
-          {isSubmitting ? 'Saving...' : 'Save Evaluation'}
+          {isSubmitting ? 'Saving...' : editingEvaluation ? 'Save Changes' : 'Save Evaluation'}
         </button>
       </div>
+
+      {successMessage && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {successMessage}
+        </div>
+      )}
     </form>
   );
 }

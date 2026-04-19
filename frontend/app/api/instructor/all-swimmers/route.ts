@@ -546,7 +546,7 @@ export async function GET(request: NextRequest) {
       !lightweight && memberIds.length > 0
         ? batchQuery(
           "evaluation",
-          "member_id, class_id, skill_id, feedback, evaluation_date, instructor_person_id",
+          "evaluation_id, member_id, class_id, skill_id, feedback, evaluation_date, instructor_person_id",
           memberIds,
           "member_id",
         )
@@ -633,7 +633,7 @@ export async function GET(request: NextRequest) {
         evaluationRows = await timed("fallback-evaluation-rows", () =>
           batchQuery(
             "evaluation",
-            "member_id, evaluation_date, instructor_person_id",
+            "evaluation_id, member_id, class_id, skill_id, feedback, evaluation_date, instructor_person_id",
             memberIds,
             "member_id",
           ),
