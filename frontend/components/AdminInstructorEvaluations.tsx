@@ -28,6 +28,7 @@ interface DashboardSwimmer {
     classes: DashboardClass[];
     skills: DashboardSkill[];
     isActive?: boolean;
+    hasCurrentInstructorEvaluation?: boolean;
     evaluationSummary: {
         evaluationCount: number;
         lastEvaluationDate?: string;
@@ -46,14 +47,17 @@ interface InitialEvaluationFilters {
     instructors?: Array<{ value: string; label: string }>;
     groups?: Array<{ value: string; label: string; classId?: string }>;
     memberIdsByGroupId?: Record<string, string[]>;
+    memberIdsByInstructorId?: Record<string, string[]>;
 }
 
 interface AdminInstructorEvaluationsProps {
     initialFilters?: InitialEvaluationFilters;
-    initialListView?: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers";
+    initialListView?: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation";
     lockInitialListView?: boolean;
     initialStatusFilter?: "all" | "active" | "inactive";
     lockInitialStatusFilter?: boolean;
+    showNeedsEvaluationSection?: boolean;
+    restoreOpenSwimmerId?: boolean;
 }
 
 interface SwimmerDetailPayload {
@@ -98,6 +102,10 @@ interface AssignmentFiltersPayload {
         last_name?: string | null;
         email?: string;
     }>;
+    assignments?: Array<{
+        instructor_person_id: string;
+        group_id: string;
+    }>;
     enrollments?: Array<{
         member_id: string;
         class_id: string;
@@ -125,7 +133,7 @@ interface PersistedState {
     instructorFilter: string;
     groupFilter: string;
     statusFilter: "all" | "active" | "inactive";
-    listView: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers";
+    listView: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation";
     currentPage: number;
 }
 
@@ -138,6 +146,7 @@ interface PersistedData {
     fallbackInstructorOptions: Array<{ value: string; label: string }>;
     fallbackGroupOptions: Array<{ value: string; label: string }>;
     memberIdsByGroupId: Record<string, string[]>;
+    memberIdsByInstructorId?: Record<string, string[]>;
 }
 
 const CLASS_FILTER_RECENT_DAYS = 7;
@@ -230,6 +239,12 @@ function formatDateForSummary(date: Date): string {
     });
 }
 
+function formatDateLabel(dateValue?: string) {
+    const parsed = toDateAtMidnight(dateValue);
+    if (!parsed) return "soon";
+    return formatDateForSummary(parsed);
+}
+
 function progressToPercent(progress: 0 | 1 | 2 | 3 | 4) {
     const mapping: Record<number, number> = {
         0: 0,
@@ -285,6 +300,8 @@ export default function AdminInstructorEvaluations({
     lockInitialListView = false,
     initialStatusFilter = "all",
     lockInitialStatusFilter = false,
+    showNeedsEvaluationSection = false,
+    restoreOpenSwimmerId = true,
 }: AdminInstructorEvaluationsProps) {
     const router = useRouter();
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
@@ -294,7 +311,7 @@ export default function AdminInstructorEvaluations({
     const [instructorFilter, setInstructorFilter] = useState("all");
     const [groupFilter, setGroupFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">(initialStatusFilter);
-    const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers">(initialListView);
+    const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation">(initialListView);
     const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [pagination, setPagination] = useState<PaginationState>(
@@ -328,6 +345,14 @@ export default function AdminInstructorEvaluations({
         Object.fromEntries(
             Object.entries(initialFilters?.memberIdsByGroupId ?? {}).map(([groupId, memberIds]) => [
                 groupId,
+                new Set(memberIds),
+            ]),
+        ) as Record<string, Set<string>>,
+    );
+    const [memberIdsByInstructorId, setMemberIdsByInstructorId] = useState<Record<string, Set<string>>>(() =>
+        Object.fromEntries(
+            Object.entries(initialFilters?.memberIdsByInstructorId ?? {}).map(([instructorId, memberIds]) => [
+                instructorId,
                 new Set(memberIds),
             ]),
         ) as Record<string, Set<string>>,
@@ -375,6 +400,16 @@ export default function AdminInstructorEvaluations({
                 ]),
             ) as Record<string, Set<string>>;
         });
+        setMemberIdsByInstructorId((prev) => {
+            if (Object.keys(prev).length > 0) return prev;
+
+            return Object.fromEntries(
+                Object.entries(initialFilters.memberIdsByInstructorId ?? {}).map(([instructorId, memberIds]) => [
+                    instructorId,
+                    new Set(memberIds),
+                ]),
+            ) as Record<string, Set<string>>;
+        });
     }, [initialFilters]);
 
     function persistDataCache(searchKey: string) {
@@ -384,6 +419,12 @@ export default function AdminInstructorEvaluations({
             const serializedMemberIdsByGroupId = Object.fromEntries(
                 Object.entries(memberIdsByGroupId).map(([groupId, memberIds]) => [
                     groupId,
+                    Array.from(memberIds),
+                ]),
+            );
+            const serializedMemberIdsByInstructorId = Object.fromEntries(
+                Object.entries(memberIdsByInstructorId).map(([instructorId, memberIds]) => [
+                    instructorId,
                     Array.from(memberIds),
                 ]),
             );
@@ -397,6 +438,7 @@ export default function AdminInstructorEvaluations({
                 fallbackInstructorOptions,
                 fallbackGroupOptions,
                 memberIdsByGroupId: serializedMemberIdsByGroupId,
+                memberIdsByInstructorId: serializedMemberIdsByInstructorId,
             };
 
             window.sessionStorage.setItem(PERSISTED_DATA_KEY, JSON.stringify(payload));
@@ -517,6 +559,7 @@ export default function AdminInstructorEvaluations({
             const classMap = new Map<string, string>();
             const groupMap = new Map<string, string>();
             const enrollmentMap: Record<string, Set<string>> = {};
+            const instructorMemberMap: Record<string, Set<string>> = {};
             (payload.classes ?? []).forEach((classOption) => {
                 if (!classOption.value) return;
                 classMap.set(classOption.value, classOption.label || "Unnamed class");
@@ -547,13 +590,32 @@ export default function AdminInstructorEvaluations({
                 }
             });
 
-            const instructorList = (payload.instructors ?? [])
+            (payload.assignments ?? []).forEach((assignment) => {
+                const instructorId = assignment.instructor_person_id;
+                const groupId = assignment.group_id;
+                if (!instructorId || !groupId) return;
+
+                const memberIds = enrollmentMap[groupId];
+                if (!memberIds) return;
+
+                if (!instructorMemberMap[instructorId]) {
+                    instructorMemberMap[instructorId] = new Set<string>();
+                }
+
+                memberIds.forEach((memberId) => {
+                    instructorMemberMap[instructorId].add(memberId);
+                });
+            });
+
+            const instructorOptions = (payload.instructors ?? [])
                 .map((instructor) => {
+                    const value = instructor.person_id || instructor.value;
+                    if (!value) return null;
                     const fullName = `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim();
                     const label = fullName || instructor.label || instructor.email || "Instructor";
-                    return label.trim();
+                    return { value, label: label.trim() };
                 })
-                .filter((label) => Boolean(label));
+                .filter((option): option is { value: string; label: string } => Boolean(option?.value));
 
             setFallbackClassOptions(
                 Array.from(classMap.entries())
@@ -562,9 +624,7 @@ export default function AdminInstructorEvaluations({
             );
 
             setFallbackInstructorOptions(
-                Array.from(new Set(instructorList))
-                    .sort((a, b) => a.localeCompare(b))
-                    .map((label) => ({ value: label, label })),
+                instructorOptions.sort((a, b) => a.label.localeCompare(b.label)),
             );
 
             setFallbackGroupOptions(
@@ -574,11 +634,13 @@ export default function AdminInstructorEvaluations({
             );
 
             setMemberIdsByGroupId(enrollmentMap);
+            setMemberIdsByInstructorId(instructorMemberMap);
         } catch {
             setFallbackClassOptions([]);
             setFallbackInstructorOptions([]);
             setFallbackGroupOptions([]);
             setMemberIdsByGroupId({});
+            setMemberIdsByInstructorId({});
         }
     }
 
@@ -648,7 +710,7 @@ export default function AdminInstructorEvaluations({
         const restoredData = readPersistedData();
 
         if (restoredState) {
-            setOpenSwimmerId(restoredState.openSwimmerId);
+            setOpenSwimmerId(restoreOpenSwimmerId ? restoredState.openSwimmerId : null);
             setSearchQuery(restoredState.searchQuery);
             setDebouncedSearchQuery(restoredState.debouncedSearchQuery);
             setClassFilter(restoredState.classFilter ?? "all");
@@ -676,8 +738,15 @@ export default function AdminInstructorEvaluations({
                     new Set(memberIds),
                 ]),
             ) as Record<string, Set<string>>;
+            const hydratedMemberIdsByInstructorId = Object.fromEntries(
+                Object.entries(restoredData.memberIdsByInstructorId ?? {}).map(([instructorId, memberIds]) => [
+                    instructorId,
+                    new Set(memberIds),
+                ]),
+            ) as Record<string, Set<string>>;
 
             setMemberIdsByGroupId(hydratedMemberIdsByGroupId);
+            setMemberIdsByInstructorId(hydratedMemberIdsByInstructorId);
             allSearchCacheRef.current.set(
                 buildSearchCacheKey(restoredData.searchKey ?? restoredState?.debouncedSearchQuery ?? ""),
                 restoredData.swimmers ?? [],
@@ -769,17 +838,24 @@ export default function AdminInstructorEvaluations({
         fallbackInstructorOptions,
         fallbackGroupOptions,
         memberIdsByGroupId,
+        memberIdsByInstructorId,
     ]);
 
     const loadSwimmerDetail = async (swimmerId: string, forceRefresh = false) => {
         const existing = detailBySwimmerId[swimmerId];
         if (!forceRefresh && existing?.skills?.length) return;
 
+        const swimmerSnapshot = swimmers.find((swimmer) => swimmer.id === swimmerId);
+
         setDetailBySwimmerId((prev) => ({
             ...prev,
             [swimmerId]: {
-                classes: prev[swimmerId]?.classes ?? [],
-                skills: prev[swimmerId]?.skills ?? [],
+                classes: prev[swimmerId]?.classes?.length
+                    ? prev[swimmerId].classes
+                    : (swimmerSnapshot?.classes ?? []),
+                skills: prev[swimmerId]?.skills?.length
+                    ? prev[swimmerId].skills
+                    : (swimmerSnapshot?.skills ?? []),
                 loading: true,
                 error: undefined,
             },
@@ -846,13 +922,8 @@ export default function AdminInstructorEvaluations({
         }
     };
 
-    const handleSwimmerClick = async (swimmerId: string) => {
-        const willOpen = openSwimmerId !== swimmerId;
+    const handleSwimmerClick = (swimmerId: string) => {
         setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
-
-        if (!willOpen) return;
-
-        await loadSwimmerDetail(swimmerId);
     };
 
     const applyOptimisticEvaluationPatch = (swimmerId: string) => {
@@ -863,6 +934,7 @@ export default function AdminInstructorEvaluations({
 
             return {
                 ...swimmer,
+                hasCurrentInstructorEvaluation: true,
                 evaluationSummary: {
                     ...swimmer.evaluationSummary,
                     evaluationCount: (swimmer.evaluationSummary.evaluationCount ?? 0) + 1,
@@ -880,13 +952,33 @@ export default function AdminInstructorEvaluations({
         return endDate < now;
     };
 
+    const swimmerNeedsEvaluation = (swimmer: DashboardSwimmer) => {
+        if (!swimmer.isMySwimmer) return false;
+        if (swimmer.hasCurrentInstructorEvaluation) return false;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const upcomingCutoff = new Date(today);
+        upcomingCutoff.setDate(upcomingCutoff.getDate() + 3);
+
+        const recentPastCutoff = new Date(today);
+        recentPastCutoff.setDate(recentPastCutoff.getDate() - 14);
+
+        return swimmer.classes.some((classItem) => {
+            const endDate = toDateAtMidnight(classItem.endDate);
+            if (!endDate) return false;
+            return endDate >= recentPastCutoff && endDate <= upcomingCutoff;
+        });
+    };
+
     const emptyStateText = useMemo(() => {
         if (debouncedSearchQuery) {
             return "No swimmers found for this search.";
         }
 
-        if (classFilter !== "all" || instructorFilter !== "all" || groupFilter !== "all") {
-            return "No swimmers match the selected class/instructor/group filters.";
+        if (classFilter !== "all" || instructorFilter !== "all" || groupFilter !== "all" || statusFilter !== "all") {
+            return "No swimmers match the selected filters.";
         }
 
         if (listView === "active-classes") {
@@ -899,6 +991,10 @@ export default function AdminInstructorEvaluations({
 
         if (listView === "recent-evals") {
             return "No swimmers with evaluations found.";
+        }
+
+        if (listView === "needs-evaluation") {
+            return "No swimmers currently need an evaluation.";
         }
 
         if (listView === "my-swimmers") {
@@ -951,28 +1047,7 @@ export default function AdminInstructorEvaluations({
     }, [swimmers, fallbackClassOptions]);
 
     const instructorFilterOptions = useMemo(() => {
-        const instructors = new Set<string>();
-
-        swimmers.forEach((swimmer) => {
-            (swimmer.evaluationSummary.instructors ?? []).forEach((name) => {
-                const normalized = name.trim();
-                if (normalized) {
-                    instructors.add(normalized);
-                }
-            });
-        });
-
-        const options = Array.from(instructors)
-            .sort((a, b) => a.localeCompare(b))
-            .map((name) => ({ value: name, label: name }));
-
-        fallbackInstructorOptions.forEach((option) => {
-            if (!instructors.has(option.value)) {
-                options.push(option);
-            }
-        });
-
-        options.sort((a, b) => a.label.localeCompare(b.label));
+        const options = [...fallbackInstructorOptions].sort((a, b) => a.label.localeCompare(b.label));
 
         if (options.length === 0) {
             return [
@@ -982,7 +1057,7 @@ export default function AdminInstructorEvaluations({
         }
 
         return [{ value: "all", label: "All instructors" }, ...options];
-    }, [swimmers, fallbackInstructorOptions]);
+    }, [fallbackInstructorOptions]);
 
     useEffect(() => {
         if (!classFilterOptions.some((option) => option.value === classFilter)) {
@@ -1040,6 +1115,10 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
+            if (listView === "needs-evaluation" && !swimmerNeedsEvaluation(swimmer)) {
+                return false;
+            }
+
             if (listView === "my-swimmers" && !swimmer.isMySwimmer) {
                 return false;
             }
@@ -1058,10 +1137,10 @@ export default function AdminInstructorEvaluations({
             }
 
             if (instructorFilter !== "all") {
-                const hasSelectedInstructor = (swimmer.evaluationSummary.instructors ?? []).some(
-                    (instructorName) => instructorName === instructorFilter,
-                );
-                if (!hasSelectedInstructor) return false;
+                const memberIdsForInstructor = memberIdsByInstructorId[instructorFilter];
+                if (!memberIdsForInstructor?.has(swimmer.id)) {
+                    return false;
+                }
             }
 
             if (groupFilter !== "all") {
@@ -1089,7 +1168,11 @@ export default function AdminInstructorEvaluations({
         });
 
         return sorted;
-    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, statusFilter, swimmers]);
+    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, memberIdsByInstructorId, statusFilter, swimmers]);
+
+    const needsEvaluationSwimmers = useMemo(() => {
+        return displayedSwimmers.filter((swimmer) => swimmerNeedsEvaluation(swimmer));
+    }, [displayedSwimmers]);
 
     const totalFiltered = displayedSwimmers.length;
     const localTotalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
@@ -1167,10 +1250,61 @@ export default function AdminInstructorEvaluations({
     }, [shouldVirtualize]);
 
     const swimmersToRender = shouldVirtualize ? virtualSlice : swimmersForRender;
-    const listViewTitle = listView === "my-swimmers" ? "My Swimmers" : "All Swimmers";
+    const listViewTitle =
+        listView === "my-swimmers"
+            ? "My Swimmers"
+            : listView === "needs-evaluation"
+                ? "Needs Evaluation"
+                : "All Swimmers";
 
     return (
         <div className="w-full min-h-[60vh] space-y-4">
+            {showNeedsEvaluationSection && listView === "my-swimmers" && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm sm:p-5">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-blue-900">Needs Evaluation</p>
+                            <p className="mt-1 text-sm text-blue-800">
+                                Swimmers in your classes ending within 3 days or ended within the last 2 weeks.
+                            </p>
+                        </div>
+                        <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
+                            {needsEvaluationSwimmers.length}
+                        </span>
+                    </div>
+
+                    {needsEvaluationSwimmers.length > 0 ? (
+                        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            {needsEvaluationSwimmers.map((swimmer) => {
+                                const closestClass = [...swimmer.classes]
+                                    .filter((classItem) => toDateAtMidnight(classItem.endDate))
+                                    .sort((a, b) => {
+                                        const aTime = toDateAtMidnight(a.endDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+                                        const bTime = toDateAtMidnight(b.endDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+                                        return aTime - bTime;
+                                    })[0];
+
+                                return (
+                                    <button
+                                        key={`needs-eval:${swimmer.id}`}
+                                        type="button"
+                                        onClick={() => handleSwimmerClick(swimmer.id)}
+                                        className="rounded-lg border border-blue-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
+                                    >
+                                        <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
+                                        <p className="mt-1 text-xs text-gray-600">
+                                            {closestClass?.name ?? "Class"} ends {formatDateLabel(closestClass?.endDate)}
+                                        </p>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <p className="mt-4 text-sm text-blue-800">No swimmers currently need an evaluation.</p>
+                    )}
+                </div>
+            )}
+
             <div className="relative overflow-visible rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
                 <div className="mb-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
                     <div className="flex items-center gap-2">
@@ -1199,12 +1333,13 @@ export default function AdminInstructorEvaluations({
                             <DropdownButton
                                 value={listView}
                                 onChange={(value) => {
-                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers");
+                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation");
                                     setCurrentPage(1);
                                 }}
                                 ui="app"
                                 options={[
                                     { value: "overview", label: "All swimmers" },
+                                    { value: "needs-evaluation", label: "Needs evaluation" },
                                     { value: "my-swimmers", label: "My swimmers" },
                                     { value: "active-classes", label: "Active classes" },
                                     { value: "past-classes", label: "Past classes" },
@@ -1355,6 +1490,8 @@ export default function AdminInstructorEvaluations({
                         const activeClasses = swimmer.classes.filter((classItem) => !isPastClass(classItem));
                         const pastClasses = swimmer.classes.filter((classItem) => isPastClass(classItem));
                         const detail = detailBySwimmerId[swimmer.id];
+                        const resolvedClasses = detail?.classes?.length ? detail.classes : swimmer.classes;
+                        const resolvedSkills = detail?.skills?.length ? detail.skills : swimmer.skills;
                         const absoluteIndex = shouldVirtualize
                             ? virtualWindow.startIndex + renderedIndex
                             : renderedIndex;
@@ -1457,22 +1594,27 @@ export default function AdminInstructorEvaluations({
 
                                 {isOpen && (
                                     <div className="border-t border-gray-100 p-5 sm:p-6">
-                                        {detail?.loading ? (
-                                            <div className="text-sm text-gray-500">Loading swimmer evaluation details...</div>
-                                        ) : detail?.error ? (
+                                        {detail?.error && resolvedSkills.length === 0 ? (
                                             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                                                 {detail.error}
                                             </div>
-                                        ) : detail?.skills?.length ? (
-                                            <EvaluationForm
-                                                swimmerId={swimmer.id}
-                                                skills={detail.skills}
-                                                classes={detail.classes}
-                                                onSubmissionComplete={async () => {
-                                                    applyOptimisticEvaluationPatch(swimmer.id);
-                                                    await loadSwimmerDetail(swimmer.id, true);
-                                                }}
-                                            />
+                                        ) : resolvedSkills.length ? (
+                                            <div className="space-y-3">
+                                                {detail?.error && (
+                                                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                                        {detail.error}
+                                                    </div>
+                                                )}
+                                                <EvaluationForm
+                                                    swimmerId={swimmer.id}
+                                                    skills={resolvedSkills}
+                                                    classes={resolvedClasses}
+                                                    onSubmissionComplete={async () => {
+                                                        applyOptimisticEvaluationPatch(swimmer.id);
+                                                        await loadSwimmerDetail(swimmer.id, true);
+                                                    }}
+                                                />
+                                            </div>
                                         ) : (
                                             <div className="text-sm text-gray-500">No skills available for this swimmer.</div>
                                         )}

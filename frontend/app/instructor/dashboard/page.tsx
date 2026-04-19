@@ -171,9 +171,10 @@ export default function InstructorDashboard() {
           lockInitialListView
           initialStatusFilter="active"
           lockInitialStatusFilter
+          showNeedsEvaluationSection
+          restoreOpenSwimmerId={false}
         />
       </main>
     </div>
   );
 }
-

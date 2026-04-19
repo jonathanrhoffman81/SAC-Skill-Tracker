@@ -266,7 +266,7 @@ async function instructorCanAccessMember(
 
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
-    .select('class_id')
+    .select('class_id, slot')
     .eq('member_id', memberId);
 
   if (memberEnrollmentsError) {
@@ -276,25 +276,11 @@ async function instructorCanAccessMember(
     };
   }
 
-  const { data: memberRow, error: memberError } = await supabaseAdmin
-    .from('member')
-    .select('member_id, slot')
-    .eq('member_id', memberId)
-    .maybeSingle();
-
-  if (memberError) {
-    return {
-      ok: false,
-      error: `Failed to load member slot: ${memberError.message}`,
-    };
-  }
-
-  const memberSlot = memberRow?.slot ?? null;
   const canAccessViaGroup = (memberEnrollments ?? []).some((row) => {
-    if (!row.class_id || memberSlot === null || memberSlot === undefined) return false;
+    if (!row.class_id || row.slot === null || row.slot === undefined) return false;
     const allowedSlots = allowedSlotsByClassId.get(row.class_id);
     if (!allowedSlots) return false;
-    return allowedSlots.has(memberSlot);
+    return allowedSlots.has(row.slot);
   });
 
   return canAccessViaGroup
@@ -333,7 +319,7 @@ async function getSharedClassIdsForInstructorAndMember(
 
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
-    .select('class_id')
+    .select('class_id, slot')
     .eq('member_id', memberId);
 
   if (memberEnrollmentsError) {
@@ -351,24 +337,12 @@ async function getSharedClassIdsForInstructorAndMember(
     allowedSlotsByClassId.set(row.class_id, existing);
   });
 
-  const { data: memberRow, error: memberError } = await supabaseAdmin
-    .from('member')
-    .select('member_id, slot')
-    .eq('member_id', memberId)
-    .maybeSingle();
-
-  if (memberError) {
-    return { sharedClassIds: [], error: `Failed to load member slot: ${memberError.message}` };
-  }
-
-  const memberSlot = memberRow?.slot ?? null;
-
   const sharedClassIds = (memberEnrollments ?? [])
     .filter((row) => {
-      if (!row.class_id || memberSlot === null || memberSlot === undefined) return false;
+      if (!row.class_id || row.slot === null || row.slot === undefined) return false;
       const allowedSlots = allowedSlotsByClassId.get(row.class_id);
       if (!allowedSlots) return false;
-      return allowedSlots.has(memberSlot);
+      return allowedSlots.has(row.slot);
     })
     .map((row) => row.class_id);
 

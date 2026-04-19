@@ -121,6 +121,10 @@ export async function GET(request: NextRequest) {
       class_name: string;
       group_name?: string;
     }> = [];
+    let assignments: Array<{
+      instructor_person_id: string;
+      group_id: string;
+    }> = [];
     let enrollments: Array<{
       member_id: string;
       class_id: string;
@@ -138,6 +142,10 @@ export async function GET(request: NextRequest) {
 
     if (!groupInstructorError && groupInstructorRows && groupInstructorRows.length > 0) {
       const groupIds = groupInstructorRows.map((row: any) => row.group_id);
+      assignments = groupIds.map((groupId: string) => ({
+        instructor_person_id: instructorPersonId,
+        group_id: groupId,
+      }));
 
       // Resolve each assigned group to its class.
       for (let i = 0; i < groupIds.length; i += chunkSize) {
@@ -202,7 +210,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       groups,
       instructors,
-      assignments: [],
+      assignments,
       enrollments,
       classes,
     });

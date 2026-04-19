@@ -29,6 +29,7 @@ interface DashboardSwimmerPayload {
   classes: DashboardClassPayload[];
   skills: DashboardSkillPayload[];
   isActive?: boolean;
+  hasCurrentInstructorEvaluation?: boolean;
   skillSummary?: {
     totalSkills: number;
     masteredSkills: number;
@@ -707,6 +708,7 @@ export async function GET(request: NextRequest) {
       string,
       { evaluationCount: number; lastEvaluationDate?: string; instructors: string[] }
     >();
+    const currentInstructorEvaluatedMemberIds = new Set<string>();
 
     if (!lightweight) {
       (evaluationRows ?? []).forEach((row) => {
@@ -736,6 +738,10 @@ export async function GET(request: NextRequest) {
           existing.instructors.push(instructorName);
         }
 
+        if (row.instructor_person_id === person.person_id) {
+          currentInstructorEvaluatedMemberIds.add(row.member_id);
+        }
+
         evaluationSummaryByMemberId.set(row.member_id, existing);
       });
     } else {
@@ -743,6 +749,10 @@ export async function GET(request: NextRequest) {
         const instructorNames = normalizeInstructorIds(row.instructor_person_ids)
           .map((personId) => instructorNameById.get(personId))
           .filter((name): name is string => Boolean(name));
+
+        if (normalizeInstructorIds(row.instructor_person_ids).includes(person.person_id)) {
+          currentInstructorEvaluatedMemberIds.add(row.member_id);
+        }
 
         evaluationSummaryByMemberId.set(row.member_id, {
           evaluationCount: Number(row.evaluation_count ?? 0),
@@ -857,6 +867,7 @@ export async function GET(request: NextRequest) {
           instructors:
             evaluationSummaryByMemberId.get(member.member_id)?.instructors ?? [],
         },
+        hasCurrentInstructorEvaluation: currentInstructorEvaluatedMemberIds.has(member.member_id),
         isMySwimmer: mySwimmerIds.has(member.member_id),
       };
     });
