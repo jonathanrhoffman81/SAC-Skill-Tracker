@@ -59,7 +59,7 @@ const AccountsManager = dynamic(loadAccountsManager, {
 const AdminInstructorEvaluations = dynamic(
   loadAdminInstructorEvaluations,
   {
-    loading: () => <TabSkeleton title="instructor info" />,
+    loading: () => <TabSkeleton title="swimmer evaluations" />,
   },
 );
 
@@ -240,7 +240,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "evaluations",
-    label: "Instructor Info",
+    label: "Swimmer Evaluations",
     icon: (
       <svg
         className="w-4 h-4"

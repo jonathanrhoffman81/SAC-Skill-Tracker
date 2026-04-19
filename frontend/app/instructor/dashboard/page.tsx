@@ -172,6 +172,7 @@ export default function InstructorDashboard() {
           initialStatusFilter="active"
           lockInitialStatusFilter
           showNeedsEvaluationSection
+          showProficiencyScaleSection
           restoreOpenSwimmerId={false}
         />
       </main>

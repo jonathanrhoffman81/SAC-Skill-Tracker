@@ -57,6 +57,7 @@ interface AdminInstructorEvaluationsProps {
     initialStatusFilter?: "all" | "active" | "inactive";
     lockInitialStatusFilter?: boolean;
     showNeedsEvaluationSection?: boolean;
+    showProficiencyScaleSection?: boolean;
     restoreOpenSwimmerId?: boolean;
 }
 
@@ -301,6 +302,7 @@ export default function AdminInstructorEvaluations({
     initialStatusFilter = "all",
     lockInitialStatusFilter = false,
     showNeedsEvaluationSection = false,
+    showProficiencyScaleSection = false,
     restoreOpenSwimmerId = true,
 }: AdminInstructorEvaluationsProps) {
     const router = useRouter();
@@ -314,6 +316,8 @@ export default function AdminInstructorEvaluations({
     const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation">(initialListView);
     const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
+    const [pageInput, setPageInput] = useState("1");
+    const [isProficiencyScaleOpen, setIsProficiencyScaleOpen] = useState(false);
     const [pagination, setPagination] = useState<PaginationState>(
         {
             page: 1,
@@ -1222,6 +1226,10 @@ export default function AdminInstructorEvaluations({
     }, [currentPage, localTotalPages]);
 
     useEffect(() => {
+        setPageInput(String(safeCurrentPage));
+    }, [safeCurrentPage]);
+
+    useEffect(() => {
         setPagination({
             page: safeCurrentPage,
             pageSize: PAGE_SIZE,
@@ -1301,6 +1309,73 @@ export default function AdminInstructorEvaluations({
                         </div>
                     ) : (
                         <p className="mt-4 text-sm text-blue-800">No swimmers currently need an evaluation.</p>
+                    )}
+                </div>
+            )}
+
+            {showProficiencyScaleSection && (
+                <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => setIsProficiencyScaleOpen((current) => !current)}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
+                    >
+                        <div>
+                            <p className="text-sm font-semibold text-gray-900">Proficiency Scale</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Reference guide for the 0 to 4 evaluation ratings.
+                            </p>
+                        </div>
+                        <svg
+                            className={`h-5 w-5 flex-shrink-0 text-gray-500 transition-transform ${isProficiencyScaleOpen ? "rotate-180" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 9l-7 7-7-7"
+                            />
+                        </svg>
+                    </button>
+
+                    {isProficiencyScaleOpen && (
+                        <div className="border-t border-gray-100 px-4 py-4 sm:px-5">
+                            <ul className="space-y-2">
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        0
+                                    </span>
+                                    <span>Unable to attempt the skill</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        1
+                                    </span>
+                                    <span>Unable to show skill without significant support</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        2
+                                    </span>
+                                    <span>Inconsistently or with support is able to demonstrate the skill</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        3
+                                    </span>
+                                    <span>Consistently demonstrates application of the skill</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        4
+                                    </span>
+                                    <span>Demonstrates complete understanding of the skill</span>
+                                </li>
+                            </ul>
+                        </div>
                     )}
                 </div>
             )}
@@ -1647,6 +1722,38 @@ export default function AdminInstructorEvaluations({
                             <span className="text-xs text-gray-600 sm:text-sm">
                                 Page {safeCurrentPage} of {localTotalPages}
                             </span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={localTotalPages}
+                                value={pageInput}
+                                onChange={(event) => setPageInput(event.target.value)}
+                                onBlur={() => {
+                                    const parsed = Number(pageInput);
+                                    if (!Number.isFinite(parsed)) {
+                                        setPageInput(String(safeCurrentPage));
+                                        return;
+                                    }
+
+                                    const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
+                                    setCurrentPage(nextPage);
+                                }}
+                                onKeyDown={(event) => {
+                                    if (event.key !== "Enter") return;
+                                    event.preventDefault();
+
+                                    const parsed = Number(pageInput);
+                                    if (!Number.isFinite(parsed)) {
+                                        setPageInput(String(safeCurrentPage));
+                                        return;
+                                    }
+
+                                    const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
+                                    setCurrentPage(nextPage);
+                                }}
+                                className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                                aria-label="Go to page"
+                            />
                             <button
                                 type="button"
                                 disabled={safeCurrentPage >= localTotalPages || isLoading}

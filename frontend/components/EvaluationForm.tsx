@@ -231,18 +231,18 @@ export default function EvaluationForm({
                   </div>
                 </div>
 
-                <div className="w-full sm:w-60">
+                <div className="w-full sm:w-auto">
                   <label className="mb-1 block text-xs font-medium text-gray-700">
                     Progress
                   </label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-1 sm:overflow-visible">
                     {PROGRESS_OPTIONS.map((option) => {
                       const isActive = progress === option.value;
 
                       return (
                         <label
                           key={option.value}
-                          className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${isActive
+                          className={`inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${isActive
                             ? 'border-blue-600 bg-blue-50 text-blue-700'
                             : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
                             }`}
