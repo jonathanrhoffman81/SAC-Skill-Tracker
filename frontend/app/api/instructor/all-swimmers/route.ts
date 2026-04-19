@@ -30,6 +30,15 @@ interface DashboardSwimmerPayload {
   skills: DashboardSkillPayload[];
   isActive?: boolean;
   hasCurrentInstructorEvaluation?: boolean;
+  classEvaluations?: Array<{
+    classId: string;
+    evaluationCount: number;
+    generalNoteCount: number;
+    skillNoteCount: number;
+    lastEvaluationDate?: string;
+    latestGeneralNote?: string;
+    instructors: string[];
+  }>;
   skillSummary?: {
     totalSkills: number;
     masteredSkills: number;
@@ -529,7 +538,7 @@ export async function GET(request: NextRequest) {
       !lightweight && memberIds.length > 0
         ? batchQuery(
           "evaluation",
-          "member_id, evaluation_date, instructor_person_id",
+          "member_id, class_id, skill_id, feedback, evaluation_date, instructor_person_id",
           memberIds,
           "member_id",
         )
@@ -708,6 +717,20 @@ export async function GET(request: NextRequest) {
       string,
       { evaluationCount: number; lastEvaluationDate?: string; instructors: string[] }
     >();
+    const classEvaluationSummaryByMemberId = new Map<
+      string,
+      Map<
+        string,
+        {
+          evaluationCount: number;
+          generalNoteCount: number;
+          skillNoteCount: number;
+          lastEvaluationDate?: string;
+          latestGeneralNote?: string;
+          instructors: string[];
+        }
+      >
+    >();
     const currentInstructorEvaluatedMemberIds = new Set<string>();
 
     if (!lightweight) {
@@ -743,6 +766,63 @@ export async function GET(request: NextRequest) {
         }
 
         evaluationSummaryByMemberId.set(row.member_id, existing);
+
+        if (row.class_id) {
+          const memberClassSummary =
+            classEvaluationSummaryByMemberId.get(row.member_id) ??
+            new Map<
+              string,
+              {
+                evaluationCount: number;
+                generalNoteCount: number;
+                skillNoteCount: number;
+                lastEvaluationDate?: string;
+                latestGeneralNote?: string;
+                instructors: string[];
+              }
+            >();
+
+          const existingClassSummary = memberClassSummary.get(row.class_id) ?? {
+            evaluationCount: 0,
+            generalNoteCount: 0,
+            skillNoteCount: 0,
+            lastEvaluationDate: undefined,
+            latestGeneralNote: undefined,
+            instructors: [],
+          };
+
+          existingClassSummary.evaluationCount += 1;
+          if (row.skill_id) {
+            existingClassSummary.skillNoteCount += 1;
+          } else {
+            existingClassSummary.generalNoteCount += 1;
+            if (!existingClassSummary.latestGeneralNote && row.feedback) {
+              existingClassSummary.latestGeneralNote = row.feedback;
+            }
+          }
+
+          if (row.evaluation_date) {
+            const currentLastClassDate = existingClassSummary.lastEvaluationDate
+              ? new Date(existingClassSummary.lastEvaluationDate)
+              : null;
+            const incomingClassDate = new Date(row.evaluation_date);
+
+            if (!currentLastClassDate || incomingClassDate > currentLastClassDate) {
+              existingClassSummary.lastEvaluationDate = row.evaluation_date;
+              if (!row.skill_id && row.feedback) {
+                existingClassSummary.latestGeneralNote = row.feedback;
+              }
+            }
+          }
+
+          const classInstructorName = instructorNameById.get(row.instructor_person_id);
+          if (classInstructorName && !existingClassSummary.instructors.includes(classInstructorName)) {
+            existingClassSummary.instructors.push(classInstructorName);
+          }
+
+          memberClassSummary.set(row.class_id, existingClassSummary);
+          classEvaluationSummaryByMemberId.set(row.member_id, memberClassSummary);
+        }
       });
     } else {
       (evaluationSummaryRows ?? []).forEach((row) => {
@@ -858,6 +938,17 @@ export async function GET(request: NextRequest) {
           averageProficiency,
         },
         isActive: member.is_active ?? true,
+        classEvaluations: Array.from(
+          (classEvaluationSummaryByMemberId.get(member.member_id) ?? new Map()).entries(),
+        ).map(([classId, summary]) => ({
+          classId,
+          evaluationCount: summary.evaluationCount,
+          generalNoteCount: summary.generalNoteCount,
+          skillNoteCount: summary.skillNoteCount,
+          lastEvaluationDate: formatDate(summary.lastEvaluationDate),
+          latestGeneralNote: summary.latestGeneralNote,
+          instructors: summary.instructors,
+        })),
         evaluationSummary: {
           evaluationCount:
             evaluationSummaryByMemberId.get(member.member_id)?.evaluationCount ?? 0,

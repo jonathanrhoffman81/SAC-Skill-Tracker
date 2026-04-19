@@ -29,6 +29,15 @@ interface DashboardSwimmer {
     skills: DashboardSkill[];
     isActive?: boolean;
     hasCurrentInstructorEvaluation?: boolean;
+    classEvaluations?: Array<{
+        classId: string;
+        evaluationCount: number;
+        generalNoteCount: number;
+        skillNoteCount: number;
+        lastEvaluationDate?: string;
+        latestGeneralNote?: string;
+        instructors: string[];
+    }>;
     evaluationSummary: {
         evaluationCount: number;
         lastEvaluationDate?: string;
@@ -246,6 +255,20 @@ function formatDateLabel(dateValue?: string) {
     return formatDateForSummary(parsed);
 }
 
+function getClassWindowLabel(classItem: DashboardClass) {
+    if (classItem.startDate && classItem.endDate) {
+        return `${formatDateLabel(classItem.startDate)} - ${formatDateLabel(classItem.endDate)}`;
+    }
+    if (classItem.endDate) return `Through ${formatDateLabel(classItem.endDate)}`;
+    if (classItem.startDate) return `After ${formatDateLabel(classItem.startDate)}`;
+    return "Dates TBD";
+}
+
+function truncateNotePreview(note?: string, maxLength = 140) {
+    if (!note) return "";
+    return note.length > maxLength ? `${note.slice(0, maxLength).trim()}...` : note;
+}
+
 function progressToPercent(progress: 0 | 1 | 2 | 3 | 4) {
     const mapping: Record<number, number> = {
         0: 0,
@@ -318,6 +341,7 @@ export default function AdminInstructorEvaluations({
     const [currentPage, setCurrentPage] = useState(1);
     const [pageInput, setPageInput] = useState("1");
     const [isProficiencyScaleOpen, setIsProficiencyScaleOpen] = useState(false);
+    const [activeEvaluationClassIdBySwimmer, setActiveEvaluationClassIdBySwimmer] = useState<Record<string, string | null>>({});
     const [pagination, setPagination] = useState<PaginationState>(
         {
             page: 1,
@@ -930,15 +954,47 @@ export default function AdminInstructorEvaluations({
         setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
     };
 
-    const applyOptimisticEvaluationPatch = (swimmerId: string) => {
+    const applyOptimisticEvaluationPatch = (swimmerId: string, classId?: string) => {
         const now = formatDateForSummary(new Date());
 
         setSwimmers((prev) => prev.map((swimmer) => {
             if (swimmer.id !== swimmerId) return swimmer;
 
+            const nextClassEvaluations = classId
+                ? (() => {
+                    const existing = swimmer.classEvaluations ?? [];
+                    const target = existing.find((item) => item.classId === classId);
+                    if (!target) {
+                        return [
+                            ...existing,
+                            {
+                                classId,
+                                evaluationCount: 1,
+                                generalNoteCount: 0,
+                                skillNoteCount: 0,
+                                lastEvaluationDate: now,
+                                latestGeneralNote: undefined,
+                                instructors: swimmer.evaluationSummary.instructors ?? [],
+                            },
+                        ];
+                    }
+
+                    return existing.map((item) =>
+                        item.classId === classId
+                            ? {
+                                ...item,
+                                evaluationCount: item.evaluationCount + 1,
+                                lastEvaluationDate: now,
+                            }
+                            : item,
+                    );
+                })()
+                : swimmer.classEvaluations;
+
             return {
                 ...swimmer,
                 hasCurrentInstructorEvaluation: true,
+                classEvaluations: nextClassEvaluations,
                 evaluationSummary: {
                     ...swimmer.evaluationSummary,
                     evaluationCount: (swimmer.evaluationSummary.evaluationCount ?? 0) + 1,
@@ -1567,6 +1623,13 @@ export default function AdminInstructorEvaluations({
                         const detail = detailBySwimmerId[swimmer.id];
                         const resolvedClasses = detail?.classes?.length ? detail.classes : swimmer.classes;
                         const resolvedSkills = detail?.skills?.length ? detail.skills : swimmer.skills;
+                        const classEvaluationSummaryById = new Map(
+                            (swimmer.classEvaluations ?? []).map((item) => [item.classId, item]),
+                        );
+                        const selectedEvaluationClassId = activeEvaluationClassIdBySwimmer[swimmer.id] ?? null;
+                        const selectedEvaluationClass = resolvedClasses.find(
+                            (classItem) => classItem.id === selectedEvaluationClassId,
+                        ) ?? null;
                         const absoluteIndex = shouldVirtualize
                             ? virtualWindow.startIndex + renderedIndex
                             : renderedIndex;
@@ -1674,21 +1737,204 @@ export default function AdminInstructorEvaluations({
                                                 {detail.error}
                                             </div>
                                         ) : resolvedSkills.length ? (
-                                            <div className="space-y-3">
+                                            <div className="space-y-5">
                                                 {detail?.error && (
                                                     <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                                                         {detail.error}
                                                     </div>
                                                 )}
-                                                <EvaluationForm
-                                                    swimmerId={swimmer.id}
-                                                    skills={resolvedSkills}
-                                                    classes={resolvedClasses}
-                                                    onSubmissionComplete={async () => {
-                                                        applyOptimisticEvaluationPatch(swimmer.id);
-                                                        await loadSwimmerDetail(swimmer.id, true);
-                                                    }}
-                                                />
+
+                                                <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                                                        <div>
+                                                            <h3 className="text-sm font-semibold text-gray-900">
+                                                                Classes
+                                                            </h3>
+                                                            <p className="mt-1 text-xs text-gray-500">
+                                                                Each class shows its current evaluation status and opens a class-targeted form.
+                                                            </p>
+                                                        </div>
+                                                        <p className="text-xs text-gray-500">
+                                                            Edit existing evaluations can be layered in next.
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="mt-4 space-y-3">
+                                                        {resolvedClasses.map((classItem) => {
+                                                            const classSummary = classEvaluationSummaryById.get(classItem.id);
+                                                            const isSelectedForEvaluation = selectedEvaluationClassId === classItem.id;
+
+                                                            return (
+                                                                <div
+                                                                    key={classItem.id}
+                                                                    className={`rounded-xl border p-4 transition ${isSelectedForEvaluation
+                                                                        ? "border-blue-200 bg-blue-50/60"
+                                                                        : "border-gray-200 bg-gray-50"
+                                                                        }`}
+                                                                >
+                                                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                                <h4 className="text-sm font-semibold text-gray-900">
+                                                                                    {classItem.name}
+                                                                                </h4>
+                                                                                {isPastClass(classItem) ? (
+                                                                                    <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                                                                                        Past class
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                                                                        Current class
+                                                                                    </span>
+                                                                                )}
+                                                                                {classSummary ? (
+                                                                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                                        Evaluation recorded
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                                                                        No evaluation yet
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+
+                                                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                                                                <span>{getClassWindowLabel(classItem)}</span>
+                                                                                <span>{classItem.schedule || "Schedule TBD"}</span>
+                                                                            </div>
+
+                                                                            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                                                                <div className="rounded-lg border border-gray-200 bg-white px-3 py-3">
+                                                                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                                                                                        Evaluations
+                                                                                    </p>
+                                                                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                                                                        {classSummary?.evaluationCount ?? 0}
+                                                                                    </p>
+                                                                                </div>
+                                                                                <div className="rounded-lg border border-gray-200 bg-white px-3 py-3">
+                                                                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                                                                                        Last Eval
+                                                                                    </p>
+                                                                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                                                                        {classSummary?.lastEvaluationDate || "None yet"}
+                                                                                    </p>
+                                                                                </div>
+                                                                                <div className="rounded-lg border border-gray-200 bg-white px-3 py-3">
+                                                                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                                                                                        Class Notes
+                                                                                    </p>
+                                                                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                                                                        {classSummary?.generalNoteCount ?? 0}
+                                                                                    </p>
+                                                                                </div>
+                                                                                <div className="rounded-lg border border-gray-200 bg-white px-3 py-3">
+                                                                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                                                                                        Skill Notes
+                                                                                    </p>
+                                                                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                                                                        {classSummary?.skillNoteCount ?? 0}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {classSummary?.latestGeneralNote && (
+                                                                                <div className="mt-3 rounded-lg border border-blue-100 bg-white px-3 py-3">
+                                                                                    <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700">
+                                                                                        Latest Note
+                                                                                    </p>
+                                                                                    <p className="mt-1 text-sm text-gray-700">
+                                                                                        {truncateNotePreview(classSummary.latestGeneralNote)}
+                                                                                    </p>
+                                                                                </div>
+                                                                            )}
+
+                                                                            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                                                                                <span>
+                                                                                    Instructors: {classSummary?.instructors?.length
+                                                                                        ? classSummary.instructors.join(", ")
+                                                                                        : "No instructor note recorded yet"}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[190px]">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                        ...prev,
+                                                                                        [swimmer.id]: classItem.id,
+                                                                                    }));
+                                                                                }}
+                                                                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+                                                                            >
+                                                                                {classSummary ? "Add Another Evaluation" : "Add Evaluation"}
+                                                                            </button>
+                                                                            {isSelectedForEvaluation && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                            ...prev,
+                                                                                            [swimmer.id]: null,
+                                                                                        }));
+                                                                                    }}
+                                                                                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                                                                                >
+                                                                                    Close Form
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {selectedEvaluationClass ? (
+                                                    <div className="space-y-3">
+                                                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                                                            <p className="text-sm font-semibold text-blue-900">
+                                                                New evaluation for {selectedEvaluationClass.name}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-blue-800">
+                                                                The class selector is preloaded so the note and skill updates save against this class.
+                                                            </p>
+                                                        </div>
+                                                        <EvaluationForm
+                                                            swimmerId={swimmer.id}
+                                                            skills={resolvedSkills}
+                                                            classes={resolvedClasses}
+                                                            initialClassId={selectedEvaluationClass.id}
+                                                            onSubmissionComplete={async () => {
+                                                                applyOptimisticEvaluationPatch(swimmer.id, selectedEvaluationClass.id);
+                                                                await loadSwimmerDetail(swimmer.id, true);
+                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                    ...prev,
+                                                                    [swimmer.id]: null,
+                                                                }));
+                                                                setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : resolvedClasses.length === 0 ? (
+                                                    <EvaluationForm
+                                                        swimmerId={swimmer.id}
+                                                        skills={resolvedSkills}
+                                                        classes={resolvedClasses}
+                                                        onSubmissionComplete={async () => {
+                                                            applyOptimisticEvaluationPatch(swimmer.id);
+                                                            await loadSwimmerDetail(swimmer.id, true);
+                                                            setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                                                        Choose a class above to open a class-specific evaluation form.
+                                                    </div>
+                                                )}
                                             </div>
                                         ) : (
                                             <div className="text-sm text-gray-500">No skills available for this swimmer.</div>

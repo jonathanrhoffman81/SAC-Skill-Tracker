@@ -21,6 +21,7 @@ interface EvaluationFormProps {
   swimmerId: string;
   skills: SkillItem[];
   classes: ClassItem[];
+  initialClassId?: string;
   onSubmissionComplete?: () => void;
 }
 
@@ -41,6 +42,7 @@ export default function EvaluationForm({
   swimmerId,
   skills,
   classes,
+  initialClassId,
   onSubmissionComplete,
 }: EvaluationFormProps) {
   const [progressBySkillId, setProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
@@ -63,13 +65,18 @@ export default function EvaluationForm({
   }, [skills]);
 
   useEffect(() => {
+    if (initialClassId && classes.some((classItem) => classItem.id === initialClassId)) {
+      setSelectedClassId(initialClassId);
+      return;
+    }
+
     setSelectedClassId((current) => {
       if (current && classes.some((classItem) => classItem.id === current)) {
         return current;
       }
       return classes[0]?.id ?? '';
     });
-  }, [classes]);
+  }, [classes, initialClassId]);
 
   const changedSkillUpdates = useMemo(
     () =>

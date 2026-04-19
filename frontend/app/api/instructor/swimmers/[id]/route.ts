@@ -9,7 +9,7 @@ interface RouteParams {
 
 interface SkillUpdatePayload {
   skillId: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
 }
 
 interface SkillNotePayload {
@@ -50,8 +50,28 @@ interface SwimmerProfilePayload {
   sessionNotes: SwimmerProfileNote[];
 }
 
-const VALID_PROGRESS_VALUES = new Set([0, 25, 50, 75, 100]);
+const VALID_PROGRESS_VALUES = new Set([0, 1, 2, 3, 4]);
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'org-admin', 'super-admin', 'superadmin']);
+
+function normalizeIncomingProgress(value: number | undefined): SkillUpdatePayload['progress'] | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null;
+  }
+
+  if (VALID_PROGRESS_VALUES.has(value)) {
+    return value as SkillUpdatePayload['progress'];
+  }
+
+  const percentToLevelMap: Record<number, SkillUpdatePayload['progress']> = {
+    0: 0,
+    25: 1,
+    50: 2,
+    75: 3,
+    100: 4,
+  };
+
+  return percentToLevelMap[value] ?? null;
+}
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
@@ -84,13 +104,14 @@ function normalizeSkillUpdates(body: {
 
   if (Array.isArray(body.skillUpdates)) {
     body.skillUpdates.forEach((update) => {
-      if (!update?.skillId || !VALID_PROGRESS_VALUES.has(update.progress ?? -1)) {
+      const normalizedProgress = normalizeIncomingProgress(update?.progress);
+      if (!update?.skillId || normalizedProgress === null) {
         return;
       }
 
       normalizedUpdates.set(update.skillId, {
         skillId: update.skillId,
-        progress: update.progress as SkillUpdatePayload['progress'],
+        progress: normalizedProgress,
       });
     });
   }
@@ -101,10 +122,11 @@ function normalizeSkillUpdates(body: {
       progress = body.mastered ? 100 : 0;
     }
 
-    if (VALID_PROGRESS_VALUES.has(progress ?? -1)) {
+    const normalizedProgress = normalizeIncomingProgress(progress);
+    if (normalizedProgress !== null) {
       normalizedUpdates.set(body.skillId, {
         skillId: body.skillId,
-        progress: progress as SkillUpdatePayload['progress'],
+        progress: normalizedProgress,
       });
     }
   }
@@ -286,6 +308,63 @@ async function instructorCanAccessMember(
   return canAccessViaGroup
     ? { ok: true }
     : { ok: false, error: 'You do not have access to this swimmer.' };
+}
+
+async function saveMemberSkillProgress(args: {
+  memberId: string;
+  skillId: string;
+  progress: SkillUpdatePayload['progress'];
+  updatedByPersonId: string;
+}) {
+  const supabaseAdmin = getSupabaseAdminClient();
+  const dateAcquired = args.progress === 100 ? new Date().toISOString().slice(0, 10) : null;
+
+  const { data: existingRow, error: existingRowError } = await supabaseAdmin
+    .from('member_skill')
+    .select('member_skill_id')
+    .eq('member_id', args.memberId)
+    .eq('skill_id', args.skillId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingRowError) {
+    return { error: existingRowError.message };
+  }
+
+  if (existingRow?.member_skill_id) {
+    const { error: updateError } = await supabaseAdmin
+      .from('member_skill')
+      .update({
+        progress: args.progress,
+        date_acquired: dateAcquired,
+        updated_by_person_id: args.updatedByPersonId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('member_skill_id', existingRow.member_skill_id);
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    return { error: null };
+  }
+
+  const { error: insertError } = await supabaseAdmin
+    .from('member_skill')
+    .insert({
+      member_id: args.memberId,
+      skill_id: args.skillId,
+      progress: args.progress,
+      date_acquired: dateAcquired,
+      updated_by_person_id: args.updatedByPersonId,
+    });
+
+  if (insertError) {
+    return { error: insertError.message };
+  }
+
+  return { error: null };
 }
 
 async function getSharedClassIdsForInstructorAndMember(
@@ -702,18 +781,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const skillUpdate = skillUpdates[0];
 
-    const { error: upsertError } = await supabaseAdmin.from('member_skill').upsert(
-      {
-        member_id: memberId,
-        skill_id: skillUpdate.skillId,
-        progress: skillUpdate.progress,
-        date_acquired: skillUpdate.progress === 100
-          ? new Date().toISOString().slice(0, 10)
-          : null,
-        updated_by_person_id: instructor.person_id,
-      },
-      { onConflict: 'member_id,skill_id' }
-    );
+    const { error: upsertError } = await saveMemberSkillProgress({
+      memberId,
+      skillId: skillUpdate.skillId,
+      progress: skillUpdate.progress,
+      updatedByPersonId: instructor.person_id,
+    });
 
     if (upsertError) {
       return NextResponse.json(
@@ -792,7 +865,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (body.skillId && skillUpdates.length === 0) {
       return NextResponse.json(
-        { error: 'Skill updates must use progress values of 0, 25, 50, 75, or 100.' },
+        { error: 'Skill updates must use progress values of 0, 1, 2, 3, or 4.' },
         { status: 400 }
       );
     }
@@ -850,23 +923,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (hasSkillUpdate) {
-      const skillUpsertRows = skillUpdates.map((update) => ({
-        member_id: memberId,
-        skill_id: update.skillId,
-        progress: update.progress,
-        date_acquired: update.progress === 100 ? new Date().toISOString().slice(0, 10) : null,
-        updated_by_person_id: instructor.person_id,
-      }));
+      for (const update of skillUpdates) {
+        const { error: skillUpsertError } = await saveMemberSkillProgress({
+          memberId,
+          skillId: update.skillId,
+          progress: update.progress,
+          updatedByPersonId: instructor.person_id,
+        });
 
-      const { error: skillUpsertError } = await supabaseAdmin
-        .from('member_skill')
-        .upsert(skillUpsertRows, { onConflict: 'member_id,skill_id' });
-
-      if (skillUpsertError) {
-        return NextResponse.json(
-          { error: `Failed to update skill: ${skillUpsertError.message}` },
-          { status: 500 }
-        );
+        if (skillUpsertError) {
+          return NextResponse.json(
+            { error: `Failed to update skill: ${skillUpsertError}` },
+            { status: 500 }
+          );
+        }
       }
     }
 
