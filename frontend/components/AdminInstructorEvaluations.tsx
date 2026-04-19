@@ -37,6 +37,14 @@ interface DashboardSwimmer {
         lastEvaluationDate?: string;
         latestGeneralNote?: string;
         instructors: string[];
+        recentEntries: Array<{
+            evaluationId: string;
+            date: string;
+            instructor: string;
+            skillName?: string;
+            feedback?: string;
+            isSkillNote: boolean;
+        }>;
     }>;
     evaluationSummary: {
         evaluationCount: number;
@@ -68,12 +76,6 @@ interface AdminInstructorEvaluationsProps {
     showNeedsEvaluationSection?: boolean;
     showProficiencyScaleSection?: boolean;
     restoreOpenSwimmerId?: boolean;
-}
-
-interface SwimmerDetailPayload {
-    classes: DashboardClass[];
-    skills: DashboardSkill[];
-    error?: string;
 }
 
 interface PaginationState {
@@ -354,9 +356,6 @@ export default function AdminInstructorEvaluations({
     );
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
-    const [detailBySwimmerId, setDetailBySwimmerId] = useState<
-        Record<string, { classes: DashboardClass[]; skills: DashboardSkill[]; loading: boolean; error?: string }>
-    >({});
     const [fallbackClassOptions, setFallbackClassOptions] = useState<Array<{ value: string; label: string; startDate?: string; endDate?: string }>>(() =>
         initialFilters?.classes ?? [],
     );
@@ -850,7 +849,6 @@ export default function AdminInstructorEvaluations({
         swimmers,
         currentPage,
         pagination,
-        detailBySwimmerId,
     ]);
 
     useEffect(() => {
@@ -868,87 +866,6 @@ export default function AdminInstructorEvaluations({
         memberIdsByGroupId,
         memberIdsByInstructorId,
     ]);
-
-    const loadSwimmerDetail = async (swimmerId: string, forceRefresh = false) => {
-        const existing = detailBySwimmerId[swimmerId];
-        if (!forceRefresh && existing?.skills?.length) return;
-
-        const swimmerSnapshot = swimmers.find((swimmer) => swimmer.id === swimmerId);
-
-        setDetailBySwimmerId((prev) => ({
-            ...prev,
-            [swimmerId]: {
-                classes: prev[swimmerId]?.classes?.length
-                    ? prev[swimmerId].classes
-                    : (swimmerSnapshot?.classes ?? []),
-                skills: prev[swimmerId]?.skills?.length
-                    ? prev[swimmerId].skills
-                    : (swimmerSnapshot?.skills ?? []),
-                loading: true,
-                error: undefined,
-            },
-        }));
-
-        try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, { headers });
-            const payload = (await response.json()) as SwimmerDetailPayload;
-
-            if (!response.ok) {
-                throw new Error(payload.error || "Failed to load swimmer details.");
-            }
-
-            setDetailBySwimmerId((prev) => ({
-                ...prev,
-                [swimmerId]: {
-                    classes: payload.classes ?? [],
-                    skills: payload.skills ?? [],
-                    loading: false,
-                    error: undefined,
-                },
-            }));
-
-            setSwimmers((prev) => prev.map((swimmer) => {
-                if (swimmer.id !== swimmerId) return swimmer;
-
-                const resolvedSkills = payload.skills ?? [];
-                const masteredSkills = resolvedSkills.filter((skill) => skill.mastered).length;
-                const averageProficiency = resolvedSkills.length > 0
-                    ? Math.round(
-                        resolvedSkills.reduce(
-                            (total, skill) => total + progressToPercent(skill.progress),
-                            0,
-                        ) / resolvedSkills.length,
-                    )
-                    : 0;
-
-                return {
-                    ...swimmer,
-                    classes: payload.classes ?? swimmer.classes,
-                    skillSummary: {
-                        totalSkills: resolvedSkills.length,
-                        masteredSkills,
-                        averageProficiency,
-                    },
-                };
-            }));
-        } catch (loadError) {
-            const message =
-                loadError instanceof Error
-                    ? loadError.message
-                    : "Failed to load swimmer details.";
-
-            setDetailBySwimmerId((prev) => ({
-                ...prev,
-                [swimmerId]: {
-                    classes: prev[swimmerId]?.classes ?? [],
-                    skills: prev[swimmerId]?.skills ?? [],
-                    loading: false,
-                    error: message,
-                },
-            }));
-        }
-    };
 
     const handleSwimmerClick = (swimmerId: string) => {
         setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
@@ -975,6 +892,7 @@ export default function AdminInstructorEvaluations({
                                 lastEvaluationDate: now,
                                 latestGeneralNote: undefined,
                                 instructors: swimmer.evaluationSummary.instructors ?? [],
+                                recentEntries: [],
                             },
                         ];
                     }
@@ -1620,9 +1538,8 @@ export default function AdminInstructorEvaluations({
                         const isOpen = openSwimmerId === swimmer.id;
                         const activeClasses = swimmer.classes.filter((classItem) => !isPastClass(classItem));
                         const pastClasses = swimmer.classes.filter((classItem) => isPastClass(classItem));
-                        const detail = detailBySwimmerId[swimmer.id];
-                        const resolvedClasses = detail?.classes?.length ? detail.classes : swimmer.classes;
-                        const resolvedSkills = detail?.skills?.length ? detail.skills : swimmer.skills;
+                        const resolvedClasses = swimmer.classes;
+                        const resolvedSkills = swimmer.skills;
                         const classEvaluationSummaryById = new Map(
                             (swimmer.classEvaluations ?? []).map((item) => [item.classId, item]),
                         );
@@ -1732,18 +1649,8 @@ export default function AdminInstructorEvaluations({
 
                                 {isOpen && (
                                     <div className="border-t border-gray-100 p-5 sm:p-6">
-                                        {detail?.error && resolvedSkills.length === 0 ? (
-                                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                                {detail.error}
-                                            </div>
-                                        ) : resolvedSkills.length ? (
+                                        {resolvedSkills.length ? (
                                             <div className="space-y-5">
-                                                {detail?.error && (
-                                                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                                        {detail.error}
-                                                    </div>
-                                                )}
-
                                                 <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
                                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                                                         <div>
@@ -1838,7 +1745,7 @@ export default function AdminInstructorEvaluations({
                                                                                 </div>
                                                                             </div>
 
-                                                                            {classSummary?.latestGeneralNote && (
+                                {classSummary?.latestGeneralNote && (
                                                                                 <div className="mt-3 rounded-lg border border-blue-100 bg-white px-3 py-3">
                                                                                     <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700">
                                                                                         Latest Note
@@ -1856,6 +1763,103 @@ export default function AdminInstructorEvaluations({
                                                                                         : "No instructor note recorded yet"}
                                                                                 </span>
                                                                             </div>
+
+                                                                            {classSummary?.recentEntries?.length ? (
+                                                                                <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                                                                                    <div className="flex items-center justify-between gap-3">
+                                                                                        <p className="text-xs font-semibold text-gray-700">
+                                                                                            Evaluation History
+                                                                                        </p>
+                                                                                        <p className="text-[11px] text-gray-500">
+                                                                                            {classItem.name} · {getClassWindowLabel(classItem)}
+                                                                                        </p>
+                                                                                    </div>
+
+                                                                                    <div className="mt-3 space-y-3">
+                                                                                        {classSummary.recentEntries.slice(0, 2).map((entry) => (
+                                                                                            <div
+                                                                                                key={entry.evaluationId}
+                                                                                                className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
+                                                                                            >
+                                                                                                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                                                                                    <span>{entry.date}</span>
+                                                                                                    <span>by {entry.instructor}</span>
+                                                                                                    <span className={`rounded-full px-2 py-0.5 ${entry.isSkillNote
+                                                                                                        ? "bg-blue-100 text-blue-700"
+                                                                                                        : "bg-slate-100 text-slate-700"
+                                                                                                        }`}>
+                                                                                                        {entry.isSkillNote
+                                                                                                            ? entry.skillName
+                                                                                                                ? `${entry.skillName} note`
+                                                                                                                : "Skill note"
+                                                                                                            : "Class note"}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                <p className="mt-2 text-sm text-gray-700">
+                                                                                                    {entry.feedback?.trim() || "No note text recorded."}
+                                                                                                </p>
+                                                                                            </div>
+                                                                                        ))}
+
+                                                                                        {classSummary.recentEntries.length > 2 && (
+                                                                                            <details className="group">
+                                                                                                <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                                                                                                    <span className="group-open:hidden">
+                                                                                                        Show {classSummary.recentEntries.length - 2} older entry
+                                                                                                        {classSummary.recentEntries.length - 2 === 1 ? "" : "s"}
+                                                                                                    </span>
+                                                                                                    <span className="hidden group-open:inline">
+                                                                                                        Hide older entries
+                                                                                                    </span>
+                                                                                                    <svg
+                                                                                                        className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                                                                                        fill="none"
+                                                                                                        stroke="currentColor"
+                                                                                                        viewBox="0 0 24 24"
+                                                                                                    >
+                                                                                                        <path
+                                                                                                            strokeLinecap="round"
+                                                                                                            strokeLinejoin="round"
+                                                                                                            strokeWidth={2}
+                                                                                                            d="M19 9l-7 7-7-7"
+                                                                                                        />
+                                                                                                    </svg>
+                                                                                                </summary>
+                                                                                                <div className="mt-3 space-y-3">
+                                                                                                    {classSummary.recentEntries.slice(2).map((entry) => (
+                                                                                                        <div
+                                                                                                            key={entry.evaluationId}
+                                                                                                            className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
+                                                                                                        >
+                                                                                                            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                                                                                                <span>{entry.date}</span>
+                                                                                                                <span>by {entry.instructor}</span>
+                                                                                                                <span className={`rounded-full px-2 py-0.5 ${entry.isSkillNote
+                                                                                                                    ? "bg-blue-100 text-blue-700"
+                                                                                                                    : "bg-slate-100 text-slate-700"
+                                                                                                                    }`}>
+                                                                                                                    {entry.isSkillNote
+                                                                                                                        ? entry.skillName
+                                                                                                                            ? `${entry.skillName} note`
+                                                                                                                            : "Skill note"
+                                                                                                                        : "Class note"}
+                                                                                                                </span>
+                                                                                                            </div>
+                                                                                                            <p className="mt-2 text-sm text-gray-700">
+                                                                                                                {entry.feedback?.trim() || "No note text recorded."}
+                                                                                                            </p>
+                                                                                                        </div>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            </details>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="mt-4 rounded-lg border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                                                                                    No recorded evaluation history for this class yet.
+                                                                                </div>
+                                                                            )}
                                                                         </div>
 
                                                                         <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[190px]">
@@ -1910,12 +1914,14 @@ export default function AdminInstructorEvaluations({
                                                             initialClassId={selectedEvaluationClass.id}
                                                             onSubmissionComplete={async () => {
                                                                 applyOptimisticEvaluationPatch(swimmer.id, selectedEvaluationClass.id);
-                                                                await loadSwimmerDetail(swimmer.id, true);
                                                                 setActiveEvaluationClassIdBySwimmer((prev) => ({
                                                                     ...prev,
                                                                     [swimmer.id]: null,
                                                                 }));
                                                                 setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                                await loadData(currentPage, debouncedSearchQuery, {
+                                                                    forceRefresh: true,
+                                                                });
                                                             }}
                                                         />
                                                     </div>
@@ -1926,8 +1932,10 @@ export default function AdminInstructorEvaluations({
                                                         classes={resolvedClasses}
                                                         onSubmissionComplete={async () => {
                                                             applyOptimisticEvaluationPatch(swimmer.id);
-                                                            await loadSwimmerDetail(swimmer.id, true);
                                                             setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                            await loadData(currentPage, debouncedSearchQuery, {
+                                                                forceRefresh: true,
+                                                            });
                                                         }}
                                                     />
                                                 ) : (

@@ -38,6 +38,14 @@ interface DashboardSwimmerPayload {
     lastEvaluationDate?: string;
     latestGeneralNote?: string;
     instructors: string[];
+    recentEntries: Array<{
+      evaluationId: string;
+      date: string;
+      instructor: string;
+      skillName?: string;
+      feedback?: string;
+      isSkillNote: boolean;
+    }>;
   }>;
   skillSummary?: {
     totalSkills: number;
@@ -728,6 +736,14 @@ export async function GET(request: NextRequest) {
           lastEvaluationDate?: string;
           latestGeneralNote?: string;
           instructors: string[];
+          recentEntries: Array<{
+            evaluationId: string;
+            date: string;
+            instructor: string;
+            skillName?: string;
+            feedback?: string;
+            isSkillNote: boolean;
+          }>;
         }
       >
     >();
@@ -779,6 +795,14 @@ export async function GET(request: NextRequest) {
                 lastEvaluationDate?: string;
                 latestGeneralNote?: string;
                 instructors: string[];
+                recentEntries: Array<{
+                  evaluationId: string;
+                  date: string;
+                  instructor: string;
+                  skillName?: string;
+                  feedback?: string;
+                  isSkillNote: boolean;
+                }>;
               }
             >();
 
@@ -789,6 +813,7 @@ export async function GET(request: NextRequest) {
             lastEvaluationDate: undefined,
             latestGeneralNote: undefined,
             instructors: [],
+            recentEntries: [],
           };
 
           existingClassSummary.evaluationCount += 1;
@@ -818,6 +843,20 @@ export async function GET(request: NextRequest) {
           const classInstructorName = instructorNameById.get(row.instructor_person_id);
           if (classInstructorName && !existingClassSummary.instructors.includes(classInstructorName)) {
             existingClassSummary.instructors.push(classInstructorName);
+          }
+
+          if (existingClassSummary.recentEntries.length < 4) {
+            const skillName = row.skill_id
+              ? orgSkills.find((skill) => skill.skill_id === row.skill_id)?.name
+              : undefined;
+            existingClassSummary.recentEntries.push({
+              evaluationId: row.evaluation_id,
+              date: formatDate(row.evaluation_date) ?? "Date unknown",
+              instructor: classInstructorName ?? "Instructor",
+              skillName,
+              feedback: row.feedback ?? undefined,
+              isSkillNote: Boolean(row.skill_id),
+            });
           }
 
           memberClassSummary.set(row.class_id, existingClassSummary);
@@ -880,8 +919,9 @@ export async function GET(request: NextRequest) {
         };
 
         const progress = Number(row.progress ?? 0);
-        existing.totalProgressPercent += Number.isFinite(progress) ? progress : 0;
-        if (progress === 100 || Boolean(row.date_acquired)) {
+        const normalizedProgress = normalizeProgress(progress);
+        existing.totalProgressPercent += Number.isFinite(progress) ? normalizedProgress * 25 : 0;
+        if (normalizedProgress === 4 || Boolean(row.date_acquired)) {
           existing.masteredSkills += 1;
         }
 
@@ -948,6 +988,7 @@ export async function GET(request: NextRequest) {
           lastEvaluationDate: formatDate(summary.lastEvaluationDate),
           latestGeneralNote: summary.latestGeneralNote,
           instructors: summary.instructors,
+          recentEntries: summary.recentEntries,
         })),
         evaluationSummary: {
           evaluationCount:

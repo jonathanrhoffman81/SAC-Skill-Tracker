@@ -119,7 +119,7 @@ function normalizeSkillUpdates(body: {
   if (body.skillId) {
     let progress: number | undefined = body.progress;
     if (typeof progress !== 'number' && typeof body.mastered === 'boolean') {
-      progress = body.mastered ? 100 : 0;
+      progress = body.mastered ? 4 : 0;
     }
 
     const normalizedProgress = normalizeIncomingProgress(progress);
@@ -317,7 +317,7 @@ async function saveMemberSkillProgress(args: {
   updatedByPersonId: string;
 }) {
   const supabaseAdmin = getSupabaseAdminClient();
-  const dateAcquired = args.progress === 100 ? new Date().toISOString().slice(0, 10) : null;
+  const dateAcquired = args.progress === 4 ? new Date().toISOString().slice(0, 10) : null;
 
   const { data: existingRow, error: existingRowError } = await supabaseAdmin
     .from('member_skill')
@@ -644,7 +644,7 @@ async function buildSwimmerProfileFallback(
         return {
           id: row.skill_id,
           name: row.name,
-          mastered: progress === 100 || Boolean(memberSkill?.dateAcquired),
+          mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
           progress,
           dateAcquired: formatDate(memberSkill?.dateAcquired),
           notes: skillNotesBySkillId.get(row.skill_id) ?? [],
