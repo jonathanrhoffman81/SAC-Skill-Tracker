@@ -651,27 +651,9 @@ export default function AdminDashboard() {
     return () => window.removeEventListener("popstate", applyTabFromUrl);
   }, [validTabIds]);
 
-  useEffect(() => {
-    const fetchLogo = async () => {
-      if (!stats?.organizationId) {
-        setLogoUrl(null);
-        return;
-      }
-
-      try {
-        const res = await fetch(
-          `/api/public/get-logo?orgId=${encodeURIComponent(stats.organizationId)}`,
-        );
-        const data = await res.json();
-        setLogoUrl(data?.publicUrl || null);
-      } catch (err) {
-        console.error("Error fetching logo:", err);
-        setLogoUrl(null);
-      }
-    };
-
-    fetchLogo();
-  }, [stats?.organizationId]);
+useEffect(() => {
+  setLogoUrl(stats?.organizationLogoUrl ?? null);
+}, [stats?.organizationLogoUrl]);
 
   const getInitials = (name: string) =>
     name
@@ -1152,8 +1134,7 @@ export default function AdminDashboard() {
 
   const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
   const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
-  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
-
+ 
   const closeSidebar = () => {
     setSidebarOpen(false);
     if (isDesktop) {
@@ -1216,7 +1197,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{ minHeight: '100vh', backgroundColor: resolvedHeaderAccentColor }}>
       {sidebarVisible && !isDesktop && (
         <button
           type="button"
@@ -1305,8 +1286,8 @@ export default function AdminDashboard() {
         <header
           className="sticky top-0 z-10 border-b border-gray-200 bg-white"
           style={{
-            background: headerAccentBackground,
-            borderTop: `7px solid ${resolvedHeaderAccentColor}`,
+            background: "white",
+            borderTop: `0px solid ${resolvedHeaderAccentColor}`,
           }}
         >
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
