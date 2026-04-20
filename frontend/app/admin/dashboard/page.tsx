@@ -1437,23 +1437,25 @@ useEffect(() => {
           {visitedTabs.has("roster") && (
             <div className={`w-full min-h-[60vh] ${activeTab === "roster" ? "" : "hidden"}`}>
               {/* Tabs */}
-              <div className="flex border-b border-gray-200 mb-4">
+              <div className="flex border-b border-gray-200 bg-white/80 backdrop-blur rounded-t-md">
                 <button
                   onClick={() => setImportTab("roster")}
-                  className={`px-4 py-2 text-sm font-medium ${importTab === "roster"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-500 hover:text-gray-700"
+                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${importTab === "roster"
+                    ? "border-b-2 border-blue-600 text-blue-700 bg-white"
+                    : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
                     }`}
+                  style={{ borderTopLeftRadius: '0.375rem' }}
                 >
                   Import Roster
                 </button>
 
                 <button
                   onClick={() => setImportTab("classes")}
-                  className={`px-4 py-2 text-sm font-medium ${importTab === "classes"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-500 hover:text-gray-700"
+                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${importTab === "classes"
+                    ? "border-b-2 border-blue-600 text-blue-700 bg-white"
+                    : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
                     }`}
+                  style={{ borderTopRightRadius: '0.375rem' }}
                 >
                   Import Classes
                 </button>
@@ -1461,7 +1463,7 @@ useEffect(() => {
 
               {/* Content */}
               {importTab === "roster" && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white rounded-b-lg sm:rounded-b-xl border border-gray-200 shadow-sm mt-0">
                   <div className="p-4 sm:p-6 border-b border-gray-100">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                       Import from SportsEngine
@@ -1476,7 +1478,7 @@ useEffect(() => {
               )}
 
               {importTab === "classes" && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white rounded-b-lg sm:rounded-b-xl border border-gray-200 shadow-sm mt-0">
                   <div className="p-4 sm:p-6 border-b border-gray-100">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                       Import Classes
