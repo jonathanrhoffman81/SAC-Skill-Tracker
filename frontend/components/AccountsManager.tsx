@@ -258,7 +258,7 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                 ))}
             </div>
 
-            <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm flex flex-col h-screen">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
                 <div className="sticky top-0 z-20 bg-white border-b border-gray-200 p-4 sm:p-6">
                     <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                         Manage Accounts

@@ -651,27 +651,9 @@ export default function AdminDashboard() {
     return () => window.removeEventListener("popstate", applyTabFromUrl);
   }, [validTabIds]);
 
-  useEffect(() => {
-    const fetchLogo = async () => {
-      if (!stats?.organizationId) {
-        setLogoUrl(null);
-        return;
-      }
-
-      try {
-        const res = await fetch(
-          `/api/public/get-logo?orgId=${encodeURIComponent(stats.organizationId)}`,
-        );
-        const data = await res.json();
-        setLogoUrl(data?.publicUrl || null);
-      } catch (err) {
-        console.error("Error fetching logo:", err);
-        setLogoUrl(null);
-      }
-    };
-
-    fetchLogo();
-  }, [stats?.organizationId]);
+useEffect(() => {
+  setLogoUrl(stats?.organizationLogoUrl ?? null);
+}, [stats?.organizationLogoUrl]);
 
   const getInitials = (name: string) =>
     name
@@ -1152,8 +1134,7 @@ export default function AdminDashboard() {
 
   const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
   const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
-  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
-
+ 
   const closeSidebar = () => {
     setSidebarOpen(false);
     if (isDesktop) {
@@ -1216,7 +1197,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{ minHeight: '100vh', backgroundColor: resolvedHeaderAccentColor }}>
       {sidebarVisible && !isDesktop && (
         <button
           type="button"
@@ -1305,8 +1286,8 @@ export default function AdminDashboard() {
         <header
           className="sticky top-0 z-10 border-b border-gray-200 bg-white"
           style={{
-            background: headerAccentBackground,
-            borderTop: `7px solid ${resolvedHeaderAccentColor}`,
+            background: "white",
+            borderTop: `0px solid ${resolvedHeaderAccentColor}`,
           }}
         >
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
@@ -1456,23 +1437,25 @@ export default function AdminDashboard() {
           {visitedTabs.has("roster") && (
             <div className={`w-full min-h-[60vh] ${activeTab === "roster" ? "" : "hidden"}`}>
               {/* Tabs */}
-              <div className="flex border-b border-gray-200 mb-4">
+              <div className="flex border-b border-gray-200 bg-white/80 backdrop-blur rounded-t-md">
                 <button
                   onClick={() => setImportTab("roster")}
-                  className={`px-4 py-2 text-sm font-medium ${importTab === "roster"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-500 hover:text-gray-700"
+                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${importTab === "roster"
+                    ? "border-b-2 border-blue-600 text-blue-700 bg-white"
+                    : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
                     }`}
+                  style={{ borderTopLeftRadius: '0.375rem' }}
                 >
                   Import Roster
                 </button>
 
                 <button
                   onClick={() => setImportTab("classes")}
-                  className={`px-4 py-2 text-sm font-medium ${importTab === "classes"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-500 hover:text-gray-700"
+                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${importTab === "classes"
+                    ? "border-b-2 border-blue-600 text-blue-700 bg-white"
+                    : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
                     }`}
+                  style={{ borderTopRightRadius: '0.375rem' }}
                 >
                   Import Classes
                 </button>
@@ -1480,7 +1463,7 @@ export default function AdminDashboard() {
 
               {/* Content */}
               {importTab === "roster" && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white rounded-b-lg sm:rounded-b-xl border border-gray-200 shadow-sm mt-0">
                   <div className="p-4 sm:p-6 border-b border-gray-100">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                       Import from SportsEngine
@@ -1495,7 +1478,7 @@ export default function AdminDashboard() {
               )}
 
               {importTab === "classes" && (
-                <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white rounded-b-lg sm:rounded-b-xl border border-gray-200 shadow-sm mt-0">
                   <div className="p-4 sm:p-6 border-b border-gray-100">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900">
                       Import Classes

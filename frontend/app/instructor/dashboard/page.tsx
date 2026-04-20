@@ -134,13 +134,10 @@ export default function InstructorDashboard() {
   const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{ minHeight: '100vh', backgroundColor: resolvedHeaderAccentColor }}>
       <header
         className="sticky top-0 z-10 border-b border-gray-200 bg-white"
-        style={{
-          background: headerAccentBackground,
-          borderTop: `7px solid ${resolvedHeaderAccentColor}`,
-        }}
+        style={{ background: 'white', borderTop: undefined }}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-3">
