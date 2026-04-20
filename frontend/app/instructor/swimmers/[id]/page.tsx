@@ -58,6 +58,11 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
+function progressLevelToPercent(level: number) {
+  const normalized = Math.max(0, Math.min(4, level));
+  return normalized * 25;
+}
+
 export default function InstructorSwimmerDetail() {
   const router = useRouter();
   const params = useParams();
@@ -146,8 +151,14 @@ export default function InstructorSwimmerDetail() {
   );
 
   const progressPct = useMemo(
-    () => (skills.length ? Math.round((masteredCount / skills.length) * 100) : 0),
-    [masteredCount, skills.length]
+    () =>
+      skills.length
+        ? Math.round(
+            skills.reduce((sum, skill) => sum + progressLevelToPercent(skill.progress), 0) /
+              skills.length,
+          )
+        : 0,
+    [skills]
   );
 
   const instructorNames = useMemo(() => {
@@ -337,7 +348,10 @@ export default function InstructorSwimmerDetail() {
 
         <section className="space-y-6">
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            {skills.map((skill) => (
+            {skills.map((skill) => {
+              const skillProgressPercent = progressLevelToPercent(skill.progress);
+
+              return (
               <div key={skill.id} className="px-6 py-4 space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -346,12 +360,12 @@ export default function InstructorSwimmerDetail() {
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                       <span
-                        className={`rounded-full px-2 py-0.5 ${skill.progress === 100
+                        className={`rounded-full px-2 py-0.5 ${skill.progress === 4
                           ? 'bg-emerald-100 text-emerald-700'
                           : 'bg-gray-100 text-gray-600'
                           }`}
                       >
-                        {skill.progress}% progress
+                        {skillProgressPercent}% progress
                       </span>
                       {skill.mastered && skill.dateAcquired && (
                         <span>Mastered on {skill.dateAcquired}</span>
@@ -400,7 +414,8 @@ export default function InstructorSwimmerDetail() {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {skills.length === 0 && (
               <div className="px-6 py-6 text-sm text-gray-500">No skills tracked for this swimmer yet.</div>

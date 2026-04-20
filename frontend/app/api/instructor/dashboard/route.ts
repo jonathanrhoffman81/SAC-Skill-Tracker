@@ -4,6 +4,7 @@ import {
   getCurrentPersonFromRequest,
 } from "@/lib/serverAuth";
 import { normalizeRole } from "@/lib/authRoles";
+import { getOrganizationById } from "@/lib/adminQueries";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 interface DashboardClassPayload {
@@ -30,8 +31,10 @@ interface DashboardSwimmerPayload {
 }
 
 interface DashboardPayload {
+  currentInstructorId?: string;
   userName: string;
   organizationName: string;
+  headerAccentColor?: string | null;
   swimmers: DashboardSwimmerPayload[];
   organizationLogoUrl: string | null;
   pagination: {
@@ -99,6 +102,9 @@ function normalizeProgress(
   value: number | null | undefined,
 ): 0 | 1 | 2 | 3 | 4 {
   if (value === 0) return 0;
+  if (value === 1 || value === 2 || value === 3 || value === 4) {
+    return value;
+  }
   if (value === 25) return 1;
   if (value === 50) return 2;
   if (value === 75) return 3;
@@ -161,25 +167,17 @@ async function buildDashboardFallback(
   const organizationId = personOrg?.organization_id;
   if (!organizationId) {
     return {
+      currentInstructorId: person.person_id,
       userName,
       organizationName: "SAC Skill Tracker",
+      headerAccentColor: null,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination: buildPagination(page, PAGE_SIZE, 0),
     };
   }
 
-  const { data: organization, error: organizationError } = await supabaseAdmin
-    .from("organization")
-    .select("name")
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-
-  if (organizationError) {
-    throw new Error(
-      `Failed to load organization: ${organizationError.message}`,
-    );
-  }
+  const organization = await getOrganizationById(supabaseAdmin, organizationId);
 
   const groupIds = Array.from(
     new Set((instructorGroups ?? []).map((row) => row.group_id)),
@@ -251,8 +249,10 @@ async function buildDashboardFallback(
 
   if (memberIds.length === 0) {
     return {
+      currentInstructorId: person.person_id,
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      headerAccentColor: organization?.header_color ?? null,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination: buildPagination(page, PAGE_SIZE, 0),
@@ -303,6 +303,7 @@ async function buildDashboardFallback(
     return {
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      headerAccentColor: organization?.header_color ?? null,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination,
@@ -432,8 +433,10 @@ async function buildDashboardFallback(
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return {
+    currentInstructorId: person.person_id,
     userName,
     organizationName: organization?.name || "SAC Skill Tracker",
+    headerAccentColor: organization?.header_color ?? null,
     organizationLogoUrl: getOrganizationLogoUrl(organizationId),
     swimmers,
     pagination,

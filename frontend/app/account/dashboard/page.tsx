@@ -23,6 +23,38 @@ import {
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
 const SKILL_PROGRESS_STEPS: SkillProgress[] = [0, 1, 2, 3, 4];
+const DEFAULT_HEADER_ACCENT_COLOR = "#ffffff";
+
+function normalizeHexColor(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const hex = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  if (![3, 6].includes(hex.length) || !/^[0-9a-fA-F]+$/.test(hex)) {
+    return null;
+  }
+
+  if (hex.length === 3) {
+    return `#${hex
+      .split("")
+      .map((char) => `${char}${char}`)
+      .join("")
+      .toUpperCase()}`;
+  }
+
+  return `#${hex.toUpperCase()}`;
+}
+
+function hexToRgba(hexColor: string, alpha: number) {
+  const normalized = normalizeHexColor(hexColor);
+  if (!normalized) return `rgba(255, 255, 255, ${alpha})`;
+
+  const red = Number.parseInt(normalized.slice(1, 3), 16);
+  const green = Number.parseInt(normalized.slice(3, 5), 16);
+  const blue = Number.parseInt(normalized.slice(5, 7), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
 
 const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v5:";
 const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v5:";
@@ -58,6 +90,7 @@ interface SkillItem {
 interface DashboardPayload {
   userName: string;
   organizationName?: string;
+  headerAccentColor?: string | null;
   swimmers: Array<
     Omit<SwimmerCard, "classIds" | "isActive"> & {
       classIds?: string[];
@@ -150,6 +183,7 @@ export default function AccountDashboard() {
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
   const [showInactive, setShowInactive] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(null);
   const [skillsBySwimmer, setSkillsBySwimmer] = useState<
     Record<string, SkillItem[]>
   >({});
@@ -185,6 +219,7 @@ export default function AccountDashboard() {
     function applyPayload(payload: DashboardPayload, fallbackName: string) {
       setUserName(payload.userName || fallbackName);
       setOrganizationName(payload.organizationName || "SAC Skill Tracker");
+      setHeaderAccentColor(normalizeHexColor(payload.headerAccentColor || "") ?? null);
       setSwimmers(
         (payload.swimmers ?? []).map((swimmer) => ({
           ...swimmer,
@@ -329,9 +364,18 @@ export default function AccountDashboard() {
     );
   }
 
+  const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+      <header
+        className="sticky top-0 z-10 border-b border-gray-200 bg-white"
+        style={{
+          background: headerAccentBackground,
+          borderTop: `7px solid ${resolvedHeaderAccentColor}`,
+        }}
+      >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">

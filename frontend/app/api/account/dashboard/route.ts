@@ -12,6 +12,7 @@ import {
   buildParentSwimmerProfiles,
   type SwimmerProfilePayload,
 } from "@/lib/accountSwimmerProfiles";
+import { getOrganizationById } from "@/lib/adminQueries";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
@@ -19,6 +20,7 @@ type SkillProgress = 0 | 1 | 2 | 3 | 4;
 interface DashboardPayload {
   userName: string;
   organizationName?: string;
+  headerAccentColor?: string | null;
   logoUrl?: string | null;
   swimmers: Array<{
     id: string;
@@ -166,6 +168,33 @@ export async function GET(request: NextRequest) {
 
     const payload = data as DashboardPayload;
     const memberIds = (payload.swimmers ?? []).map((swimmer) => swimmer.id);
+
+    if (memberIds.length > 0) {
+      const { data: organizationMember, error: organizationMemberError } =
+        await supabaseAdmin
+          .from("member")
+          .select("organization_id")
+          .in("member_id", memberIds)
+          .limit(1)
+          .maybeSingle();
+
+      if (organizationMemberError) {
+        return NextResponse.json(
+          {
+            error: `Failed to load organization: ${organizationMemberError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      const organization = organizationMember?.organization_id
+        ? await getOrganizationById(supabaseAdmin, organizationMember.organization_id)
+        : null;
+
+      payload.headerAccentColor = organization?.header_color ?? null;
+    } else {
+      payload.headerAccentColor = null;
+    }
 
     if (memberIds.length > 0) {
       const { data: memberSkillRows, error: memberSkillError } =

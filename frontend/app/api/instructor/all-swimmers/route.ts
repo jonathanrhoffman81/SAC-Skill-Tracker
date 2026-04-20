@@ -218,6 +218,9 @@ function normalizeProgress(
   value: number | null | undefined,
 ): 0 | 1 | 2 | 3 | 4 {
   if (value === 0) return 0;
+  if (value === 1 || value === 2 || value === 3 || value === 4) {
+    return value;
+  }
   if (value === 25) return 1;
   if (value === 50) return 2;
   if (value === 75) return 3;

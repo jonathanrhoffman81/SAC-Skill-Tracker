@@ -47,6 +47,12 @@ interface EvaluationFormProps {
   closeDelayMs?: number;
 }
 
+type ToastMessage = {
+  id: number;
+  message: string;
+  type: 'success' | 'error';
+};
+
 const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
   { value: 0, label: '0 - Not started' },
   { value: 1, label: '1 - Beginning' },
@@ -77,6 +83,15 @@ export default function EvaluationForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'error') => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 3500);
+  };
 
   useEffect(() => {
     const nextProgress = Object.fromEntries(
@@ -171,7 +186,9 @@ export default function EvaluationForm({
       : false;
 
     if (changedSkillUpdates.length === 0 && !trimmedNote && skillNoteEntries.length === 0 && !hasEditingFeedback) {
-      setError('Update at least one skill or add notes before submitting.');
+      const message = 'Update at least one skill or add notes before submitting.';
+      setError(message);
+      showToast(message, 'error');
       return;
     }
 
@@ -304,6 +321,7 @@ export default function EvaluationForm({
       const message =
         submitError instanceof Error ? submitError.message : 'Failed to submit evaluation.';
       setError(message);
+      showToast(message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -311,6 +329,21 @@ export default function EvaluationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
+      <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
+              toast.type === 'success'
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : 'border-red-200 bg-red-50 text-red-800'
+            }`}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Skill Evaluation</h3>
@@ -340,12 +373,6 @@ export default function EvaluationForm({
           </div>
         )}
       </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
 
       <div className="space-y-3">
         {skills.map((skill) => {

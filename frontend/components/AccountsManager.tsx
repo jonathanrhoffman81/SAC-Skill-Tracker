@@ -12,6 +12,7 @@ type AccountRecord = {
     first_name?: string;
     last_name?: string;
     email?: string;
+    is_active?: boolean;
     linkedSwimmers?: Array<{ member_id: string; name: string }>;
     roles: Record<RoleKey, boolean>;
 };
@@ -32,11 +33,14 @@ const ROLE_LABELS: Record<RoleKey, string> = {
     swimmer: "Swimmer",
 };
 
+type StatusFilter = "all" | "active" | "inactive";
+
 export default function AccountsManager({ onRefresh }: { onRefresh?: () => void }) {
     const [accounts, setAccounts] = useState<AccountRecord[]>([]);
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState<"all" | RoleKey | "account">("all");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
     const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set());
     const [toasts, setToasts] = useState<Toast[]>([]);
     const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -79,13 +83,40 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
 
     const hasAccountLink = (account: AccountRecord) => Boolean(account.person_id);
 
+    const accountByMemberId = useMemo(() => {
+        const entries = accounts
+            .filter((account) => Boolean(account.member_id))
+            .map((account) => [account.member_id as string, account] as const);
+        return new Map(entries);
+    }, [accounts]);
+
     const filteredAccounts = useMemo(() => {
         const normalizedSearch = search.trim().toLowerCase();
 
         return accounts.filter((account) => {
+            const isSwimmerOnly =
+                account.roles.swimmer &&
+                !account.roles.admin &&
+                !account.roles.instructor &&
+                !account.roles.parent;
+
+            if (roleFilter !== "swimmer" && isSwimmerOnly) {
+                return false;
+            }
+
             if (roleFilter !== "all") {
                 const roleToCheck: RoleKey | string = roleFilter === "account" ? "parent" : roleFilter;
                 if (!account.roles[roleToCheck as RoleKey]) {
+                    return false;
+                }
+            }
+
+            if (statusFilter !== "all") {
+                const isActive = account.is_active !== false;
+                if (statusFilter === "active" && !isActive) {
+                    return false;
+                }
+                if (statusFilter === "inactive" && isActive) {
                     return false;
                 }
             }
@@ -105,25 +136,30 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                 linkedSwimmers.includes(normalizedSearch)
             );
         });
-    }, [accounts, roleFilter, search]);
+    }, [accounts, roleFilter, search, statusFilter]);
 
     const groupedAccounts = useMemo(() => {
-        const getRolePriority = (roles: Record<RoleKey, boolean>) => {
-            if (roles.admin) return 0;
-            if (roles.instructor) return 1;
-            if (roles.parent) return 2;
-            return 3; // swimmer or other
+        const getSortName = (account: AccountRecord) => {
+            const firstName = (account.first_name || "").trim();
+            const lastName = (account.last_name || "").trim();
+            const fullName = `${firstName} ${lastName}`.trim();
+            return fullName || account.email || "Unnamed";
         };
 
         const sorted = [...filteredAccounts].sort((a, b) => {
-            const rolePriorityA = getRolePriority(a.roles);
-            const rolePriorityB = getRolePriority(b.roles);
-
-            if (rolePriorityA !== rolePriorityB) {
-                return rolePriorityA - rolePriorityB;
+            const firstA = (a.first_name || "").trim().toLowerCase();
+            const firstB = (b.first_name || "").trim().toLowerCase();
+            if (firstA !== firstB) {
+                return firstA.localeCompare(firstB);
             }
 
-            return getDisplayName(a).toLowerCase().localeCompare(getDisplayName(b).toLowerCase());
+            const lastA = (a.last_name || "").trim().toLowerCase();
+            const lastB = (b.last_name || "").trim().toLowerCase();
+            if (lastA !== lastB) {
+                return lastA.localeCompare(lastB);
+            }
+
+            return getSortName(a).toLowerCase().localeCompare(getSortName(b).toLowerCase());
         });
 
         return sorted.reduce<Record<string, AccountRecord[]>>((groups, account) => {
@@ -228,7 +264,7 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                         Manage Accounts
                     </p>
 
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                         <input
                             type="text"
                             value={search}
@@ -246,8 +282,19 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                                     label: ROLE_LABELS[role],
                                 })),
                                 { value: "account", label: "Account" },
+                                { value: "swimmer", label: "Swimmer" },
                             ]}
                             ariaLabel="Filter accounts by role"
+                        />
+                        <DropdownButton
+                            value={statusFilter}
+                            onChange={(value) => setStatusFilter(value as StatusFilter)}
+                            options={[
+                                { value: "all", label: "All statuses" },
+                                { value: "active", label: "Active" },
+                                { value: "inactive", label: "Inactive" },
+                            ]}
+                            ariaLabel="Filter accounts by status"
                         />
                     </div>
                 </div>
@@ -288,10 +335,18 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                                                     >
                                                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                                             <div className="min-w-0">
-                                                                <div className="flex items-center gap-2 mb-1">
+                                                                <div className="mb-1 flex items-center gap-2">
                                                                     <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
                                                                         {getDisplayName(account)}
                                                                     </p>
+                                                                    <span
+                                                                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${account.is_active === false
+                                                                            ? "border-red-200 bg-red-50 text-red-700"
+                                                                            : "border-green-200 bg-green-50 text-green-700"
+                                                                            }`}
+                                                                    >
+                                                                        {account.is_active === false ? "Inactive" : "Active"}
+                                                                    </span>
                                                                 </div>
                                                                 <p className="text-xs text-gray-500 truncate">
                                                                     {account.email || "No email"}
@@ -299,48 +354,63 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                                                             </div>
 
                                                             <div className="flex flex-wrap gap-1.5 sm:ml-auto sm:justify-end">
-                                                                {ROLE_ORDER.map((role) => {
-                                                                    const enabled = Boolean(account.roles[role]);
-                                                                    const pendingKey = `${account.person_id}:${role}`;
-                                                                    const pending = pendingUpdates.has(pendingKey);
-                                                                    const lockedByAdmin =
-                                                                        role === "instructor" && account.roles.admin && enabled;
-                                                                    const cannotToggle =
-                                                                        pending || !account.person_id || lockedByAdmin;
+                                                                {roleFilter === "swimmer" ? (
+                                                                    <>
+                                                                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs text-blue-700">
+                                                                            Swimmer
+                                                                        </span>
+                                                                        {account.roles.parent && (
+                                                                            <span className="inline-flex items-center rounded-full border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-700">
+                                                                                Account
+                                                                            </span>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        {ROLE_ORDER.map((role) => {
+                                                                            const enabled = Boolean(account.roles[role]);
+                                                                            const pendingKey = `${account.person_id}:${role}`;
+                                                                            const pending = pendingUpdates.has(pendingKey);
+                                                                            const lockedByAdmin =
+                                                                                role === "instructor" && account.roles.admin && enabled;
+                                                                            const cannotToggle =
+                                                                                pending || !account.person_id || lockedByAdmin;
 
-                                                                    return (
+                                                                            return (
+                                                                                <button
+                                                                                    key={role}
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        if (!account.person_id || cannotToggle) return;
+                                                                                        updateRole(account.person_id, role, !enabled);
+                                                                                    }}
+                                                                                    disabled={cannotToggle}
+                                                                                    className={`px-2.5 py-1 text-xs rounded-md border transition ${enabled
+                                                                                        ? "border-blue-600 bg-blue-600 text-white"
+                                                                                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                                                                        } ${cannotToggle ? "opacity-60 cursor-not-allowed" : ""}`}
+                                                                                >
+                                                                                    {pending ? "Updating..." : ROLE_LABELS[role]}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+
                                                                         <button
-                                                                            key={role}
                                                                             type="button"
                                                                             onClick={() => {
-                                                                                if (!account.person_id || cannotToggle) return;
-                                                                                updateRole(account.person_id, role, !enabled);
+                                                                                if (!account.person_id) return;
+                                                                                updateRole(account.person_id, "parent", !account.roles.parent);
                                                                             }}
-                                                                            disabled={cannotToggle}
-                                                                            className={`px-2.5 py-1 text-xs rounded-md border transition ${enabled
-                                                                                ? "border-blue-600 bg-blue-600 text-white"
-                                                                                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                                                                                } ${cannotToggle ? "opacity-60 cursor-not-allowed" : ""}`}
+                                                                            disabled={!account.person_id || pendingUpdates.has(`${account.person_id}:parent`)}
+                                                                            className={`px-2.5 py-1 text-xs rounded-md border transition ${account.roles.parent
+                                                                                ? 'border-blue-600 bg-blue-600 text-white'
+                                                                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                                                                } ${!account.person_id || pendingUpdates.has(`${account.person_id}:parent`) ? "opacity-60 cursor-not-allowed" : ""}`}
                                                                         >
-                                                                            {pending ? "Updating..." : ROLE_LABELS[role]}
+                                                                            {pendingUpdates.has(`${account.person_id}:parent`) ? "Updating..." : "Account"}
                                                                         </button>
-                                                                    );
-                                                                })}
-
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        if (!account.person_id) return;
-                                                                        updateRole(account.person_id, "parent", !account.roles.parent);
-                                                                    }}
-                                                                    disabled={!account.person_id || pendingUpdates.has(`${account.person_id}:parent`)}
-                                                                    className={`px-2.5 py-1 text-xs rounded-md border transition ${account.roles.parent
-                                                                        ? 'border-blue-600 bg-blue-600 text-white'
-                                                                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                                                                        } ${!account.person_id || pendingUpdates.has(`${account.person_id}:parent`) ? "opacity-60 cursor-not-allowed" : ""}`}
-                                                                >
-                                                                    {pendingUpdates.has(`${account.person_id}:parent`) ? "Updating..." : "Account"}
-                                                                </button>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </div>
 
@@ -349,14 +419,38 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                                                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
                                                                     Kids
                                                                 </p>
-                                                                <div className="flex flex-wrap gap-2">
+                                                                <div className="space-y-2">
                                                                     {account.linkedSwimmers.map((swimmer) => (
-                                                                        <span
+                                                                        <div
                                                                             key={swimmer.member_id}
-                                                                            className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-700 border border-blue-100"
+                                                                            className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2"
                                                                         >
-                                                                            {swimmer.name}
-                                                                        </span>
+                                                                            <div className="flex items-center justify-between gap-2">
+                                                                                <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
+                                                                                    {accountByMemberId.get(swimmer.member_id)
+                                                                                        ? getDisplayName(accountByMemberId.get(swimmer.member_id) as AccountRecord)
+                                                                                        : swimmer.name}
+                                                                                </p>
+                                                                                <div className="flex flex-wrap items-center justify-end gap-1">
+                                                                                    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">
+                                                                                        Swimmer
+                                                                                    </span>
+                                                                                    {accountByMemberId.get(swimmer.member_id)?.roles.parent && (
+                                                                                        <span className="inline-flex items-center rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] text-gray-700">
+                                                                                            Account
+                                                                                        </span>
+                                                                                    )}
+                                                                                    <span
+                                                                                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] ${accountByMemberId.get(swimmer.member_id)?.is_active === false
+                                                                                            ? "border-red-200 bg-red-50 text-red-700"
+                                                                                            : "border-green-200 bg-green-50 text-green-700"
+                                                                                            }`}
+                                                                                    >
+                                                                                        {accountByMemberId.get(swimmer.member_id)?.is_active === false ? "Inactive" : "Active"}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
                                                                     ))}
                                                                 </div>
                                                             </div>

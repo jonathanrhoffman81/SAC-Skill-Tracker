@@ -18,6 +18,7 @@ interface AdminDashboardStats {
   organizationName: string;
   organizationId: string;
   organizationLogoUrl?: string | null;
+  headerAccentColor?: string | null;
 }
 
 const CACHE_MAX_AGE_MS = 15 * 1000;
