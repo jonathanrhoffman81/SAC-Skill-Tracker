@@ -10,6 +10,8 @@ interface DashboardClassPayload {
   id: string;
   name: string;
   schedule: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 interface DashboardSkillPayload {
@@ -224,7 +226,7 @@ async function buildDashboardFallback(
   const { data: enrollments, error: enrollmentsError } = classIds.length
     ? await supabaseAdmin
       .from("enrollment")
-      .select("member_id, class_id")
+      .select("member_id, class_id, slot")
       .in("class_id", classIds)
     : { data: [], error: null };
 
@@ -232,36 +234,16 @@ async function buildDashboardFallback(
     throw new Error(`Failed to load enrollments: ${enrollmentsError.message}`);
   }
 
-  const enrollmentMemberIds = Array.from(
-    new Set((enrollments ?? []).map((row) => row.member_id).filter(Boolean)),
-  );
-
-  const { data: enrollmentMembers, error: enrollmentMembersError } =
-    enrollmentMemberIds.length > 0
-      ? await supabaseAdmin
-        .from("member")
-        .select("member_id, slot")
-        .in("member_id", enrollmentMemberIds)
-      : { data: [], error: null };
-
-  if (enrollmentMembersError) {
-    throw new Error(
-      `Failed to load member slots: ${enrollmentMembersError.message}`,
-    );
-  }
-
-  const slotByMemberId = new Map(
-    (enrollmentMembers ?? []).map((row) => [row.member_id, row.slot]),
-  );
-
   const accessibleEnrollments = (enrollments ?? []).filter((row) => {
-    if (!row.class_id) return false;
+    if (!row.class_id || row.slot === null || row.slot === undefined) return false;
     const allowedSlots = allowedSlotsByClassId.get(row.class_id);
     if (!allowedSlots) return false;
-    const memberSlot = slotByMemberId.get(row.member_id);
-    if (memberSlot === null || memberSlot === undefined) return false;
-    return allowedSlots.has(memberSlot);
+    return allowedSlots.has(row.slot);
   });
+
+  const enrollmentMemberIds = Array.from(
+    new Set(accessibleEnrollments.map((row) => row.member_id).filter(Boolean)),
+  );
 
   const memberIds = Array.from(
     new Set(accessibleEnrollments.map((row) => row.member_id)),
@@ -341,7 +323,7 @@ async function buildDashboardFallback(
   const { data: pagedEnrollments, error: pagedEnrollmentsError } = classIds.length
     ? await supabaseAdmin
       .from("enrollment")
-      .select("member_id, class_id")
+      .select("member_id, class_id, slot")
       .in("member_id", pagedMemberIds)
       .in("class_id", classIds)
     : { data: [], error: null };
@@ -352,31 +334,11 @@ async function buildDashboardFallback(
     );
   }
 
-  const { data: pagedMemberSlots, error: pagedMemberSlotsError } =
-    pagedMemberIds.length > 0
-      ? await supabaseAdmin
-        .from("member")
-        .select("member_id, slot")
-        .in("member_id", pagedMemberIds)
-      : { data: [], error: null };
-
-  if (pagedMemberSlotsError) {
-    throw new Error(
-      `Failed to load member slots: ${pagedMemberSlotsError.message}`,
-    );
-  }
-
-  const pagedSlotByMemberId = new Map(
-    (pagedMemberSlots ?? []).map((row) => [row.member_id, row.slot]),
-  );
-
   const filteredPagedEnrollments = (pagedEnrollments ?? []).filter((row) => {
-    if (!row.class_id) return false;
+    if (!row.class_id || row.slot === null || row.slot === undefined) return false;
     const allowedSlots = allowedSlotsByClassId.get(row.class_id);
     if (!allowedSlots) return false;
-    const memberSlot = pagedSlotByMemberId.get(row.member_id);
-    if (memberSlot === null || memberSlot === undefined) return false;
-    return allowedSlots.has(memberSlot);
+    return allowedSlots.has(row.slot);
   });
 
   const pagedClassIds = Array.from(
@@ -386,12 +348,14 @@ async function buildDashboardFallback(
     class_id: string;
     name: string;
     schedule: string | null;
+    start_date: string | null;
+    end_date: string | null;
   }> = [];
 
   if (pagedClassIds.length > 0) {
     const { data: classesData, error: classesError } = await supabaseAdmin
       .from("class_entity")
-      .select("class_id, name, schedule")
+      .select("class_id, name, schedule, start_date, end_date")
       .in("class_id", pagedClassIds);
 
     if (classesError) {
@@ -407,6 +371,8 @@ async function buildDashboardFallback(
       id: row.class_id,
       name: row.name,
       schedule: row.schedule ?? "Schedule TBD",
+      startDate: row.start_date ?? undefined,
+      endDate: row.end_date ?? undefined,
     });
   });
 

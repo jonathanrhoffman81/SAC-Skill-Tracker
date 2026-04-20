@@ -27,6 +27,25 @@ interface DashboardSwimmer {
     name: string;
     classes: DashboardClass[];
     skills: DashboardSkill[];
+    isActive?: boolean;
+    hasCurrentInstructorEvaluation?: boolean;
+    classEvaluations?: Array<{
+        classId: string;
+        evaluationCount: number;
+        generalNoteCount: number;
+        skillNoteCount: number;
+        lastEvaluationDate?: string;
+        latestGeneralNote?: string;
+        instructors: string[];
+        recentEntries: Array<{
+            evaluationId: string;
+            date: string;
+            instructor: string;
+            skillName?: string;
+            feedback?: string;
+            isSkillNote: boolean;
+        }>;
+    }>;
     evaluationSummary: {
         evaluationCount: number;
         lastEvaluationDate?: string;
@@ -37,6 +56,7 @@ interface DashboardSwimmer {
         masteredSkills: number;
         averageProficiency: number;
     };
+    isMySwimmer?: boolean;
 }
 
 interface InitialEvaluationFilters {
@@ -44,16 +64,18 @@ interface InitialEvaluationFilters {
     instructors?: Array<{ value: string; label: string }>;
     groups?: Array<{ value: string; label: string; classId?: string }>;
     memberIdsByGroupId?: Record<string, string[]>;
+    memberIdsByInstructorId?: Record<string, string[]>;
 }
 
 interface AdminInstructorEvaluationsProps {
     initialFilters?: InitialEvaluationFilters;
-}
-
-interface SwimmerDetailPayload {
-    classes: DashboardClass[];
-    skills: DashboardSkill[];
-    error?: string;
+    initialListView?: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation";
+    lockInitialListView?: boolean;
+    initialStatusFilter?: "all" | "active" | "inactive";
+    lockInitialStatusFilter?: boolean;
+    showNeedsEvaluationSection?: boolean;
+    showProficiencyScaleSection?: boolean;
+    restoreOpenSwimmerId?: boolean;
 }
 
 interface PaginationState {
@@ -72,6 +94,12 @@ interface DashboardPayload {
 }
 
 interface AssignmentFiltersPayload {
+    classes?: Array<{
+        value: string;
+        label: string;
+        startDate?: string;
+        endDate?: string;
+    }>;
     groups?: Array<{
         group_id: string;
         class_id: string;
@@ -79,10 +107,16 @@ interface AssignmentFiltersPayload {
         group_name?: string;
     }>;
     instructors?: Array<{
-        person_id: string;
+        person_id?: string;
+        value?: string;
+        label?: string;
         first_name?: string | null;
         last_name?: string | null;
         email?: string;
+    }>;
+    assignments?: Array<{
+        instructor_person_id: string;
+        group_id: string;
     }>;
     enrollments?: Array<{
         member_id: string;
@@ -98,7 +132,7 @@ const VIRTUAL_OVERSCAN = 5;
 const PERSISTED_STATE_KEY = "admin-instructor-evaluations-state";
 const PERSISTED_DATA_KEY = "admin-instructor-evaluations-data";
 const PERSISTED_STATE_TTL_MS = 15 * 60 * 1000;
-const PERSISTED_STATE_VERSION = 4;
+const PERSISTED_STATE_VERSION = 7;
 
 interface PersistedState {
     version: number;
@@ -110,7 +144,8 @@ interface PersistedState {
     classFilter: string;
     instructorFilter: string;
     groupFilter: string;
-    listView: "overview" | "active-classes" | "past-classes" | "recent-evals";
+    statusFilter: "all" | "active" | "inactive";
+    listView: "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation";
     currentPage: number;
 }
 
@@ -123,6 +158,7 @@ interface PersistedData {
     fallbackInstructorOptions: Array<{ value: string; label: string }>;
     fallbackGroupOptions: Array<{ value: string; label: string }>;
     memberIdsByGroupId: Record<string, string[]>;
+    memberIdsByInstructorId?: Record<string, string[]>;
 }
 
 const CLASS_FILTER_RECENT_DAYS = 7;
@@ -215,6 +251,55 @@ function formatDateForSummary(date: Date): string {
     });
 }
 
+function formatDateLabel(dateValue?: string) {
+    const parsed = toDateAtMidnight(dateValue);
+    if (!parsed) return "soon";
+    return formatDateForSummary(parsed);
+}
+
+function getClassWindowLabel(classItem: DashboardClass) {
+    if (classItem.startDate && classItem.endDate) {
+        return `${formatDateLabel(classItem.startDate)} - ${formatDateLabel(classItem.endDate)}`;
+    }
+    if (classItem.endDate) return `Through ${formatDateLabel(classItem.endDate)}`;
+    if (classItem.startDate) return `After ${formatDateLabel(classItem.startDate)}`;
+    return "Dates TBD";
+}
+
+function truncateNotePreview(note?: string, maxLength = 140) {
+    if (!note) return "";
+    return note.length > maxLength ? `${note.slice(0, maxLength).trim()}...` : note;
+}
+
+function formatSavedDateLabel(dateValue: string) {
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) {
+        return dateValue;
+    }
+
+    return parsed.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+    });
+}
+
+function hasUsableEvaluationId(value?: string) {
+    return Boolean(value && value !== "undefined" && value !== "null");
+}
+
+function sanitizePersistedSwimmers(swimmers: DashboardSwimmer[]): DashboardSwimmer[] {
+    return swimmers.map((swimmer) => ({
+        ...swimmer,
+        classEvaluations: (swimmer.classEvaluations ?? []).map((classSummary) => ({
+            ...classSummary,
+            recentEntries: (classSummary.recentEntries ?? []).filter((entry) =>
+                hasUsableEvaluationId(entry.evaluationId),
+            ),
+        })),
+    }));
+}
+
 function progressToPercent(progress: 0 | 1 | 2 | 3 | 4) {
     const mapping: Record<number, number> = {
         0: 0,
@@ -266,6 +351,13 @@ function buildSearchCacheKey(search: string) {
 
 export default function AdminInstructorEvaluations({
     initialFilters,
+    initialListView = "active-classes",
+    lockInitialListView = false,
+    initialStatusFilter = "all",
+    lockInitialStatusFilter = false,
+    showNeedsEvaluationSection = false,
+    showProficiencyScaleSection = false,
+    restoreOpenSwimmerId = true,
 }: AdminInstructorEvaluationsProps) {
     const router = useRouter();
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
@@ -274,9 +366,22 @@ export default function AdminInstructorEvaluations({
     const [classFilter, setClassFilter] = useState("all");
     const [instructorFilter, setInstructorFilter] = useState("all");
     const [groupFilter, setGroupFilter] = useState("all");
-    const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals">("active-classes");
+    const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">(initialStatusFilter);
+    const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation">(initialListView);
     const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
+    const [pageInput, setPageInput] = useState("1");
+    const [isProficiencyScaleOpen, setIsProficiencyScaleOpen] = useState(false);
+    const [activeEvaluationClassIdBySwimmer, setActiveEvaluationClassIdBySwimmer] = useState<Record<string, string | null>>({});
+    const [editingEvaluationBySwimmer, setEditingEvaluationBySwimmer] = useState<Record<string, {
+        evaluationId: string;
+        classId: string;
+        isSkillNote: boolean;
+        skillId?: string;
+        feedback?: string;
+    } | null>>({});
+    const [historyActionErrorBySwimmer, setHistoryActionErrorBySwimmer] = useState<Record<string, string>>({});
+    const [deletingEvaluationKey, setDeletingEvaluationKey] = useState<string | null>(null);
     const [pagination, setPagination] = useState<PaginationState>(
         {
             page: 1,
@@ -289,9 +394,6 @@ export default function AdminInstructorEvaluations({
     );
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
-    const [detailBySwimmerId, setDetailBySwimmerId] = useState<
-        Record<string, { classes: DashboardClass[]; skills: DashboardSkill[]; loading: boolean; error?: string }>
-    >({});
     const [fallbackClassOptions, setFallbackClassOptions] = useState<Array<{ value: string; label: string; startDate?: string; endDate?: string }>>(() =>
         initialFilters?.classes ?? [],
     );
@@ -308,6 +410,14 @@ export default function AdminInstructorEvaluations({
         Object.fromEntries(
             Object.entries(initialFilters?.memberIdsByGroupId ?? {}).map(([groupId, memberIds]) => [
                 groupId,
+                new Set(memberIds),
+            ]),
+        ) as Record<string, Set<string>>,
+    );
+    const [memberIdsByInstructorId, setMemberIdsByInstructorId] = useState<Record<string, Set<string>>>(() =>
+        Object.fromEntries(
+            Object.entries(initialFilters?.memberIdsByInstructorId ?? {}).map(([instructorId, memberIds]) => [
+                instructorId,
                 new Set(memberIds),
             ]),
         ) as Record<string, Set<string>>,
@@ -355,6 +465,16 @@ export default function AdminInstructorEvaluations({
                 ]),
             ) as Record<string, Set<string>>;
         });
+        setMemberIdsByInstructorId((prev) => {
+            if (Object.keys(prev).length > 0) return prev;
+
+            return Object.fromEntries(
+                Object.entries(initialFilters.memberIdsByInstructorId ?? {}).map(([instructorId, memberIds]) => [
+                    instructorId,
+                    new Set(memberIds),
+                ]),
+            ) as Record<string, Set<string>>;
+        });
     }, [initialFilters]);
 
     function persistDataCache(searchKey: string) {
@@ -364,6 +484,12 @@ export default function AdminInstructorEvaluations({
             const serializedMemberIdsByGroupId = Object.fromEntries(
                 Object.entries(memberIdsByGroupId).map(([groupId, memberIds]) => [
                     groupId,
+                    Array.from(memberIds),
+                ]),
+            );
+            const serializedMemberIdsByInstructorId = Object.fromEntries(
+                Object.entries(memberIdsByInstructorId).map(([instructorId, memberIds]) => [
+                    instructorId,
                     Array.from(memberIds),
                 ]),
             );
@@ -377,6 +503,7 @@ export default function AdminInstructorEvaluations({
                 fallbackInstructorOptions,
                 fallbackGroupOptions,
                 memberIdsByGroupId: serializedMemberIdsByGroupId,
+                memberIdsByInstructorId: serializedMemberIdsByInstructorId,
             };
 
             window.sessionStorage.setItem(PERSISTED_DATA_KEY, JSON.stringify(payload));
@@ -399,6 +526,7 @@ export default function AdminInstructorEvaluations({
                 classFilter,
                 instructorFilter,
                 groupFilter,
+                statusFilter,
                 listView,
                 currentPage,
             };
@@ -480,7 +608,13 @@ export default function AdminInstructorEvaluations({
     async function loadFilterOptionsFromAssignments() {
         try {
             const headers = await createAuthenticatedHeaders();
-            const response = await fetch("/api/admin/instructor-member-assignments", { headers });
+            // Try instructor endpoint first, fall back to admin endpoint
+            let response = await fetch("/api/instructor/filters", { headers });
+            
+            if (!response.ok && response.status === 404) {
+                response = await fetch("/api/admin/instructor-member-assignments", { headers });
+            }
+            
             const payload = (await response.json()) as AssignmentFiltersPayload & { error?: string };
 
             if (!response.ok) {
@@ -490,6 +624,12 @@ export default function AdminInstructorEvaluations({
             const classMap = new Map<string, string>();
             const groupMap = new Map<string, string>();
             const enrollmentMap: Record<string, Set<string>> = {};
+            const instructorMemberMap: Record<string, Set<string>> = {};
+            (payload.classes ?? []).forEach((classOption) => {
+                if (!classOption.value) return;
+                classMap.set(classOption.value, classOption.label || "Unnamed class");
+            });
+
             (payload.groups ?? []).forEach((group) => {
                 if (!group.class_id) return;
                 if (!classMap.has(group.class_id)) {
@@ -515,13 +655,32 @@ export default function AdminInstructorEvaluations({
                 }
             });
 
-            const instructorList = (payload.instructors ?? [])
+            (payload.assignments ?? []).forEach((assignment) => {
+                const instructorId = assignment.instructor_person_id;
+                const groupId = assignment.group_id;
+                if (!instructorId || !groupId) return;
+
+                const memberIds = enrollmentMap[groupId];
+                if (!memberIds) return;
+
+                if (!instructorMemberMap[instructorId]) {
+                    instructorMemberMap[instructorId] = new Set<string>();
+                }
+
+                memberIds.forEach((memberId) => {
+                    instructorMemberMap[instructorId].add(memberId);
+                });
+            });
+
+            const instructorOptions = (payload.instructors ?? [])
                 .map((instructor) => {
+                    const value = instructor.person_id || instructor.value;
+                    if (!value) return null;
                     const fullName = `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim();
-                    const label = fullName || instructor.email || "Instructor";
-                    return label.trim();
+                    const label = fullName || instructor.label || instructor.email || "Instructor";
+                    return { value, label: label.trim() };
                 })
-                .filter((label) => Boolean(label));
+                .filter((option): option is { value: string; label: string } => Boolean(option?.value));
 
             setFallbackClassOptions(
                 Array.from(classMap.entries())
@@ -530,9 +689,7 @@ export default function AdminInstructorEvaluations({
             );
 
             setFallbackInstructorOptions(
-                Array.from(new Set(instructorList))
-                    .sort((a, b) => a.localeCompare(b))
-                    .map((label) => ({ value: label, label })),
+                instructorOptions.sort((a, b) => a.label.localeCompare(b.label)),
             );
 
             setFallbackGroupOptions(
@@ -542,11 +699,13 @@ export default function AdminInstructorEvaluations({
             );
 
             setMemberIdsByGroupId(enrollmentMap);
+            setMemberIdsByInstructorId(instructorMemberMap);
         } catch {
             setFallbackClassOptions([]);
             setFallbackInstructorOptions([]);
             setFallbackGroupOptions([]);
             setMemberIdsByGroupId({});
+            setMemberIdsByInstructorId({});
         }
     }
 
@@ -616,13 +775,14 @@ export default function AdminInstructorEvaluations({
         const restoredData = readPersistedData();
 
         if (restoredState) {
-            setOpenSwimmerId(restoredState.openSwimmerId);
+            setOpenSwimmerId(restoreOpenSwimmerId ? restoredState.openSwimmerId : null);
             setSearchQuery(restoredState.searchQuery);
             setDebouncedSearchQuery(restoredState.debouncedSearchQuery);
             setClassFilter(restoredState.classFilter ?? "all");
             setInstructorFilter(restoredState.instructorFilter ?? "all");
             setGroupFilter(restoredState.groupFilter ?? "all");
-            setListView(restoredState.listView ?? "active-classes");
+            setStatusFilter(lockInitialStatusFilter ? initialStatusFilter : (restoredState.statusFilter ?? initialStatusFilter));
+            setListView(lockInitialListView ? initialListView : (restoredState.listView ?? initialListView));
             setCurrentPage(restoredState.currentPage || 1);
 
             if (typeof restoredState.scrollY === "number" && restoredState.scrollY > 0) {
@@ -632,7 +792,9 @@ export default function AdminInstructorEvaluations({
         }
 
         if (restoredData) {
-            setSwimmers(restoredData.swimmers ?? []);
+            const sanitizedSwimmers = sanitizePersistedSwimmers(restoredData.swimmers ?? []);
+
+            setSwimmers(sanitizedSwimmers);
             setFallbackClassOptions(restoredData.fallbackClassOptions ?? []);
             setFallbackInstructorOptions(restoredData.fallbackInstructorOptions ?? []);
             setFallbackGroupOptions(restoredData.fallbackGroupOptions ?? []);
@@ -643,12 +805,15 @@ export default function AdminInstructorEvaluations({
                     new Set(memberIds),
                 ]),
             ) as Record<string, Set<string>>;
+            const hydratedMemberIdsByInstructorId = Object.fromEntries(
+                Object.entries(restoredData.memberIdsByInstructorId ?? {}).map(([instructorId, memberIds]) => [
+                    instructorId,
+                    new Set(memberIds),
+                ]),
+            ) as Record<string, Set<string>>;
 
             setMemberIdsByGroupId(hydratedMemberIdsByGroupId);
-            allSearchCacheRef.current.set(
-                buildSearchCacheKey(restoredData.searchKey ?? restoredState?.debouncedSearchQuery ?? ""),
-                restoredData.swimmers ?? [],
-            );
+            setMemberIdsByInstructorId(hydratedMemberIdsByInstructorId);
             setIsLoading(false);
         }
 
@@ -720,7 +885,6 @@ export default function AdminInstructorEvaluations({
         swimmers,
         currentPage,
         pagination,
-        detailBySwimmerId,
     ]);
 
     useEffect(() => {
@@ -736,104 +900,166 @@ export default function AdminInstructorEvaluations({
         fallbackInstructorOptions,
         fallbackGroupOptions,
         memberIdsByGroupId,
+        memberIdsByInstructorId,
     ]);
 
-    const loadSwimmerDetail = async (swimmerId: string, forceRefresh = false) => {
-        const existing = detailBySwimmerId[swimmerId];
-        if (!forceRefresh && existing?.skills?.length) return;
-
-        setDetailBySwimmerId((prev) => ({
+    const handleSwimmerClick = (swimmerId: string) => {
+        setEditingEvaluationBySwimmer((prev) => ({
             ...prev,
-            [swimmerId]: {
-                classes: prev[swimmerId]?.classes ?? [],
-                skills: prev[swimmerId]?.skills ?? [],
-                loading: true,
-                error: undefined,
-            },
+            [swimmerId]: null,
         }));
+        setHistoryActionErrorBySwimmer((prev) => ({
+            ...prev,
+            [swimmerId]: "",
+        }));
+        setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
+    };
+
+    const deleteEvaluationEntry = async (args: {
+        swimmerId: string;
+        classId: string;
+        evaluationId: string;
+    }) => {
+        if (!hasUsableEvaluationId(args.evaluationId)) {
+            await loadData(currentPage, debouncedSearchQuery, {
+                forceRefresh: true,
+            });
+            setHistoryActionErrorBySwimmer((prev) => ({
+                ...prev,
+                [args.swimmerId]: "This evaluation entry was out of sync. The list was refreshed; please try again.",
+            }));
+            return;
+        }
+
+        const confirmed = window.confirm("Delete this evaluation entry?");
+        if (!confirmed) return;
+
+        const deleteKey = `${args.swimmerId}:${args.classId}:${args.evaluationId}`;
 
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, { headers });
-            const payload = (await response.json()) as SwimmerDetailPayload;
+            setDeletingEvaluationKey(deleteKey);
+            setHistoryActionErrorBySwimmer((prev) => ({
+                ...prev,
+                [args.swimmerId]: "",
+            }));
 
-            if (!response.ok) {
-                throw new Error(payload.error || "Failed to load swimmer details.");
+            const headers = await createAuthenticatedHeaders({
+                "Content-Type": "application/json",
+            });
+
+            const response = await fetch(
+                `/api/instructor/swimmers/${args.swimmerId}?evaluationId=${encodeURIComponent(args.evaluationId)}`,
+                {
+                method: "DELETE",
+                headers,
+                },
+            );
+
+            const responseText = await response.text();
+            let payload: { error?: string } = {};
+
+            if (responseText.trim()) {
+                try {
+                    payload = JSON.parse(responseText) as { error?: string };
+                } catch {
+                    throw new Error(response.ok
+                        ? "The server returned an unexpected response."
+                        : `The server returned an unexpected ${response.status} error page.`);
+                }
             }
 
-            setDetailBySwimmerId((prev) => ({
+            if (!response.ok) {
+                throw new Error(payload.error || "Failed to delete evaluation.");
+            }
+
+            applyDeletedEvaluationLocally(args);
+            setHistoryActionErrorBySwimmer((prev) => ({
                 ...prev,
-                [swimmerId]: {
-                    classes: payload.classes ?? [],
-                    skills: payload.skills ?? [],
-                    loading: false,
-                    error: undefined,
-                },
+                [args.swimmerId]: "",
             }));
 
-            setSwimmers((prev) => prev.map((swimmer) => {
-                if (swimmer.id !== swimmerId) return swimmer;
-
-                const resolvedSkills = payload.skills ?? [];
-                const masteredSkills = resolvedSkills.filter((skill) => skill.mastered).length;
-                const averageProficiency = resolvedSkills.length > 0
-                    ? Math.round(
-                        resolvedSkills.reduce(
-                            (total, skill) => total + progressToPercent(skill.progress),
-                            0,
-                        ) / resolvedSkills.length,
-                    )
-                    : 0;
-
-                return {
-                    ...swimmer,
-                    classes: payload.classes ?? swimmer.classes,
-                    skillSummary: {
-                        totalSkills: resolvedSkills.length,
-                        masteredSkills,
-                        averageProficiency,
-                    },
-                };
-            }));
-        } catch (loadError) {
-            const message =
-                loadError instanceof Error
-                    ? loadError.message
-                    : "Failed to load swimmer details.";
-
-            setDetailBySwimmerId((prev) => ({
+            setEditingEvaluationBySwimmer((prev) => ({
                 ...prev,
-                [swimmerId]: {
-                    classes: prev[swimmerId]?.classes ?? [],
-                    skills: prev[swimmerId]?.skills ?? [],
-                    loading: false,
-                    error: message,
-                },
+                [args.swimmerId]: prev[args.swimmerId]?.evaluationId === args.evaluationId
+                    ? null
+                    : prev[args.swimmerId],
             }));
+
+            void loadData(currentPage, debouncedSearchQuery, {
+                forceRefresh: true,
+            }).catch((refreshError) => {
+                console.warn("Failed to refresh evaluations after delete:", refreshError);
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to delete evaluation.";
+
+            if (message.includes("Evaluation not found")) {
+                await loadData(currentPage, debouncedSearchQuery, {
+                    forceRefresh: true,
+                });
+            }
+
+            setHistoryActionErrorBySwimmer((prev) => ({
+                ...prev,
+                [args.swimmerId]: message.includes("Evaluation not found")
+                    ? "This evaluation entry was out of sync. The list was refreshed; please try again."
+                    : message,
+            }));
+        } finally {
+            setDeletingEvaluationKey(null);
         }
     };
 
-    const handleSwimmerClick = async (swimmerId: string) => {
-        const willOpen = openSwimmerId !== swimmerId;
-        setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
-
-        if (!willOpen) return;
-
-        await loadSwimmerDetail(swimmerId);
-    };
-
-    const applyOptimisticEvaluationPatch = (swimmerId: string) => {
-        const now = formatDateForSummary(new Date());
-
+    const applyDeletedEvaluationLocally = (args: {
+        swimmerId: string;
+        classId: string;
+        evaluationId: string;
+    }) => {
         setSwimmers((prev) => prev.map((swimmer) => {
-            if (swimmer.id !== swimmerId) return swimmer;
+            if (swimmer.id !== args.swimmerId) {
+                return swimmer;
+            }
+
+            let removedEntryCount = 0;
+
+            const nextClassEvaluations = (swimmer.classEvaluations ?? []).map((classSummary) => {
+                if (classSummary.classId !== args.classId) {
+                    return classSummary;
+                }
+
+                const removedEntries = (classSummary.recentEntries ?? []).filter(
+                    (entry) => entry.evaluationId === args.evaluationId,
+                );
+
+                if (removedEntries.length === 0) {
+                    return classSummary;
+                }
+
+                removedEntryCount += removedEntries.length;
+
+                const nextRecentEntries = (classSummary.recentEntries ?? []).filter(
+                    (entry) => entry.evaluationId !== args.evaluationId,
+                );
+                const remainingGeneralEntries = nextRecentEntries.filter((entry) => !entry.isSkillNote);
+                const removedGeneralCount = removedEntries.filter((entry) => !entry.isSkillNote).length;
+                const removedSkillCount = removedEntries.filter((entry) => entry.isSkillNote).length;
+
+                return {
+                    ...classSummary,
+                    evaluationCount: Math.max(0, classSummary.evaluationCount - removedEntries.length),
+                    generalNoteCount: Math.max(0, classSummary.generalNoteCount - removedGeneralCount),
+                    skillNoteCount: Math.max(0, classSummary.skillNoteCount - removedSkillCount),
+                    latestGeneralNote: remainingGeneralEntries[0]?.feedback,
+                    recentEntries: nextRecentEntries,
+                };
+            });
 
             return {
                 ...swimmer,
+                classEvaluations: nextClassEvaluations,
                 evaluationSummary: {
                     ...swimmer.evaluationSummary,
-                    evaluationCount: (swimmer.evaluationSummary.evaluationCount ?? 0) + 1,
-                    lastEvaluationDate: now,
+                    evaluationCount: Math.max(0, swimmer.evaluationSummary.evaluationCount - removedEntryCount),
                 },
             };
         }));
@@ -847,13 +1073,33 @@ export default function AdminInstructorEvaluations({
         return endDate < now;
     };
 
+    const swimmerNeedsEvaluation = (swimmer: DashboardSwimmer) => {
+        if (!swimmer.isMySwimmer) return false;
+        if (swimmer.hasCurrentInstructorEvaluation) return false;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const upcomingCutoff = new Date(today);
+        upcomingCutoff.setDate(upcomingCutoff.getDate() + 3);
+
+        const recentPastCutoff = new Date(today);
+        recentPastCutoff.setDate(recentPastCutoff.getDate() - 14);
+
+        return swimmer.classes.some((classItem) => {
+            const endDate = toDateAtMidnight(classItem.endDate);
+            if (!endDate) return false;
+            return endDate >= recentPastCutoff && endDate <= upcomingCutoff;
+        });
+    };
+
     const emptyStateText = useMemo(() => {
         if (debouncedSearchQuery) {
             return "No swimmers found for this search.";
         }
 
-        if (classFilter !== "all" || instructorFilter !== "all" || groupFilter !== "all") {
-            return "No swimmers match the selected class/instructor/group filters.";
+        if (classFilter !== "all" || instructorFilter !== "all" || groupFilter !== "all" || statusFilter !== "all") {
+            return "No swimmers match the selected filters.";
         }
 
         if (listView === "active-classes") {
@@ -866,6 +1112,14 @@ export default function AdminInstructorEvaluations({
 
         if (listView === "recent-evals") {
             return "No swimmers with evaluations found.";
+        }
+
+        if (listView === "needs-evaluation") {
+            return "No swimmers currently need an evaluation.";
+        }
+
+        if (listView === "my-swimmers") {
+            return "No swimmers assigned to you found.";
         }
 
         return "No swimmers found.";
@@ -914,28 +1168,7 @@ export default function AdminInstructorEvaluations({
     }, [swimmers, fallbackClassOptions]);
 
     const instructorFilterOptions = useMemo(() => {
-        const instructors = new Set<string>();
-
-        swimmers.forEach((swimmer) => {
-            (swimmer.evaluationSummary.instructors ?? []).forEach((name) => {
-                const normalized = name.trim();
-                if (normalized) {
-                    instructors.add(normalized);
-                }
-            });
-        });
-
-        const options = Array.from(instructors)
-            .sort((a, b) => a.localeCompare(b))
-            .map((name) => ({ value: name, label: name }));
-
-        fallbackInstructorOptions.forEach((option) => {
-            if (!instructors.has(option.value)) {
-                options.push(option);
-            }
-        });
-
-        options.sort((a, b) => a.label.localeCompare(b.label));
+        const options = [...fallbackInstructorOptions].sort((a, b) => a.label.localeCompare(b.label));
 
         if (options.length === 0) {
             return [
@@ -945,7 +1178,7 @@ export default function AdminInstructorEvaluations({
         }
 
         return [{ value: "all", label: "All instructors" }, ...options];
-    }, [swimmers, fallbackInstructorOptions]);
+    }, [fallbackInstructorOptions]);
 
     useEffect(() => {
         if (!classFilterOptions.some((option) => option.value === classFilter)) {
@@ -1003,16 +1236,32 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
+            if (listView === "needs-evaluation" && !swimmerNeedsEvaluation(swimmer)) {
+                return false;
+            }
+
+            if (listView === "my-swimmers" && !swimmer.isMySwimmer) {
+                return false;
+            }
+
+            if (statusFilter === "active" && swimmer.isActive === false) {
+                return false;
+            }
+
+            if (statusFilter === "inactive" && swimmer.isActive !== false) {
+                return false;
+            }
+
             if (classFilter !== "all") {
                 const hasSelectedClass = swimmer.classes.some((classItem) => classItem.id === classFilter);
                 if (!hasSelectedClass) return false;
             }
 
             if (instructorFilter !== "all") {
-                const hasSelectedInstructor = (swimmer.evaluationSummary.instructors ?? []).some(
-                    (instructorName) => instructorName === instructorFilter,
-                );
-                if (!hasSelectedInstructor) return false;
+                const memberIdsForInstructor = memberIdsByInstructorId[instructorFilter];
+                if (!memberIdsForInstructor?.has(swimmer.id)) {
+                    return false;
+                }
             }
 
             if (groupFilter !== "all") {
@@ -1025,22 +1274,16 @@ export default function AdminInstructorEvaluations({
             return true;
         });
 
-        const sorted = [...filtered].sort((a, b) => {
-            {
-                const aDate = a.evaluationSummary.lastEvaluationDate
-                    ? new Date(a.evaluationSummary.lastEvaluationDate).getTime()
-                    : 0;
-                const bDate = b.evaluationSummary.lastEvaluationDate
-                    ? new Date(b.evaluationSummary.lastEvaluationDate).getTime()
-                    : 0;
-                if (bDate !== aDate) return bDate - aDate;
-            }
-
-            return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-        });
+        const sorted = [...filtered].sort((a, b) =>
+            a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+        );
 
         return sorted;
-    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, swimmers]);
+    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, memberIdsByInstructorId, statusFilter, swimmers]);
+
+    const needsEvaluationSwimmers = useMemo(() => {
+        return displayedSwimmers.filter((swimmer) => swimmerNeedsEvaluation(swimmer));
+    }, [displayedSwimmers]);
 
     const totalFiltered = displayedSwimmers.length;
     const localTotalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
@@ -1090,6 +1333,10 @@ export default function AdminInstructorEvaluations({
     }, [currentPage, localTotalPages]);
 
     useEffect(() => {
+        setPageInput(String(safeCurrentPage));
+    }, [safeCurrentPage]);
+
+    useEffect(() => {
         setPagination({
             page: safeCurrentPage,
             pageSize: PAGE_SIZE,
@@ -1118,20 +1365,132 @@ export default function AdminInstructorEvaluations({
     }, [shouldVirtualize]);
 
     const swimmersToRender = shouldVirtualize ? virtualSlice : swimmersForRender;
+    const listViewTitle =
+        listView === "my-swimmers"
+            ? "My Swimmers"
+            : listView === "needs-evaluation"
+                ? "Needs Evaluation"
+                : "All Swimmers";
 
     return (
         <div className="w-full min-h-[60vh] space-y-4">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 sm:p-6">
-                <p className="text-sm font-semibold text-gray-900">Instructor Evaluations</p>
-                <p className="mt-2 text-sm text-gray-700">
-                    View and manage swimmer evaluations using the same table and scoring workflow as instructors.
-                </p>
-            </div>
+            {showNeedsEvaluationSection && listView === "my-swimmers" && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm sm:p-5">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-blue-900">Needs Evaluation</p>
+                            <p className="mt-1 text-sm text-blue-800">
+                                Swimmers in your classes ending within 3 days or ended within the last 2 weeks.
+                            </p>
+                        </div>
+                        <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">
+                            {needsEvaluationSwimmers.length}
+                        </span>
+                    </div>
+
+                    {needsEvaluationSwimmers.length > 0 ? (
+                        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            {needsEvaluationSwimmers.map((swimmer) => {
+                                const closestClass = [...swimmer.classes]
+                                    .filter((classItem) => toDateAtMidnight(classItem.endDate))
+                                    .sort((a, b) => {
+                                        const aTime = toDateAtMidnight(a.endDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+                                        const bTime = toDateAtMidnight(b.endDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+                                        return aTime - bTime;
+                                    })[0];
+
+                                return (
+                                    <button
+                                        key={`needs-eval:${swimmer.id}`}
+                                        type="button"
+                                        onClick={() => handleSwimmerClick(swimmer.id)}
+                                        className="rounded-lg border border-blue-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
+                                    >
+                                        <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
+                                        <p className="mt-1 text-xs text-gray-600">
+                                            {closestClass?.name ?? "Class"} ends {formatDateLabel(closestClass?.endDate)}
+                                        </p>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <p className="mt-4 text-sm text-blue-800">No swimmers currently need an evaluation.</p>
+                    )}
+                </div>
+            )}
+
+            {showProficiencyScaleSection && (
+                <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => setIsProficiencyScaleOpen((current) => !current)}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
+                    >
+                        <div>
+                            <p className="text-sm font-semibold text-gray-900">Proficiency Scale</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Reference guide for the 0 to 4 evaluation ratings.
+                            </p>
+                        </div>
+                        <svg
+                            className={`h-5 w-5 flex-shrink-0 text-gray-500 transition-transform ${isProficiencyScaleOpen ? "rotate-180" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 9l-7 7-7-7"
+                            />
+                        </svg>
+                    </button>
+
+                    {isProficiencyScaleOpen && (
+                        <div className="border-t border-gray-100 px-4 py-4 sm:px-5">
+                            <ul className="space-y-2">
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        0
+                                    </span>
+                                    <span>Unable to attempt the skill</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        1
+                                    </span>
+                                    <span>Unable to show skill without significant support</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        2
+                                    </span>
+                                    <span>Inconsistently or with support is able to demonstrate the skill</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        3
+                                    </span>
+                                    <span>Consistently demonstrates application of the skill</span>
+                                </li>
+                                <li className="flex gap-3 text-sm text-gray-700">
+                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                        4
+                                    </span>
+                                    <span>Demonstrates complete understanding of the skill</span>
+                                </li>
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="relative overflow-visible rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
                 <div className="mb-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
                     <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900">All Swimmers</p>
+                        <p className="text-sm font-semibold text-gray-900">{listViewTitle}</p>
                         {isLoading && (
                             <span className="inline-flex h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600" aria-label="Loading" />
                         )}
@@ -1156,12 +1515,14 @@ export default function AdminInstructorEvaluations({
                             <DropdownButton
                                 value={listView}
                                 onChange={(value) => {
-                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals");
+                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation");
                                     setCurrentPage(1);
                                 }}
                                 ui="app"
                                 options={[
                                     { value: "overview", label: "All swimmers" },
+                                    { value: "needs-evaluation", label: "Needs evaluation" },
+                                    { value: "my-swimmers", label: "My swimmers" },
                                     { value: "active-classes", label: "Active classes" },
                                     { value: "past-classes", label: "Past classes" },
                                     { value: "recent-evals", label: "Recent evaluations" },
@@ -1209,6 +1570,24 @@ export default function AdminInstructorEvaluations({
                                 ui="app"
                                 options={groupFilterOptions}
                                 ariaLabel="Filter swimmers by group"
+                            />
+                        </div>
+
+                        <div className="space-y-1">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Status</p>
+                            <DropdownButton
+                                value={statusFilter}
+                                onChange={(value) => {
+                                    setStatusFilter(value as "all" | "active" | "inactive");
+                                    setCurrentPage(1);
+                                }}
+                                ui="app"
+                                options={[
+                                    { value: "all", label: "All statuses" },
+                                    { value: "active", label: "Active" },
+                                    { value: "inactive", label: "Inactive" },
+                                ]}
+                                ariaLabel="Filter swimmers by status"
                             />
                         </div>
                     </div>
@@ -1292,7 +1671,19 @@ export default function AdminInstructorEvaluations({
                         const isOpen = openSwimmerId === swimmer.id;
                         const activeClasses = swimmer.classes.filter((classItem) => !isPastClass(classItem));
                         const pastClasses = swimmer.classes.filter((classItem) => isPastClass(classItem));
-                        const detail = detailBySwimmerId[swimmer.id];
+                        const resolvedClasses = swimmer.classes;
+                        const resolvedSkills = swimmer.skills;
+                        const classEvaluationSummaryById = new Map(
+                            (swimmer.classEvaluations ?? []).map((item) => [item.classId, item]),
+                        );
+                        const selectedEvaluationClassId = activeEvaluationClassIdBySwimmer[swimmer.id] ?? null;
+                        const selectedEvaluationClass = resolvedClasses.find(
+                            (classItem) => classItem.id === selectedEvaluationClassId,
+                        ) ?? null;
+                        const editingEvaluation = editingEvaluationBySwimmer[swimmer.id] ?? null;
+                        const editingEvaluationClass = editingEvaluation
+                            ? resolvedClasses.find((classItem) => classItem.id === editingEvaluation.classId) ?? null
+                            : null;
                         const absoluteIndex = shouldVirtualize
                             ? virtualWindow.startIndex + renderedIndex
                             : renderedIndex;
@@ -1395,22 +1786,402 @@ export default function AdminInstructorEvaluations({
 
                                 {isOpen && (
                                     <div className="border-t border-gray-100 p-5 sm:p-6">
-                                        {detail?.loading ? (
-                                            <div className="text-sm text-gray-500">Loading swimmer evaluation details...</div>
-                                        ) : detail?.error ? (
-                                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                                {detail.error}
+                                        {resolvedSkills.length ? (
+                                            <div className="space-y-5">
+                                                <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+                                                    <div>
+                                                        <h3 className="text-sm font-semibold text-gray-900">
+                                                            Classes
+                                                        </h3>
+                                                    </div>
+
+                                                    <div className="mt-4 space-y-3">
+                                                        {resolvedClasses.map((classItem) => {
+                                                            const classSummary = classEvaluationSummaryById.get(classItem.id);
+                                                            const isSelectedForEvaluation = selectedEvaluationClassId === classItem.id;
+
+                                                            return (
+                                                                <div
+                                                                    key={classItem.id}
+                                                                    className={`rounded-xl border p-4 transition ${isSelectedForEvaluation
+                                                                        ? "border-blue-200 bg-blue-50/60"
+                                                                        : "border-gray-200 bg-gray-50"
+                                                                        }`}
+                                                                >
+                                                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                                <h4 className="text-sm font-semibold text-gray-900">
+                                                                                    {classItem.name}
+                                                                                </h4>
+                                                                                {isPastClass(classItem) ? (
+                                                                                    <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                                                                                        Past class
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                                                                        Current class
+                                                                                    </span>
+                                                                                )}
+                                                                                {classSummary ? (
+                                                                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                                        Evaluation recorded
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                                                                        No evaluation yet
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+
+                                                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                                                                <span>{getClassWindowLabel(classItem)}</span>
+                                                                                <span>{classItem.schedule || "Schedule TBD"}</span>
+                                                                            </div>
+
+                                                                            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                                                                                <span>
+                                                                                    Last evaluation: {classSummary?.lastEvaluationDate || "None yet"}
+                                                                                </span>
+                                                                                <span>
+                                                                                    Instructors: {classSummary?.instructors?.length
+                                                                                        ? classSummary.instructors.join(", ")
+                                                                                        : "No instructor note recorded yet"}
+                                                                                </span>
+                                                                                <span>
+                                                                                    Entries: {classSummary?.evaluationCount ?? 0}
+                                                                                </span>
+                                                                            </div>
+
+                                                                            {classSummary?.recentEntries?.length ? (
+                                                                                <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                                                                                    <div className="flex items-center justify-between gap-3">
+                                                                                        <p className="text-xs font-semibold text-gray-700">
+                                                                                            Evaluation History
+                                                                                        </p>
+                                                                                        <p className="text-[11px] text-gray-500">
+                                                                                            {classItem.name} · {getClassWindowLabel(classItem)}
+                                                                                        </p>
+                                                                                    </div>
+
+                                                                                    <div className="mt-3 space-y-3">
+                                                                                        {classSummary.recentEntries.slice(0, 2).map((entry) => (
+                                                                                            <div
+                                                                                                key={entry.evaluationId}
+                                                                                                className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
+                                                                                            >
+                                                                                                <div className="flex items-start justify-between gap-3">
+                                                                                                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                                                                                        <span>{entry.date}</span>
+                                                                                                        <span>by {entry.instructor}</span>
+                                                                                                        <span className={`rounded-full px-2 py-0.5 ${entry.isSkillNote
+                                                                                                            ? "bg-blue-100 text-blue-700"
+                                                                                                            : "bg-slate-100 text-slate-700"
+                                                                                                            }`}>
+                                                                                                            {entry.isSkillNote
+                                                                                                                ? entry.skillName
+                                                                                                                    ? `${entry.skillName} note`
+                                                                                                                    : "Skill note"
+                                                                                                                : "Class note"}
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                    <div className="flex items-center gap-3">
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            onClick={async () => {
+                                                                                                                if (!hasUsableEvaluationId(entry.evaluationId)) {
+                                                                                                                    await loadData(currentPage, debouncedSearchQuery, {
+                                                                                                                        forceRefresh: true,
+                                                                                                                    });
+                                                                                                                    setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                                        ...prev,
+                                                                                                                        [swimmer.id]: "This evaluation entry was out of sync. The list was refreshed; please try again.",
+                                                                                                                    }));
+                                                                                                                    return;
+                                                                                                                }
+                                                                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                                    ...prev,
+                                                                                                                    [swimmer.id]: null,
+                                                                                                                }));
+                                                                                                                setEditingEvaluationBySwimmer((prev) => ({
+                                                                                                                    ...prev,
+                                                                                                                    [swimmer.id]: {
+                                                                                                                        evaluationId: entry.evaluationId,
+                                                                                                                        classId: classItem.id,
+                                                                                                                        isSkillNote: entry.isSkillNote,
+                                                                                                                        skillId: entry.isSkillNote
+                                                                                                                            ? resolvedSkills.find((skill) => skill.name === entry.skillName)?.id
+                                                                                                                            : undefined,
+                                                                                                                        feedback: entry.feedback,
+                                                                                                                    },
+                                                                                                                }));
+                                                                                                                setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                                    ...prev,
+                                                                                                                    [swimmer.id]: "",
+                                                                                                                }));
+                                                                                                            }}
+                                                                                                            className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                                                                                                        >
+                                                                                                            Edit
+                                                                                                        </button>
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            disabled={deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}`}
+                                                                                                            onClick={() => void deleteEvaluationEntry({
+                                                                                                                swimmerId: swimmer.id,
+                                                                                                                classId: classItem.id,
+                                                                                                                evaluationId: entry.evaluationId,
+                                                                                                            })}
+                                                                                                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                                                                                                        >
+                                                                                                            {deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}` ? "Deleting..." : "Delete"}
+                                                                                                        </button>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <p className="mt-2 text-sm text-gray-700">
+                                                                                                    {entry.feedback?.trim() || "No note text recorded."}
+                                                                                                </p>
+                                                                                            </div>
+                                                                                        ))}
+
+                                                                                        {classSummary.recentEntries.length > 2 && (
+                                                                                            <details className="group">
+                                                                                                <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                                                                                                    <span className="group-open:hidden">
+                                                                                                        Show {classSummary.recentEntries.length - 2} older entry
+                                                                                                        {classSummary.recentEntries.length - 2 === 1 ? "" : "s"}
+                                                                                                    </span>
+                                                                                                    <span className="hidden group-open:inline">
+                                                                                                        Hide older entries
+                                                                                                    </span>
+                                                                                                    <svg
+                                                                                                        className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                                                                                        fill="none"
+                                                                                                        stroke="currentColor"
+                                                                                                        viewBox="0 0 24 24"
+                                                                                                    >
+                                                                                                        <path
+                                                                                                            strokeLinecap="round"
+                                                                                                            strokeLinejoin="round"
+                                                                                                            strokeWidth={2}
+                                                                                                            d="M19 9l-7 7-7-7"
+                                                                                                        />
+                                                                                                    </svg>
+                                                                                                </summary>
+                                                                                                <div className="mt-3 space-y-3">
+                                                                                                    {classSummary.recentEntries.slice(2).map((entry) => (
+                                                                                                        <div
+                                                                                                            key={entry.evaluationId}
+                                                                                                            className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
+                                                                                                        >
+                                                                                                            <div className="flex items-start justify-between gap-3">
+                                                                                                                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                                                                                                    <span>{entry.date}</span>
+                                                                                                                    <span>by {entry.instructor}</span>
+                                                                                                                    <span className={`rounded-full px-2 py-0.5 ${entry.isSkillNote
+                                                                                                                        ? "bg-blue-100 text-blue-700"
+                                                                                                                        : "bg-slate-100 text-slate-700"
+                                                                                                                        }`}>
+                                                                                                                        {entry.isSkillNote
+                                                                                                                            ? entry.skillName
+                                                                                                                                ? `${entry.skillName} note`
+                                                                                                                                : "Skill note"
+                                                                                                                            : "Class note"}
+                                                                                                                    </span>
+                                                                                                                </div>
+                                                                                                                <div className="flex items-center gap-3">
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        onClick={async () => {
+                                                                                                                            if (!hasUsableEvaluationId(entry.evaluationId)) {
+                                                                                                                                await loadData(currentPage, debouncedSearchQuery, {
+                                                                                                                                    forceRefresh: true,
+                                                                                                                                });
+                                                                                                                                setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                                                    ...prev,
+                                                                                                                                    [swimmer.id]: "This evaluation entry was out of sync. The list was refreshed; please try again.",
+                                                                                                                                }));
+                                                                                                                                return;
+                                                                                                                            }
+                                                                                                                            setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                                                ...prev,
+                                                                                                                                [swimmer.id]: null,
+                                                                                                                            }));
+                                                                                                                            setEditingEvaluationBySwimmer((prev) => ({
+                                                                                                                                ...prev,
+                                                                                                                                [swimmer.id]: {
+                                                                                                                                    evaluationId: entry.evaluationId,
+                                                                                                                                    classId: classItem.id,
+                                                                                                                                    isSkillNote: entry.isSkillNote,
+                                                                                                                                    skillId: entry.isSkillNote
+                                                                                                                                        ? resolvedSkills.find((skill) => skill.name === entry.skillName)?.id
+                                                                                                                                        : undefined,
+                                                                                                                                    feedback: entry.feedback,
+                                                                                                                                },
+                                                                                                                            }));
+                                                                                                                            setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                                                ...prev,
+                                                                                                                                [swimmer.id]: "",
+                                                                                                                            }));
+                                                                                                                        }}
+                                                                                                                        className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                                                                                                                    >
+                                                                                                                        Edit
+                                                                                                                    </button>
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        disabled={deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}`}
+                                                                                                                        onClick={() => void deleteEvaluationEntry({
+                                                                                                                            swimmerId: swimmer.id,
+                                                                                                                            classId: classItem.id,
+                                                                                                                            evaluationId: entry.evaluationId,
+                                                                                                                        })}
+                                                                                                                        className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                                                                                                                    >
+                                                                                                                        {deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}` ? "Deleting..." : "Delete"}
+                                                                                                                    </button>
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                            <p className="mt-2 text-sm text-gray-700">
+                                                                                                                {entry.feedback?.trim() || "No note text recorded."}
+                                                                                                            </p>
+                                                                                                        </div>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            </details>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="mt-4 rounded-lg border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                                                                                    No recorded evaluation history for this class yet.
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[190px]">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                        ...prev,
+                                                                                        [swimmer.id]: classItem.id,
+                                                                                    }));
+                                                                                }}
+                                                                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+                                                                            >
+                                                                                {classSummary ? "Add Another Evaluation" : "Add Evaluation"}
+                                                                            </button>
+                                                                            {isSelectedForEvaluation && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                            ...prev,
+                                                                                            [swimmer.id]: null,
+                                                                                        }));
+                                                                                        setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                            ...prev,
+                                                                                            [swimmer.id]: "",
+                                                                                        }));
+                                                                                    }}
+                                                                                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                                                                                >
+                                                                                    Close Form
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {historyActionErrorBySwimmer[swimmer.id] && !editingEvaluationBySwimmer[swimmer.id] && (
+                                                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                                        {historyActionErrorBySwimmer[swimmer.id]}
+                                                    </div>
+                                                )}
+
+                                                {editingEvaluationClass && editingEvaluation ? (
+                                                    <div className="space-y-3">
+                                                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                                                            <p className="text-sm font-semibold text-blue-900">
+                                                                Edit evaluation for {editingEvaluationClass.name}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-blue-800">
+                                                                This opens the full evaluation form with the selected history entry loaded for editing.
+                                                            </p>
+                                                        </div>
+                                                        {historyActionErrorBySwimmer[swimmer.id] && (
+                                                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                                                {historyActionErrorBySwimmer[swimmer.id]}
+                                                            </div>
+                                                        )}
+                                                        <EvaluationForm
+                                                            swimmerId={swimmer.id}
+                                                            skills={resolvedSkills}
+                                                            classes={resolvedClasses}
+                                                            initialClassId={editingEvaluation.classId}
+                                                            editingEvaluation={editingEvaluation}
+                                                            onSubmissionComplete={async () => {
+                                                                await loadData(currentPage, debouncedSearchQuery, {
+                                                                    forceRefresh: true,
+                                                                });
+                                                                setEditingEvaluationBySwimmer((prev) => ({
+                                                                    ...prev,
+                                                                    [swimmer.id]: null,
+                                                                }));
+                                                                setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : selectedEvaluationClass ? (
+                                                    <div className="space-y-3">
+                                                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                                                            <p className="text-sm font-semibold text-blue-900">
+                                                                New evaluation for {selectedEvaluationClass.name}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-blue-800">
+                                                                The class selector is preloaded so the note and skill updates save against this class.
+                                                            </p>
+                                                        </div>
+                                                        <EvaluationForm
+                                                            swimmerId={swimmer.id}
+                                                            skills={resolvedSkills}
+                                                            classes={resolvedClasses}
+                                                            initialClassId={selectedEvaluationClass.id}
+                                                            onSubmissionComplete={async () => {
+                                                                await loadData(currentPage, debouncedSearchQuery, {
+                                                                    forceRefresh: true,
+                                                                });
+                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                    ...prev,
+                                                                    [swimmer.id]: null,
+                                                                }));
+                                                                setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : resolvedClasses.length === 0 ? (
+                                                    <EvaluationForm
+                                                        swimmerId={swimmer.id}
+                                                        skills={resolvedSkills}
+                                                        classes={resolvedClasses}
+                                                        onSubmissionComplete={async () => {
+                                                            await loadData(currentPage, debouncedSearchQuery, {
+                                                                forceRefresh: true,
+                                                            });
+                                                            setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                                                        Choose a class or history entry above to open the evaluation form.
+                                                    </div>
+                                                )}
                                             </div>
-                                        ) : detail?.skills?.length ? (
-                                            <EvaluationForm
-                                                swimmerId={swimmer.id}
-                                                skills={detail.skills}
-                                                classes={detail.classes}
-                                                onSubmissionComplete={async () => {
-                                                    applyOptimisticEvaluationPatch(swimmer.id);
-                                                    await loadSwimmerDetail(swimmer.id, true);
-                                                }}
-                                            />
                                         ) : (
                                             <div className="text-sm text-gray-500">No skills available for this swimmer.</div>
                                         )}
@@ -1443,6 +2214,38 @@ export default function AdminInstructorEvaluations({
                             <span className="text-xs text-gray-600 sm:text-sm">
                                 Page {safeCurrentPage} of {localTotalPages}
                             </span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={localTotalPages}
+                                value={pageInput}
+                                onChange={(event) => setPageInput(event.target.value)}
+                                onBlur={() => {
+                                    const parsed = Number(pageInput);
+                                    if (!Number.isFinite(parsed)) {
+                                        setPageInput(String(safeCurrentPage));
+                                        return;
+                                    }
+
+                                    const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
+                                    setCurrentPage(nextPage);
+                                }}
+                                onKeyDown={(event) => {
+                                    if (event.key !== "Enter") return;
+                                    event.preventDefault();
+
+                                    const parsed = Number(pageInput);
+                                    if (!Number.isFinite(parsed)) {
+                                        setPageInput(String(safeCurrentPage));
+                                        return;
+                                    }
+
+                                    const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
+                                    setCurrentPage(nextPage);
+                                }}
+                                className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                                aria-label="Go to page"
+                            />
                             <button
                                 type="button"
                                 disabled={safeCurrentPage >= localTotalPages || isLoading}

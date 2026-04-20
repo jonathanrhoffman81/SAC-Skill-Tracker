@@ -9,7 +9,7 @@ interface RouteParams {
 
 interface SkillUpdatePayload {
   skillId: string;
-  progress: 0 | 25 | 50 | 75 | 100;
+  progress: 0 | 1 | 2 | 3 | 4;
 }
 
 interface SkillNotePayload {
@@ -50,8 +50,28 @@ interface SwimmerProfilePayload {
   sessionNotes: SwimmerProfileNote[];
 }
 
-const VALID_PROGRESS_VALUES = new Set([0, 25, 50, 75, 100]);
+const VALID_PROGRESS_VALUES = new Set([0, 1, 2, 3, 4]);
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'org-admin', 'super-admin', 'superadmin']);
+
+function normalizeIncomingProgress(value: number | undefined): SkillUpdatePayload['progress'] | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null;
+  }
+
+  if (VALID_PROGRESS_VALUES.has(value)) {
+    return value as SkillUpdatePayload['progress'];
+  }
+
+  const percentToLevelMap: Record<number, SkillUpdatePayload['progress']> = {
+    0: 0,
+    25: 1,
+    50: 2,
+    75: 3,
+    100: 4,
+  };
+
+  return percentToLevelMap[value] ?? null;
+}
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
@@ -84,13 +104,14 @@ function normalizeSkillUpdates(body: {
 
   if (Array.isArray(body.skillUpdates)) {
     body.skillUpdates.forEach((update) => {
-      if (!update?.skillId || !VALID_PROGRESS_VALUES.has(update.progress ?? -1)) {
+      const normalizedProgress = normalizeIncomingProgress(update?.progress);
+      if (!update?.skillId || normalizedProgress === null) {
         return;
       }
 
       normalizedUpdates.set(update.skillId, {
         skillId: update.skillId,
-        progress: update.progress as SkillUpdatePayload['progress'],
+        progress: normalizedProgress,
       });
     });
   }
@@ -98,13 +119,14 @@ function normalizeSkillUpdates(body: {
   if (body.skillId) {
     let progress: number | undefined = body.progress;
     if (typeof progress !== 'number' && typeof body.mastered === 'boolean') {
-      progress = body.mastered ? 100 : 0;
+      progress = body.mastered ? 4 : 0;
     }
 
-    if (VALID_PROGRESS_VALUES.has(progress ?? -1)) {
+    const normalizedProgress = normalizeIncomingProgress(progress);
+    if (normalizedProgress !== null) {
       normalizedUpdates.set(body.skillId, {
         skillId: body.skillId,
-        progress: progress as SkillUpdatePayload['progress'],
+        progress: normalizedProgress,
       });
     }
   }
@@ -237,37 +259,11 @@ async function instructorCanAccessMember(
     return { ok: false, error: 'You do not have access to this swimmer.' };
   }
 
-  const { data: groupRows, error: groupRowsError } = await supabaseAdmin
-    .from('class_group')
-    .select('group_id, class_id, name')
-    .in('group_id', groupIds);
-
-  if (groupRowsError) {
-    return {
-      ok: false,
-      error: `Failed to load class groups: ${groupRowsError.message}`,
-    };
-  }
-
-  const allowedSlotsByClassId = new Map<string, Set<number>>();
-  (groupRows ?? []).forEach((row) => {
-    const slotMatch = (row.name ?? '').match(/slot\s*(\d+)/i);
-    if (!slotMatch) return;
-    const slotNumber = Number(slotMatch[1]);
-    if (!Number.isFinite(slotNumber)) return;
-    const existing = allowedSlotsByClassId.get(row.class_id) ?? new Set<number>();
-    existing.add(slotNumber);
-    allowedSlotsByClassId.set(row.class_id, existing);
-  });
-
-  if (allowedSlotsByClassId.size === 0) {
-    return { ok: false, error: 'You do not have access to this swimmer.' };
-  }
-
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
-    .select('class_id')
-    .eq('member_id', memberId);
+    .select('group_id')
+    .eq('member_id', memberId)
+    .in('group_id', groupIds);
 
   if (memberEnrollmentsError) {
     return {
@@ -276,30 +272,68 @@ async function instructorCanAccessMember(
     };
   }
 
-  const { data: memberRow, error: memberError } = await supabaseAdmin
-    .from('member')
-    .select('member_id, slot')
-    .eq('member_id', memberId)
-    .maybeSingle();
-
-  if (memberError) {
-    return {
-      ok: false,
-      error: `Failed to load member slot: ${memberError.message}`,
-    };
-  }
-
-  const memberSlot = memberRow?.slot ?? null;
-  const canAccessViaGroup = (memberEnrollments ?? []).some((row) => {
-    if (!row.class_id || memberSlot === null || memberSlot === undefined) return false;
-    const allowedSlots = allowedSlotsByClassId.get(row.class_id);
-    if (!allowedSlots) return false;
-    return allowedSlots.has(memberSlot);
-  });
+  const canAccessViaGroup = (memberEnrollments ?? []).some((row) => Boolean(row.group_id));
 
   return canAccessViaGroup
     ? { ok: true }
     : { ok: false, error: 'You do not have access to this swimmer.' };
+}
+
+async function saveMemberSkillProgress(args: {
+  memberId: string;
+  skillId: string;
+  progress: SkillUpdatePayload['progress'];
+  updatedByPersonId: string;
+}) {
+  const supabaseAdmin = getSupabaseAdminClient();
+  const dateAcquired = args.progress === 4 ? new Date().toISOString().slice(0, 10) : null;
+
+  const { data: existingRow, error: existingRowError } = await supabaseAdmin
+    .from('member_skill')
+    .select('member_skill_id')
+    .eq('member_id', args.memberId)
+    .eq('skill_id', args.skillId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingRowError) {
+    return { error: existingRowError.message };
+  }
+
+  if (existingRow?.member_skill_id) {
+    const { error: updateError } = await supabaseAdmin
+      .from('member_skill')
+      .update({
+        progress: args.progress,
+        date_acquired: dateAcquired,
+        updated_by_person_id: args.updatedByPersonId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('member_skill_id', existingRow.member_skill_id);
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    return { error: null };
+  }
+
+  const { error: insertError } = await supabaseAdmin
+    .from('member_skill')
+    .insert({
+      member_id: args.memberId,
+      skill_id: args.skillId,
+      progress: args.progress,
+      date_acquired: dateAcquired,
+      updated_by_person_id: args.updatedByPersonId,
+    });
+
+  if (insertError) {
+    return { error: insertError.message };
+  }
+
+  return { error: null };
 }
 
 async function getSharedClassIdsForInstructorAndMember(
@@ -324,7 +358,7 @@ async function getSharedClassIdsForInstructorAndMember(
 
   const { data: groupRows, error: groupRowsError } = await supabaseAdmin
     .from('class_group')
-    .select('group_id, class_id, name')
+    .select('group_id, class_id')
     .in('group_id', groupIds);
 
   if (groupRowsError) {
@@ -333,43 +367,17 @@ async function getSharedClassIdsForInstructorAndMember(
 
   const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
     .from('enrollment')
-    .select('class_id')
-    .eq('member_id', memberId);
+    .select('class_id, group_id')
+    .eq('member_id', memberId)
+    .in('group_id', groupIds);
 
   if (memberEnrollmentsError) {
     return { sharedClassIds: [], error: `Failed to load member enrollments: ${memberEnrollmentsError.message}` };
   }
 
-  const allowedSlotsByClassId = new Map<string, Set<number>>();
-  (groupRows ?? []).forEach((row) => {
-    const slotMatch = (row.name ?? '').match(/slot\s*(\d+)/i);
-    if (!slotMatch) return;
-    const slotNumber = Number(slotMatch[1]);
-    if (!Number.isFinite(slotNumber)) return;
-    const existing = allowedSlotsByClassId.get(row.class_id) ?? new Set<number>();
-    existing.add(slotNumber);
-    allowedSlotsByClassId.set(row.class_id, existing);
-  });
-
-  const { data: memberRow, error: memberError } = await supabaseAdmin
-    .from('member')
-    .select('member_id, slot')
-    .eq('member_id', memberId)
-    .maybeSingle();
-
-  if (memberError) {
-    return { sharedClassIds: [], error: `Failed to load member slot: ${memberError.message}` };
-  }
-
-  const memberSlot = memberRow?.slot ?? null;
-
+  const allowedGroupIds = new Set((groupRows ?? []).map((row) => row.group_id).filter(Boolean));
   const sharedClassIds = (memberEnrollments ?? [])
-    .filter((row) => {
-      if (!row.class_id || memberSlot === null || memberSlot === undefined) return false;
-      const allowedSlots = allowedSlotsByClassId.get(row.class_id);
-      if (!allowedSlots) return false;
-      return allowedSlots.has(memberSlot);
-    })
+    .filter((row) => row.class_id && row.group_id && allowedGroupIds.has(row.group_id))
     .map((row) => row.class_id);
 
   return { sharedClassIds: Array.from(new Set(sharedClassIds)) };
@@ -591,7 +599,7 @@ async function buildSwimmerProfileFallback(
         return {
           id: row.skill_id,
           name: row.name,
-          mastered: progress === 100 || Boolean(memberSkill?.dateAcquired),
+          mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
           progress,
           dateAcquired: formatDate(memberSkill?.dateAcquired),
           notes: skillNotesBySkillId.get(row.skill_id) ?? [],
@@ -681,6 +689,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const memberId = params.id;
     const body = (await request.json()) as {
       email?: string;
+      evaluationId?: string;
+      feedback?: string;
       skillId?: string;
       mastered?: boolean;
       progress?: number;
@@ -707,6 +717,57 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const instructor = instructorResolution.person;
     const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
 
+    if (body.evaluationId) {
+      const trimmedFeedback = body.feedback?.trim() ?? '';
+
+      if (!hasAdminAccess) {
+        const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
+        if (!accessCheck.ok) {
+          return NextResponse.json(
+            { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
+            { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
+          );
+        }
+      }
+
+      const { data: evaluationRow, error: evaluationLookupError } = await supabaseAdmin
+        .from('evaluation')
+        .select('evaluation_id, member_id')
+        .eq('evaluation_id', body.evaluationId)
+        .eq('member_id', memberId)
+        .maybeSingle();
+
+      if (evaluationLookupError) {
+        return NextResponse.json(
+          { error: `Failed to load evaluation: ${evaluationLookupError.message}` },
+          { status: 500 }
+        );
+      }
+
+      if (!evaluationRow) {
+        return NextResponse.json(
+          { error: 'Evaluation not found for this swimmer.' },
+          { status: 404 }
+        );
+      }
+
+      const { error: evaluationUpdateError } = await supabaseAdmin
+        .from('evaluation')
+        .update({
+          feedback: trimmedFeedback || null,
+        })
+        .eq('evaluation_id', body.evaluationId);
+
+      if (evaluationUpdateError) {
+        return NextResponse.json(
+          { error: `Failed to update evaluation: ${evaluationUpdateError.message}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     const skillUpdates = normalizeSkillUpdates(body);
 
     if (skillUpdates.length !== 1) {
@@ -728,22 +789,114 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const skillUpdate = skillUpdates[0];
 
-    const { error: upsertError } = await supabaseAdmin.from('member_skill').upsert(
-      {
-        member_id: memberId,
-        skill_id: skillUpdate.skillId,
-        progress: skillUpdate.progress,
-        date_acquired: skillUpdate.progress === 100
-          ? new Date().toISOString().slice(0, 10)
-          : null,
-        updated_by_person_id: instructor.person_id,
-      },
-      { onConflict: 'member_id,skill_id' }
-    );
+    const { error: upsertError } = await saveMemberSkillProgress({
+      memberId,
+      skillId: skillUpdate.skillId,
+      progress: skillUpdate.progress,
+      updatedByPersonId: instructor.person_id,
+    });
 
     if (upsertError) {
       return NextResponse.json(
-        { error: `Failed to update skill: ${upsertError.message}` },
+        { error: `Failed to update skill: ${upsertError}` },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown server error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  try {
+    const supabaseAdmin = getSupabaseAdminClient();
+    const memberId = params.id;
+    const evaluationId = request.nextUrl.searchParams.get('evaluationId')?.trim() ?? '';
+    const email = request.nextUrl.searchParams.get('email')?.trim() ?? undefined;
+
+    if (!evaluationId) {
+      return NextResponse.json(
+        { error: 'Evaluation id is required.' },
+        { status: 400 }
+      );
+    }
+
+    const instructorResolution = await resolveInstructorPersonForRequest(request, email);
+    if ('error' in instructorResolution) {
+      const errorMessage = instructorResolution.error ?? 'Missing instructor email';
+      return NextResponse.json(
+        {
+          error: errorMessage
+            .replace('FORBIDDEN:', '')
+            .replace('UNAUTHORIZED:', ''),
+        },
+        {
+          status: errorMessage.startsWith('FORBIDDEN:')
+            ? 403
+            : errorMessage.startsWith('UNAUTHORIZED:')
+              ? 401
+              : 400,
+        }
+      );
+    }
+
+    const instructor = instructorResolution.person;
+    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
+
+    if (!hasAdminAccess) {
+      const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
+      if (!accessCheck.ok) {
+        return NextResponse.json(
+          { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
+          { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
+        );
+      }
+    }
+
+    const { data: evaluationRow, error: evaluationLookupError } = await supabaseAdmin
+      .from('evaluation')
+      .select('evaluation_id, member_id')
+      .eq('evaluation_id', evaluationId)
+      .eq('member_id', memberId)
+      .maybeSingle();
+
+    if (evaluationLookupError) {
+      return NextResponse.json(
+        { error: `Failed to load evaluation: ${evaluationLookupError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!evaluationRow) {
+      return NextResponse.json(
+        { error: 'Evaluation not found for this swimmer.' },
+        { status: 404 }
+      );
+    }
+
+    const { error: unlinkMemberSkillError } = await supabaseAdmin
+      .from('member_skill')
+      .update({ evaluation_id: null })
+      .eq('evaluation_id', evaluationId);
+
+    if (unlinkMemberSkillError) {
+      return NextResponse.json(
+        { error: `Failed to detach evaluation from skill history: ${unlinkMemberSkillError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('evaluation')
+      .delete()
+      .eq('evaluation_id', evaluationId);
+
+    if (deleteError) {
+      return NextResponse.json(
+        { error: `Failed to delete evaluation: ${deleteError.message}` },
         { status: 500 }
       );
     }
@@ -818,7 +971,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (body.skillId && skillUpdates.length === 0) {
       return NextResponse.json(
-        { error: 'Skill updates must use progress values of 0, 25, 50, 75, or 100.' },
+        { error: 'Skill updates must use progress values of 0, 1, 2, 3, or 4.' },
         { status: 400 }
       );
     }
@@ -868,36 +1021,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     let classId = body.classId;
-    if (classId && !sharedClassIds.includes(classId)) {
+    if (classId && !enrolledClassIds.includes(classId)) {
       return NextResponse.json(
-        { error: 'Selected class is not assigned to this instructor for this swimmer.' },
+        { error: 'Selected class is not enrolled for this swimmer.' },
         { status: 403 }
       );
     }
 
     if (hasSkillUpdate) {
-      const skillUpsertRows = skillUpdates.map((update) => ({
-        member_id: memberId,
-        skill_id: update.skillId,
-        progress: update.progress,
-        date_acquired: update.progress === 100 ? new Date().toISOString().slice(0, 10) : null,
-        updated_by_person_id: instructor.person_id,
-      }));
+      for (const update of skillUpdates) {
+        const { error: skillUpsertError } = await saveMemberSkillProgress({
+          memberId,
+          skillId: update.skillId,
+          progress: update.progress,
+          updatedByPersonId: instructor.person_id,
+        });
 
-      const { error: skillUpsertError } = await supabaseAdmin
-        .from('member_skill')
-        .upsert(skillUpsertRows, { onConflict: 'member_id,skill_id' });
-
-      if (skillUpsertError) {
-        return NextResponse.json(
-          { error: `Failed to update skill: ${skillUpsertError.message}` },
-          { status: 500 }
-        );
+        if (skillUpsertError) {
+          return NextResponse.json(
+            { error: `Failed to update skill: ${skillUpsertError}` },
+            { status: 500 }
+          );
+        }
       }
-    }
-
-    if (!hasNote) {
-      return NextResponse.json({ success: true });
     }
 
     if (!classId && sharedClassIds.length > 0) {
@@ -926,9 +1072,28 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           },
         ]
         : []),
+      ...(!trimmedNote && !hasSkillNote && hasSkillUpdate
+        ? [
+          {
+            instructor_person_id: instructor.person_id,
+            member_id: memberId,
+            class_id: classId ?? null,
+            skill_id: null,
+            feedback: null,
+            evaluation_date: evaluationDate,
+          },
+        ]
+        : []),
     ];
 
-    const { error: insertError } = await supabaseAdmin.from('evaluation').insert(evaluationRows);
+    if (evaluationRows.length === 0) {
+      return NextResponse.json({ success: true });
+    }
+
+    const { data: insertedEvaluations, error: insertError } = await supabaseAdmin
+      .from('evaluation')
+      .insert(evaluationRows)
+      .select('evaluation_id, class_id, skill_id, feedback, evaluation_date');
 
     if (insertError) {
       return NextResponse.json(
@@ -937,7 +1102,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      createdEvaluations: insertedEvaluations ?? [],
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
     return NextResponse.json({ error: message }, { status: 500 });
