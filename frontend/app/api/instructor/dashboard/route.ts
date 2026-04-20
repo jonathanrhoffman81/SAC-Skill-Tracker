@@ -4,6 +4,7 @@ import {
   getCurrentPersonFromRequest,
 } from "@/lib/serverAuth";
 import { normalizeRole } from "@/lib/authRoles";
+import { getOrganizationById } from "@/lib/adminQueries";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 interface DashboardClassPayload {
@@ -33,6 +34,7 @@ interface DashboardPayload {
   currentInstructorId?: string;
   userName: string;
   organizationName: string;
+  headerAccentColor?: string | null;
   swimmers: DashboardSwimmerPayload[];
   organizationLogoUrl: string | null;
   pagination: {
@@ -168,23 +170,14 @@ async function buildDashboardFallback(
       currentInstructorId: person.person_id,
       userName,
       organizationName: "SAC Skill Tracker",
+      headerAccentColor: null,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination: buildPagination(page, PAGE_SIZE, 0),
     };
   }
 
-  const { data: organization, error: organizationError } = await supabaseAdmin
-    .from("organization")
-    .select("name")
-    .eq("organization_id", organizationId)
-    .maybeSingle();
-
-  if (organizationError) {
-    throw new Error(
-      `Failed to load organization: ${organizationError.message}`,
-    );
-  }
+  const organization = await getOrganizationById(supabaseAdmin, organizationId);
 
   const groupIds = Array.from(
     new Set((instructorGroups ?? []).map((row) => row.group_id)),
@@ -259,6 +252,7 @@ async function buildDashboardFallback(
       currentInstructorId: person.person_id,
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      headerAccentColor: organization?.header_color ?? null,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination: buildPagination(page, PAGE_SIZE, 0),
@@ -309,6 +303,7 @@ async function buildDashboardFallback(
     return {
       userName,
       organizationName: organization?.name || "SAC Skill Tracker",
+      headerAccentColor: organization?.header_color ?? null,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
       swimmers: [],
       pagination,
@@ -441,6 +436,7 @@ async function buildDashboardFallback(
     currentInstructorId: person.person_id,
     userName,
     organizationName: organization?.name || "SAC Skill Tracker",
+    headerAccentColor: organization?.header_color ?? null,
     organizationLogoUrl: getOrganizationLogoUrl(organizationId),
     swimmers,
     pagination,

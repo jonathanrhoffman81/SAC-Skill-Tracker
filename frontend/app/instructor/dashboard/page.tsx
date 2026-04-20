@@ -39,7 +39,41 @@ interface InstructorDashboardPayload {
   userName: string;
   organizationName: string;
   organizationLogoUrl: string | null;
+  headerAccentColor?: string | null;
   error?: string;
+}
+
+const DEFAULT_HEADER_ACCENT_COLOR = "#ffffff";
+
+function normalizeHexColor(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const hex = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  if (![3, 6].includes(hex.length) || !/^[0-9a-fA-F]+$/.test(hex)) {
+    return null;
+  }
+
+  if (hex.length === 3) {
+    return `#${hex
+      .split("")
+      .map((char) => `${char}${char}`)
+      .join("")
+      .toUpperCase()}`;
+  }
+
+  return `#${hex.toUpperCase()}`;
+}
+
+function hexToRgba(hexColor: string, alpha: number) {
+  const normalized = normalizeHexColor(hexColor);
+  if (!normalized) return `rgba(255, 255, 255, ${alpha})`;
+
+  const red = Number.parseInt(normalized.slice(1, 3), 16);
+  const green = Number.parseInt(normalized.slice(3, 5), 16);
+  const blue = Number.parseInt(normalized.slice(5, 7), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function getInitials(name: string) {
@@ -56,6 +90,7 @@ export default function InstructorDashboard() {
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [currentInstructorId, setCurrentInstructorId] = useState<string | null>(null);
+  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -77,12 +112,14 @@ export default function InstructorDashboard() {
         setOrganizationName(payload.organizationName || "SAC Skill Tracker");
         setLogoUrl(payload.organizationLogoUrl || null);
         setCurrentInstructorId(payload.currentInstructorId || null);
+        setHeaderAccentColor(normalizeHexColor(payload.headerAccentColor || "") ?? null);
       } catch {
         if (!isMounted) return;
         setUserName("Instructor");
         setOrganizationName("SAC Skill Tracker");
         setLogoUrl(null);
         setCurrentInstructorId(null);
+        setHeaderAccentColor(null);
       }
     }
 
@@ -93,9 +130,18 @@ export default function InstructorDashboard() {
     };
   }, []);
 
+  const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+      <header
+        className="sticky top-0 z-10 border-b border-gray-200 bg-white"
+        style={{
+          background: headerAccentBackground,
+          borderTop: `7px solid ${resolvedHeaderAccentColor}`,
+        }}
+      >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
