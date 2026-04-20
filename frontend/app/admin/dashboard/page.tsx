@@ -1152,7 +1152,7 @@ export default function AdminDashboard() {
 
   const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
   const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
-  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.4)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.1)} 50%, #FFFFFF 100%)`;
+  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
 
   const closeSidebar = () => {
     setSidebarOpen(false);

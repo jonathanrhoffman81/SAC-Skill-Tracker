@@ -73,6 +73,20 @@ function normalizeIncomingProgress(value: number | undefined): SkillUpdatePayloa
   return percentToLevelMap[value] ?? null;
 }
 
+function normalizeStoredProgress(
+  value: number | null | undefined,
+): SkillUpdatePayload['progress'] {
+  if (value === 0) return 0;
+  if (value === 1 || value === 2 || value === 3 || value === 4) {
+    return value;
+  }
+  if (value === 25) return 1;
+  if (value === 50) return 2;
+  if (value === 75) return 3;
+  if (value === 100) return 4;
+  return 0;
+}
+
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
   return new Date(value).toLocaleDateString('en-US', {
@@ -383,6 +397,115 @@ async function getSharedClassIdsForInstructorAndMember(
   return { sharedClassIds: Array.from(new Set(sharedClassIds)) };
 }
 
+async function resolveEvaluationInstructorPersonId(args: {
+  actingPersonId: string;
+  memberId: string;
+  classId?: string | null;
+  hasAdminAccess: boolean;
+}): Promise<{ instructorPersonId?: string; error?: string }> {
+  if (!args.classId || !args.hasAdminAccess) {
+    return { instructorPersonId: args.actingPersonId };
+  }
+
+  const supabaseAdmin = getSupabaseAdminClient();
+
+  const { data: directAssignmentRows, error: directAssignmentError } = await supabaseAdmin
+    .from('group_instructor')
+    .select('instructor_person_id, class_group!inner(class_id)')
+    .eq('instructor_person_id', args.actingPersonId)
+    .eq('class_group.class_id', args.classId)
+    .limit(1);
+
+  if (directAssignmentError) {
+    return {
+      error: `Failed to verify class instructor assignments: ${directAssignmentError.message}`,
+    };
+  }
+
+  if ((directAssignmentRows ?? []).length > 0) {
+    return { instructorPersonId: args.actingPersonId };
+  }
+
+  const { data: memberEnrollmentRows, error: memberEnrollmentError } = await supabaseAdmin
+    .from('enrollment')
+    .select('group_id')
+    .eq('member_id', args.memberId)
+    .eq('class_id', args.classId);
+
+  if (memberEnrollmentError) {
+    return {
+      error: `Failed to load swimmer group assignments: ${memberEnrollmentError.message}`,
+    };
+  }
+
+  const memberGroupIds = Array.from(
+    new Set((memberEnrollmentRows ?? []).map((row) => row.group_id).filter(Boolean)),
+  );
+
+  if (memberGroupIds.length > 0) {
+    const { data: memberGroupInstructorRows, error: memberGroupInstructorError } = await supabaseAdmin
+      .from('group_instructor')
+      .select('instructor_person_id')
+      .in('group_id', memberGroupIds)
+      .limit(1);
+
+    if (memberGroupInstructorError) {
+      return {
+        error: `Failed to load swimmer group instructors: ${memberGroupInstructorError.message}`,
+      };
+    }
+
+    const assignedInstructorId = (memberGroupInstructorRows ?? [])
+      .map((row) => row.instructor_person_id)
+      .find(Boolean);
+
+    if (assignedInstructorId) {
+      return { instructorPersonId: assignedInstructorId };
+    }
+  }
+
+  const { data: classGroupRows, error: classGroupError } = await supabaseAdmin
+    .from('class_group')
+    .select('group_id')
+    .eq('class_id', args.classId);
+
+  if (classGroupError) {
+    return {
+      error: `Failed to load class groups: ${classGroupError.message}`,
+    };
+  }
+
+  const classGroupIds = Array.from(
+    new Set((classGroupRows ?? []).map((row) => row.group_id).filter(Boolean)),
+  );
+
+  if (classGroupIds.length > 0) {
+    const { data: classInstructorRows, error: classInstructorError } = await supabaseAdmin
+      .from('group_instructor')
+      .select('instructor_person_id')
+      .in('group_id', classGroupIds)
+      .limit(1);
+
+    if (classInstructorError) {
+      return {
+        error: `Failed to load class instructors: ${classInstructorError.message}`,
+      };
+    }
+
+    const assignedInstructorId = (classInstructorRows ?? [])
+      .map((row) => row.instructor_person_id)
+      .find(Boolean);
+
+    if (assignedInstructorId) {
+      return { instructorPersonId: assignedInstructorId };
+    }
+  }
+
+  return {
+    error: 'No instructor is assigned to this class yet, so this evaluation cannot be attached to the class.',
+  };
+}
+
 async function buildSwimmerProfileFallback(
   email: string,
   memberId: string,
@@ -474,7 +597,7 @@ async function buildSwimmerProfileFallback(
     (skills ?? []).map((row) => [
       row.skill_id,
       {
-        progress: row.progress ?? 0,
+        progress: normalizeStoredProgress(row.progress),
         dateAcquired: row.date_acquired,
       },
     ])
@@ -1050,10 +1173,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       classId = sharedClassIds[0];
     }
 
+    const evaluationInstructorResolution = await resolveEvaluationInstructorPersonId({
+      actingPersonId: instructor.person_id,
+      memberId,
+      classId: classId ?? null,
+      hasAdminAccess,
+    });
+
+    if (evaluationInstructorResolution.error) {
+      return NextResponse.json(
+        { error: evaluationInstructorResolution.error },
+        { status: evaluationInstructorResolution.error.startsWith('Failed') ? 500 : 400 }
+      );
+    }
+
+    const evaluationInstructorPersonId =
+      evaluationInstructorResolution.instructorPersonId ?? instructor.person_id;
+
     const evaluationDate = new Date().toISOString().slice(0, 10);
     const evaluationRows = [
       ...skillNotes.map((entry) => ({
-        instructor_person_id: instructor.person_id,
+        instructor_person_id: evaluationInstructorPersonId,
         member_id: memberId,
         class_id: classId ?? null,
         skill_id: entry.skillId,
@@ -1063,7 +1203,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ...(trimmedNote
         ? [
           {
-            instructor_person_id: instructor.person_id,
+            instructor_person_id: evaluationInstructorPersonId,
             member_id: memberId,
             class_id: classId ?? null,
             skill_id: null,
@@ -1075,7 +1215,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ...(!trimmedNote && !hasSkillNote && hasSkillUpdate
         ? [
           {
-            instructor_person_id: instructor.person_id,
+            instructor_person_id: evaluationInstructorPersonId,
             member_id: memberId,
             class_id: classId ?? null,
             skill_id: null,

@@ -35,6 +35,7 @@ const AdminInstructorEvaluations = dynamic(
 );
 
 interface InstructorDashboardPayload {
+  currentInstructorId?: string;
   userName: string;
   organizationName: string;
   organizationLogoUrl: string | null;
@@ -54,6 +55,7 @@ export default function InstructorDashboard() {
   const [userName, setUserName] = useState("Instructor");
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [currentInstructorId, setCurrentInstructorId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -74,11 +76,13 @@ export default function InstructorDashboard() {
         setUserName(payload.userName || "Instructor");
         setOrganizationName(payload.organizationName || "SAC Skill Tracker");
         setLogoUrl(payload.organizationLogoUrl || null);
+        setCurrentInstructorId(payload.currentInstructorId || null);
       } catch {
         if (!isMounted) return;
         setUserName("Instructor");
         setOrganizationName("SAC Skill Tracker");
         setLogoUrl(null);
+        setCurrentInstructorId(null);
       }
     }
 
@@ -171,6 +175,8 @@ export default function InstructorDashboard() {
           lockInitialListView
           initialStatusFilter="active"
           lockInitialStatusFilter
+          initialInstructorFilter={currentInstructorId ?? undefined}
+          needsEvaluationScope="my-only"
           showNeedsEvaluationSection
           showProficiencyScaleSection
           restoreOpenSwimmerId={false}

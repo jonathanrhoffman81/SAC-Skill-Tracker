@@ -73,6 +73,8 @@ interface AdminInstructorEvaluationsProps {
     lockInitialListView?: boolean;
     initialStatusFilter?: "all" | "active" | "inactive";
     lockInitialStatusFilter?: boolean;
+    initialInstructorFilter?: string;
+    needsEvaluationScope?: "all" | "my-only" | "my-first";
     showNeedsEvaluationSection?: boolean;
     showProficiencyScaleSection?: boolean;
     restoreOpenSwimmerId?: boolean;
@@ -132,7 +134,7 @@ const VIRTUAL_OVERSCAN = 5;
 const PERSISTED_STATE_KEY = "admin-instructor-evaluations-state";
 const PERSISTED_DATA_KEY = "admin-instructor-evaluations-data";
 const PERSISTED_STATE_TTL_MS = 15 * 60 * 1000;
-const PERSISTED_STATE_VERSION = 7;
+const PERSISTED_STATE_VERSION = 8;
 
 interface PersistedState {
     version: number;
@@ -341,6 +343,16 @@ function isClassCurrentOrRecent(startDate?: string, endDate?: string) {
     return isActive || endedRecently;
 }
 
+function matchesClassStatusFilter(
+    classItem: DashboardClass,
+    statusFilter: "all" | "active" | "inactive",
+) {
+    if (statusFilter === "all") return true;
+
+    const isCurrentOrRecent = isClassCurrentOrRecent(classItem.startDate, classItem.endDate);
+    return statusFilter === "active" ? isCurrentOrRecent : !isCurrentOrRecent;
+}
+
 function buildCacheKey(page: number, search: string) {
     return search.toLowerCase();
 }
@@ -353,8 +365,10 @@ export default function AdminInstructorEvaluations({
     initialFilters,
     initialListView = "active-classes",
     lockInitialListView = false,
-    initialStatusFilter = "all",
+    initialStatusFilter = "active",
     lockInitialStatusFilter = false,
+    initialInstructorFilter,
+    needsEvaluationScope = "my-first",
     showNeedsEvaluationSection = false,
     showProficiencyScaleSection = false,
     restoreOpenSwimmerId = true,
@@ -364,7 +378,7 @@ export default function AdminInstructorEvaluations({
     const [searchQuery, setSearchQuery] = useState("");
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
     const [classFilter, setClassFilter] = useState("all");
-    const [instructorFilter, setInstructorFilter] = useState("all");
+    const [instructorFilter, setInstructorFilter] = useState(initialInstructorFilter ?? "all");
     const [groupFilter, setGroupFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">(initialStatusFilter);
     const [listView, setListView] = useState<"overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation">(initialListView);
@@ -608,17 +622,28 @@ export default function AdminInstructorEvaluations({
     async function loadFilterOptionsFromAssignments() {
         try {
             const headers = await createAuthenticatedHeaders();
-            // Try instructor endpoint first, fall back to admin endpoint
-            let response = await fetch("/api/instructor/filters", { headers });
-            
-            if (!response.ok && response.status === 404) {
-                response = await fetch("/api/admin/instructor-member-assignments", { headers });
-            }
-            
-            const payload = (await response.json()) as AssignmentFiltersPayload & { error?: string };
+            const endpointCandidates = [
+                "/api/instructor/filters",
+                "/api/admin/instructor-member-assignments",
+            ];
 
-            if (!response.ok) {
-                throw new Error(payload.error || "Failed to load class/instructor filter options.");
+            let payload: (AssignmentFiltersPayload & { error?: string }) | null = null;
+            let lastErrorMessage = "Failed to load class/instructor filter options.";
+
+            for (const endpoint of endpointCandidates) {
+                const response = await fetch(endpoint, { headers });
+                const responsePayload = (await response.json()) as AssignmentFiltersPayload & { error?: string };
+
+                if (response.ok) {
+                    payload = responsePayload;
+                    break;
+                }
+
+                lastErrorMessage = responsePayload.error || lastErrorMessage;
+            }
+
+            if (!payload) {
+                throw new Error(lastErrorMessage);
             }
 
             const classMap = new Map<string, string>();
@@ -701,11 +726,7 @@ export default function AdminInstructorEvaluations({
             setMemberIdsByGroupId(enrollmentMap);
             setMemberIdsByInstructorId(instructorMemberMap);
         } catch {
-            setFallbackClassOptions([]);
-            setFallbackInstructorOptions([]);
-            setFallbackGroupOptions([]);
-            setMemberIdsByGroupId({});
-            setMemberIdsByInstructorId({});
+            // Keep any bootstrap-loaded options instead of wiping filters when a refresh endpoint fails.
         }
     }
 
@@ -779,7 +800,7 @@ export default function AdminInstructorEvaluations({
             setSearchQuery(restoredState.searchQuery);
             setDebouncedSearchQuery(restoredState.debouncedSearchQuery);
             setClassFilter(restoredState.classFilter ?? "all");
-            setInstructorFilter(restoredState.instructorFilter ?? "all");
+            setInstructorFilter(restoredState.instructorFilter ?? initialInstructorFilter ?? "all");
             setGroupFilter(restoredState.groupFilter ?? "all");
             setStatusFilter(lockInitialStatusFilter ? initialStatusFilter : (restoredState.statusFilter ?? initialStatusFilter));
             setListView(lockInitialListView ? initialListView : (restoredState.listView ?? initialListView));
@@ -789,6 +810,9 @@ export default function AdminInstructorEvaluations({
                 pendingRestoredScrollYRef.current = restoredState.scrollY;
                 suppressAutoFocusRef.current = true;
             }
+        }
+        if (!restoredState && initialInstructorFilter) {
+            setInstructorFilter(initialInstructorFilter);
         }
 
         if (restoredData) {
@@ -818,7 +842,7 @@ export default function AdminInstructorEvaluations({
         }
 
         setHasRestoredState(true);
-    }, []);
+    }, [initialInstructorFilter, initialListView, initialStatusFilter, lockInitialListView, lockInitialStatusFilter, restoreOpenSwimmerId]);
 
     useEffect(() => {
         if (!openSwimmerId) return;
@@ -881,6 +905,7 @@ export default function AdminInstructorEvaluations({
         classFilter,
         instructorFilter,
         groupFilter,
+        statusFilter,
         listView,
         swimmers,
         currentPage,
@@ -1073,8 +1098,11 @@ export default function AdminInstructorEvaluations({
         return endDate < now;
     };
 
-    const swimmerNeedsEvaluation = (swimmer: DashboardSwimmer) => {
-        if (!swimmer.isMySwimmer) return false;
+    const swimmerNeedsEvaluation = (
+        swimmer: DashboardSwimmer,
+        options?: { requireMySwimmer?: boolean },
+    ) => {
+        if (options?.requireMySwimmer && !swimmer.isMySwimmer) return false;
         if (swimmer.hasCurrentInstructorEvaluation) return false;
 
         const today = new Date();
@@ -1092,6 +1120,16 @@ export default function AdminInstructorEvaluations({
             return endDate >= recentPastCutoff && endDate <= upcomingCutoff;
         });
     };
+
+    const mySwimmersNeedingEvaluation = useMemo(() => (
+        swimmers.filter((swimmer) =>
+            swimmerNeedsEvaluation(swimmer, { requireMySwimmer: true }),
+        )
+    ), [swimmers]);
+
+    const shouldRequireMySwimmerForNeedsEvaluation =
+        needsEvaluationScope === "my-only" ||
+        (needsEvaluationScope === "my-first" && mySwimmersNeedingEvaluation.length > 0);
 
     const emptyStateText = useMemo(() => {
         if (debouncedSearchQuery) {
@@ -1123,7 +1161,7 @@ export default function AdminInstructorEvaluations({
         }
 
         return "No swimmers found.";
-    }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView]);
+    }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView, statusFilter]);
 
     const classFilterOptions = useMemo(() => {
         const classMap = new Map<string, string>();
@@ -1168,7 +1206,31 @@ export default function AdminInstructorEvaluations({
     }, [swimmers, fallbackClassOptions]);
 
     const instructorFilterOptions = useMemo(() => {
-        const options = [...fallbackInstructorOptions].sort((a, b) => a.label.localeCompare(b.label));
+        const optionMap = new Map<string, string>();
+
+        fallbackInstructorOptions.forEach((option) => {
+            optionMap.set(option.value, option.label);
+        });
+
+        swimmers.forEach((swimmer) => {
+            swimmer.evaluationSummary.instructors.forEach((instructorName) => {
+                const normalized = instructorName.trim();
+                if (!normalized || optionMap.has(normalized)) return;
+                optionMap.set(normalized, normalized);
+            });
+
+            (swimmer.classEvaluations ?? []).forEach((classSummary) => {
+                classSummary.instructors.forEach((instructorName) => {
+                    const normalized = instructorName.trim();
+                    if (!normalized || optionMap.has(normalized)) return;
+                    optionMap.set(normalized, normalized);
+                });
+            });
+        });
+
+        const options = Array.from(optionMap.entries())
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label));
 
         if (options.length === 0) {
             return [
@@ -1178,7 +1240,7 @@ export default function AdminInstructorEvaluations({
         }
 
         return [{ value: "all", label: "All instructors" }, ...options];
-    }, [fallbackInstructorOptions]);
+    }, [fallbackInstructorOptions, swimmers]);
 
     useEffect(() => {
         if (!classFilterOptions.some((option) => option.value === classFilter)) {
@@ -1221,6 +1283,9 @@ export default function AdminInstructorEvaluations({
 
     const displayedSwimmers = useMemo(() => {
         const filtered = swimmers.filter((swimmer) => {
+            const statusMatchedClasses = swimmer.classes.filter((classItem) =>
+                matchesClassStatusFilter(classItem, statusFilter),
+            );
             const activeClassCount = swimmer.classes.filter((classItem) => !isPastClass(classItem)).length;
             const pastClassCount = swimmer.classes.filter((classItem) => isPastClass(classItem)).length;
 
@@ -1236,7 +1301,12 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
-            if (listView === "needs-evaluation" && !swimmerNeedsEvaluation(swimmer)) {
+            if (
+                listView === "needs-evaluation" &&
+                !swimmerNeedsEvaluation(swimmer, {
+                    requireMySwimmer: shouldRequireMySwimmerForNeedsEvaluation,
+                })
+            ) {
                 return false;
             }
 
@@ -1253,13 +1323,28 @@ export default function AdminInstructorEvaluations({
             }
 
             if (classFilter !== "all") {
-                const hasSelectedClass = swimmer.classes.some((classItem) => classItem.id === classFilter);
+                const hasSelectedClass = statusMatchedClasses.some((classItem) => classItem.id === classFilter);
                 if (!hasSelectedClass) return false;
+            }
+
+            if (classFilter === "all" && statusFilter !== "all" && statusMatchedClasses.length === 0) {
+                return false;
             }
 
             if (instructorFilter !== "all") {
                 const memberIdsForInstructor = memberIdsByInstructorId[instructorFilter];
-                if (!memberIdsForInstructor?.has(swimmer.id)) {
+                const hasInstructorAssignment = memberIdsForInstructor?.has(swimmer.id) ?? false;
+                const hasInstructorEvaluation =
+                    swimmer.evaluationSummary.instructors.some(
+                        (instructorName) => instructorName.trim() === instructorFilter,
+                    ) ||
+                    (swimmer.classEvaluations ?? []).some((classSummary) =>
+                        classSummary.instructors.some(
+                            (instructorName) => instructorName.trim() === instructorFilter,
+                        ),
+                    );
+
+                if (!hasInstructorAssignment && !hasInstructorEvaluation) {
                     return false;
                 }
             }
@@ -1279,10 +1364,12 @@ export default function AdminInstructorEvaluations({
         );
 
         return sorted;
-    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, memberIdsByInstructorId, statusFilter, swimmers]);
+    }, [classFilter, instructorFilter, groupFilter, listView, memberIdsByGroupId, memberIdsByInstructorId, shouldRequireMySwimmerForNeedsEvaluation, statusFilter, swimmers]);
 
     const needsEvaluationSwimmers = useMemo(() => {
-        return displayedSwimmers.filter((swimmer) => swimmerNeedsEvaluation(swimmer));
+        return displayedSwimmers.filter((swimmer) =>
+            swimmerNeedsEvaluation(swimmer, { requireMySwimmer: true }),
+        );
     }, [displayedSwimmers]);
 
     const totalFiltered = displayedSwimmers.length;
