@@ -207,7 +207,15 @@ function buildPagination(page: number, pageSize: number, total: number) {
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
-  return new Date(value).toLocaleDateString("en-US", {
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(
+        Number(value.slice(0, 4)),
+        Number(value.slice(5, 7)) - 1,
+        Number(value.slice(8, 10)),
+      )
+    : new Date(value);
+
+  return parsed.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",

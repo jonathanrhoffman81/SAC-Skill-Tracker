@@ -274,7 +274,13 @@ function truncateNotePreview(note?: string, maxLength = 140) {
 }
 
 function formatSavedDateLabel(dateValue: string) {
-    const parsed = new Date(dateValue);
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+        ? new Date(
+            Number(dateValue.slice(0, 4)),
+            Number(dateValue.slice(5, 7)) - 1,
+            Number(dateValue.slice(8, 10)),
+        )
+        : new Date(dateValue);
     if (Number.isNaN(parsed.getTime())) {
         return dateValue;
     }
@@ -1811,10 +1817,14 @@ export default function AdminInstructorEvaluations({
                                                         onClick={(event) => {
                                                             event.stopPropagation();
                                                             persistState(window.scrollY);
-                                                            router.push(`/instructor/swimmers/${swimmer.id}?returnTo=${encodeURIComponent("/admin/dashboard?tab=evaluations")}`);
-                                                        }}
-                                                    >
-                                                        View full history
+                                                        const returnTo =
+                                                            typeof window !== "undefined"
+                                                                ? `${window.location.pathname}${window.location.search}`
+                                                                : "/instructor/dashboard";
+                                                        router.push(`/instructor/swimmers/${swimmer.id}?returnTo=${encodeURIComponent(returnTo)}`);
+                                                    }}
+                                                >
+                                                        View full profile
                                                     </button>
                                                 </div>
                                                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AuthContextError, getCurrentPersonFromRequest } from '@/lib/serverAuth';
 import { normalizeRole } from '@/lib/authRoles';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
+import {
+  buildAuthorizedSwimmerProfile,
+  type SwimmerProfilePayload as SharedSwimmerProfilePayload,
+} from '@/lib/accountSwimmerProfiles';
 
 interface RouteParams {
   params: { id: string };
@@ -22,6 +26,13 @@ interface SwimmerProfileNote {
   date: string;
   content: string;
   author: string;
+}
+
+interface SkillProgressHistoryItem {
+  id: string;
+  date: string;
+  progress: number;
+  dateAcquired?: string;
 }
 
 interface SwimmerProfilePayload {
@@ -45,10 +56,20 @@ interface SwimmerProfilePayload {
     mastered: boolean;
     progress: number;
     dateAcquired?: string;
+    obtainedInClass?: boolean;
+    progressHistory?: SkillProgressHistoryItem[];
     notes: SwimmerProfileNote[];
   }>;
   sessionNotes: SwimmerProfileNote[];
 }
+
+type InstructorSwimmerProfilePayload = SharedSwimmerProfilePayload & {
+  swimmer: SharedSwimmerProfilePayload['swimmer'] & {
+    guardianName: string;
+    guardianEmail: string;
+    guardianRelationship: string;
+  };
+};
 
 const VALID_PROGRESS_VALUES = new Set([0, 1, 2, 3, 4]);
 const INSTRUCTOR_ROUTE_ROLE_SET = new Set(['instructor', 'admin', 'org-admin', 'super-admin', 'superadmin']);
@@ -89,16 +110,44 @@ function normalizeStoredProgress(
 
 function formatDate(value?: string | null): string | undefined {
   if (!value) return undefined;
-  return new Date(value).toLocaleDateString('en-US', {
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(
+      Number(value.slice(0, 4)),
+      Number(value.slice(5, 7)) - 1,
+      Number(value.slice(8, 10)),
+    )
+    : new Date(value);
+
+  return parsed.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
 }
 
+function toIsoDate(value?: string | null): string | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
 function calculateAge(dateOfBirth?: string | null): number | null {
   if (!dateOfBirth) return null;
-  const dob = new Date(dateOfBirth);
+  const dob = /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)
+    ? new Date(
+      Number(dateOfBirth.slice(0, 4)),
+      Number(dateOfBirth.slice(5, 7)) - 1,
+      Number(dateOfBirth.slice(8, 10)),
+    )
+    : new Date(dateOfBirth);
   const now = new Date();
   let age = now.getFullYear() - dob.getFullYear();
   const monthDelta = now.getMonth() - dob.getMonth();
@@ -247,6 +296,45 @@ async function resolveInstructorPersonForRequest(
     person: instructorResolution.person,
     hasAdminAccess: false,
     source: 'email' as const,
+  };
+}
+
+async function loadPrimaryGuardianContact(memberId: string) {
+  const supabaseAdmin = getSupabaseAdminClient();
+
+  const { data: guardianLinks, error: guardianLinksError } = await supabaseAdmin
+    .from('guardian_member')
+    .select('guardian_person_id, relationship')
+    .eq('member_id', memberId);
+
+  if (guardianLinksError) {
+    throw new Error(`Failed to load guardians: ${guardianLinksError.message}`);
+  }
+
+  const firstGuardianLink = guardianLinks?.[0];
+  if (!firstGuardianLink?.guardian_person_id) {
+    return {
+      guardianName: 'No guardian on file',
+      guardianEmail: '',
+      guardianRelationship: '',
+    };
+  }
+
+  const { data: guardianRow, error: guardianRowError } = await supabaseAdmin
+    .from('person')
+    .select('first_name, last_name, email')
+    .eq('person_id', firstGuardianLink.guardian_person_id)
+    .maybeSingle();
+
+  if (guardianRowError) {
+    throw new Error(`Failed to load guardian contacts: ${guardianRowError.message}`);
+  }
+
+  return {
+    guardianName:
+      `${guardianRow?.first_name ?? ''} ${guardianRow?.last_name ?? ''}`.trim() || 'Guardian',
+    guardianEmail: guardianRow?.email ?? '',
+    guardianRelationship: firstGuardianLink.relationship ?? '',
   };
 }
 
@@ -576,7 +664,7 @@ async function buildSwimmerProfileFallback(
 
   const { data: skills, error: skillsError } = await supabaseAdmin
     .from('member_skill')
-    .select('skill_id, progress, date_acquired')
+    .select('member_skill_id, skill_id, progress, date_acquired, updated_at, evaluation_id')
     .eq('member_id', memberId);
 
   if (skillsError) {
@@ -597,8 +685,11 @@ async function buildSwimmerProfileFallback(
     (skills ?? []).map((row) => [
       row.skill_id,
       {
+        memberSkillId: row.member_skill_id,
         progress: normalizeStoredProgress(row.progress),
         dateAcquired: row.date_acquired,
+        updatedAt: row.updated_at,
+        evaluationId: row.evaluation_id,
       },
     ])
   );
@@ -676,6 +767,9 @@ async function buildSwimmerProfileFallback(
     : null;
 
   const skillNotesBySkillId = new Map<string, SwimmerProfileNote[]>();
+  const evaluationById = new Map(
+    (evaluations ?? []).map((row) => [row.evaluation_id, row]),
+  );
 
   const sessionNotes = (evaluations ?? [])
     .filter((row) => !row.skill_id)
@@ -725,6 +819,31 @@ async function buildSwimmerProfileFallback(
           mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
           progress,
           dateAcquired: formatDate(memberSkill?.dateAcquired),
+          obtainedInClass: false,
+          progressHistory: (skills ?? [])
+            .filter((historyRow) => historyRow.skill_id === row.skill_id)
+            .sort((a, b) => {
+              const aSource = a.evaluation_id ? evaluationById.get(a.evaluation_id)?.evaluation_date : null;
+              const bSource = b.evaluation_id ? evaluationById.get(b.evaluation_id)?.evaluation_date : null;
+              const aDate = new Date(aSource ?? a.updated_at ?? '').getTime();
+              const bDate = new Date(bSource ?? b.updated_at ?? '').getTime();
+              if (Number.isNaN(aDate) && Number.isNaN(bDate)) return 0;
+              if (Number.isNaN(aDate)) return -1;
+              if (Number.isNaN(bDate)) return 1;
+              return aDate - bDate;
+            })
+            .map((historyRow) => {
+              const sourceEvaluation = historyRow.evaluation_id
+                ? evaluationById.get(historyRow.evaluation_id)
+                : null;
+
+              return {
+                id: historyRow.member_skill_id,
+                date: formatDate(sourceEvaluation?.evaluation_date ?? historyRow.updated_at) ?? 'Date unknown',
+                progress: normalizeStoredProgress(historyRow.progress),
+                dateAcquired: formatDate(historyRow.date_acquired),
+              };
+            }),
           notes: skillNotesBySkillId.get(row.skill_id) ?? [],
         };
       })
@@ -762,32 +881,41 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         { status }
       );
     }
-    const email = instructorResolution.person.email;
     const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
+    const actingPersonId = instructorResolution.person.person_id;
 
-    const supabaseAdmin = getSupabaseAdminClient();
     if (!hasAdminAccess) {
-      const { data, error } = await supabaseAdmin.rpc('get_instructor_swimmer_profile_payload', {
-        instructor_email: email,
-        swimmer_member_id: memberId,
-      });
-
-      if (!error) {
-        const payload = normalizeRpcSwimmerProfilePayload(
-          data as SwimmerProfilePayload | SwimmerProfilePayload[] | null
+      const accessCheck = await instructorCanAccessMember(actingPersonId, memberId);
+      if (!accessCheck.ok) {
+        const errorMessage = accessCheck.error ?? 'You do not have access to this swimmer.';
+        return NextResponse.json(
+          { error: errorMessage },
+          { status: errorMessage.startsWith('Failed') ? 500 : 403 },
         );
-        if (payload) {
-          return NextResponse.json(payload);
-        }
-      } else {
-        console.warn('Instructor swimmer profile RPC unavailable, using fallback:', error.message);
       }
     }
 
-    const fallbackPayload = await buildSwimmerProfileFallback(email, memberId, {
-      hasAdminAccess,
-    });
-    return NextResponse.json(fallbackPayload);
+    const [profilePayload, guardianContact] = await Promise.all([
+      buildAuthorizedSwimmerProfile(memberId),
+      loadPrimaryGuardianContact(memberId),
+    ]);
+
+    if (!profilePayload) {
+      return NextResponse.json(
+        { error: 'Swimmer not found.' },
+        { status: 404 },
+      );
+    }
+
+    const responsePayload: InstructorSwimmerProfilePayload = {
+      ...profilePayload,
+      swimmer: {
+        ...profilePayload.swimmer,
+        ...guardianContact,
+      },
+    };
+
+    return NextResponse.json(responsePayload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
     if (message === 'Missing instructor email') {

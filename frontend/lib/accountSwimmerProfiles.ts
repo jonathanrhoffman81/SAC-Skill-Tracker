@@ -311,26 +311,12 @@ async function loadAccessibleMemberIds(
   ]);
 }
 
-export async function buildParentSwimmerProfiles(
-  accountPersonId: string,
+async function buildAuthorizedSwimmerProfiles(
   memberIds: string[],
 ): Promise<Map<string, SwimmerProfilePayload>> {
   const uniqueMemberIds = Array.from(new Set(memberIds.filter(Boolean)));
   const profileByMemberId = new Map<string, SwimmerProfilePayload>();
   if (uniqueMemberIds.length === 0) {
-    return profileByMemberId;
-  }
-
-  const accessibleMemberIds = await loadAccessibleMemberIds(
-    accountPersonId,
-    uniqueMemberIds,
-  );
-
-  const allowedMemberIds = uniqueMemberIds.filter((memberId) =>
-    accessibleMemberIds.has(memberId),
-  );
-
-  if (allowedMemberIds.length === 0) {
     return profileByMemberId;
   }
 
@@ -348,19 +334,19 @@ export async function buildParentSwimmerProfiles(
       .select(
         "member_id, organization_id, first_name, last_name, date_of_birth, created_at, is_active",
       )
-      .in("member_id", allowedMemberIds),
+      .in("member_id", uniqueMemberIds),
     supabaseAdmin
       .from("member_skill_current")
       .select(
         "member_skill_id, member_id, skill_id, progress, date_acquired, updated_at, evaluation_id",
       )
-      .in("member_id", allowedMemberIds),
+      .in("member_id", uniqueMemberIds),
     supabaseAdmin
       .from("member_skill")
       .select(
         "member_skill_id, member_id, skill_id, progress, date_acquired, updated_at, evaluation_id",
       )
-      .in("member_id", allowedMemberIds)
+      .in("member_id", uniqueMemberIds)
       .order("updated_at", { ascending: true })
       .order("member_skill_id", { ascending: true }),
     supabaseAdmin
@@ -368,12 +354,12 @@ export async function buildParentSwimmerProfiles(
       .select(
         "evaluation_id, member_id, feedback, evaluation_date, instructor_person_id, skill_id, class_id",
       )
-      .in("member_id", allowedMemberIds)
+      .in("member_id", uniqueMemberIds)
       .order("evaluation_date", { ascending: false }),
     supabaseAdmin
       .from("enrollment")
       .select("member_id, class_id, group_id")
-      .in("member_id", allowedMemberIds),
+      .in("member_id", uniqueMemberIds),
   ]);
 
   if (memberError) {
@@ -809,6 +795,31 @@ export async function buildParentSwimmerProfiles(
   return profileByMemberId;
 }
 
+export async function buildParentSwimmerProfiles(
+  accountPersonId: string,
+  memberIds: string[],
+): Promise<Map<string, SwimmerProfilePayload>> {
+  const uniqueMemberIds = Array.from(new Set(memberIds.filter(Boolean)));
+  if (uniqueMemberIds.length === 0) {
+    return new Map<string, SwimmerProfilePayload>();
+  }
+
+  const accessibleMemberIds = await loadAccessibleMemberIds(
+    accountPersonId,
+    uniqueMemberIds,
+  );
+
+  const allowedMemberIds = uniqueMemberIds.filter((memberId) =>
+    accessibleMemberIds.has(memberId),
+  );
+
+  if (allowedMemberIds.length === 0) {
+    return new Map<string, SwimmerProfilePayload>();
+  }
+
+  return buildAuthorizedSwimmerProfiles(allowedMemberIds);
+}
+
 export async function buildParentSwimmerProfile(
   accountPersonId: string,
   memberId: string,
@@ -816,5 +827,12 @@ export async function buildParentSwimmerProfile(
   const profiles = await buildParentSwimmerProfiles(accountPersonId, [
     memberId,
   ]);
+  return profiles.get(memberId) ?? null;
+}
+
+export async function buildAuthorizedSwimmerProfile(
+  memberId: string,
+): Promise<SwimmerProfilePayload | null> {
+  const profiles = await buildAuthorizedSwimmerProfiles([memberId]);
   return profiles.get(memberId) ?? null;
 }
