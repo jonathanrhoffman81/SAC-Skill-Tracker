@@ -14,6 +14,7 @@ export interface AdminStats {
   organizationName: string;
   organizationId: string;
   organizationLogoUrl?: string | null;
+  headerAccentColor?: string | null;
 }
 
 export interface AdminDashboardBootstrapPayload {
@@ -323,6 +324,7 @@ export async function loadAdminDashboardBootstrap(
       organizationName: organization.name,
       organizationId: organization.organization_id,
       organizationLogoUrl: getOrganizationLogoUrl(organizationId),
+      headerAccentColor: organization.header_color ?? null,
     },
     tabEssentials: {
       skills,

@@ -116,13 +116,33 @@ export async function resolveAdminRequestContext(
 }
 
 export async function getOrganizationById(supabase: any, organizationId: string) {
-    const { data: organization } = await supabase
+    const primaryResult = await supabase
         .from('organization')
-        .select('organization_id, name')
+        .select('organization_id, name, header_color')
         .eq('organization_id', organizationId)
         .single();
 
-    return organization ?? null;
+    const missingHeaderColorColumn =
+        Boolean(primaryResult.error) &&
+        (String(primaryResult.error?.message || '').toLowerCase().includes('header_color') ||
+            primaryResult.error?.code === '42703');
+
+    if (missingHeaderColorColumn) {
+        const fallbackResult = await supabase
+            .from('organization')
+            .select('organization_id, name')
+            .eq('organization_id', organizationId)
+            .single();
+
+        if (!fallbackResult.data) return null;
+
+        return {
+            ...fallbackResult.data,
+            header_color: null,
+        };
+    }
+
+    return primaryResult.data ?? null;
 }
 
 export async function getRoleIdByName(supabase: any, roleName: string): Promise<number | null> {

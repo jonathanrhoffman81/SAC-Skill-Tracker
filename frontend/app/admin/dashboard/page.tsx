@@ -81,6 +81,7 @@ interface AdminStats {
   organizationName: string;
   organizationId: string;
   organizationLogoUrl?: string | null;
+  headerAccentColor?: string | null;
 }
 
 interface DashboardBootstrapPayload {
@@ -140,6 +141,17 @@ const ADMIN_STATS_CACHE_KEY = "admin-dashboard-stats-cache";
 const ADMIN_STATS_CACHE_TTL_MS = 5 * 60 * 1000;
 const ENTITY_CACHE_KEY_PREFIX = "admin-dashboard-entity-cache:";
 const ENTITY_CACHE_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_HEADER_ACCENT_COLOR = "#ffffff"; // Default to white if not set
+const HEADER_COLOR_SWATCHES = [
+  "#2563EB",
+  "#14B8A6",
+  "#7C3AED",
+  "#E11D48",
+  "#EA580C",
+  "#16A34A",
+  "#0EA5E9",
+  "#4F46E5",
+];
 
 interface AdminStatsCachePayload {
   savedAt: number;
@@ -331,6 +343,34 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
+function normalizeHexColor(value: string): string | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+  if (!match) return null;
+
+  const raw = match[1];
+  if (raw.length === 3) {
+    return `#${raw
+      .split("")
+      .map((char) => `${char}${char}`)
+      .join("")
+      .toUpperCase()}`;
+  }
+
+  return `#${raw.toUpperCase()}`;
+}
+
+function hexToRgba(hexColor: string, alpha: number) {
+  const normalized = normalizeHexColor(hexColor);
+  if (!normalized) return `rgba(37, 99, 235, ${alpha})`;
+
+  const parsed = normalized.slice(1);
+  const red = parseInt(parsed.slice(0, 2), 16);
+  const green = parseInt(parsed.slice(2, 4), 16);
+  const blue = parseInt(parsed.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 /**
  * EntityEditor - Reusable CRUD UI for dashboard entities.
  */
@@ -512,6 +552,10 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(null);
+  const [headerAccentInput, setHeaderAccentInput] = useState(DEFAULT_HEADER_ACCENT_COLOR);
+  const [savingHeaderAccent, setSavingHeaderAccent] = useState(false);
+  const [headerAccentMigrationMissing, setHeaderAccentMigrationMissing] = useState(false);
   const [importTab, setImportTab] = useState<"roster" | "classes">("roster");
   const [entityDeleteDialog, setEntityDeleteDialog] = useState<{
     show: boolean;
@@ -737,6 +781,95 @@ export default function AdminDashboard() {
     void fetchBootstrap({ force: true });
   }, [fetchBootstrap]);
 
+  const applyHeaderAccentColor = useCallback(
+    (nextColor: string | null) => {
+      const normalizedColor = nextColor ? normalizeHexColor(nextColor) : null;
+      setHeaderAccentColor(normalizedColor);
+      setHeaderAccentInput(normalizedColor ?? DEFAULT_HEADER_ACCENT_COLOR);
+
+      setStats((prev) => {
+        if (!prev) return prev;
+        const nextStats = {
+          ...prev,
+          headerAccentColor: normalizedColor,
+        };
+        writeCachedStats(nextStats);
+        return nextStats;
+      });
+    },
+    [writeCachedStats],
+  );
+
+  const saveHeaderAccentColor = useCallback(async () => {
+    const normalizedColor = normalizeHexColor(headerAccentInput);
+    if (!normalizedColor) {
+      showToast("Enter a valid hex color like #2563EB.", "error");
+      return;
+    }
+
+    try {
+      setSavingHeaderAccent(true);
+      setHeaderAccentMigrationMissing(false);
+      const response = await fetch("/api/admin/settings/branding", {
+        method: "PATCH",
+        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ headerColor: normalizedColor }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if ((payload?.error || "").toLowerCase().includes("migration required")) {
+          setHeaderAccentMigrationMissing(true);
+          showToast("Header color is not enabled in this database yet. Run supabase/admin_dashboard_header_color.sql first.", "error");
+          return;
+        }
+        throw new Error(payload?.error || "Failed to save header color");
+      }
+
+      applyHeaderAccentColor(payload?.headerColor ?? normalizedColor);
+      showToast("Dashboard header color updated.", "success");
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Failed to save header color",
+        "error",
+      );
+    } finally {
+      setSavingHeaderAccent(false);
+    }
+  }, [applyHeaderAccentColor, headerAccentInput]);
+
+  const resetHeaderAccentColor = useCallback(async () => {
+    try {
+      setSavingHeaderAccent(true);
+      setHeaderAccentMigrationMissing(false);
+      const response = await fetch("/api/admin/settings/branding", {
+        method: "PATCH",
+        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ headerColor: null }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if ((payload?.error || "").toLowerCase().includes("migration required")) {
+          setHeaderAccentMigrationMissing(true);
+          showToast("Header color is not enabled in this database yet. Run supabase/admin_dashboard_header_color.sql first.", "error");
+          return;
+        }
+        throw new Error(payload?.error || "Failed to reset header color");
+      }
+
+      applyHeaderAccentColor(null);
+      showToast("Dashboard header color reset.", "success");
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Failed to reset header color",
+        "error",
+      );
+    } finally {
+      setSavingHeaderAccent(false);
+    }
+  }, [applyHeaderAccentColor]);
+
   // Load user info and dashboard statistics on mount
   useEffect(() => {
     (async () => {
@@ -747,6 +880,12 @@ export default function AdminDashboard() {
       void fetchBootstrap();
     })();
   }, [fetchBootstrap]);
+
+  useEffect(() => {
+    const normalized = normalizeHexColor(stats?.headerAccentColor || "");
+    setHeaderAccentColor(normalized);
+    setHeaderAccentInput(normalized ?? DEFAULT_HEADER_ACCENT_COLOR);
+  }, [stats?.headerAccentColor]);
 
   // Memoize stat cards to avoid unnecessary recalculations
   const statCards = useMemo(
@@ -1012,6 +1151,9 @@ export default function AdminDashboard() {
   }, [isDesktop]);
 
   const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
+  const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+  const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.4)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.1)} 50%, #FFFFFF 100%)`;
+
   const closeSidebar = () => {
     setSidebarOpen(false);
     if (isDesktop) {
@@ -1160,7 +1302,13 @@ export default function AdminDashboard() {
       <div
         className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pl-72" : ""}`}
       >
-        <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <header
+          className="sticky top-0 z-10 border-b border-gray-200 bg-white"
+          style={{
+            background: headerAccentBackground,
+            borderTop: `7px solid ${resolvedHeaderAccentColor}`,
+          }}
+        >
           <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center gap-2 sm:gap-3">
               {(!isDesktop || !sidebarVisible) && (
@@ -1370,6 +1518,68 @@ export default function AdminDashboard() {
                   Organization Settings
                 </h2>
                 <MemoLogoManage organizationLogoUrl={stats.organizationLogoUrl} />
+
+                <div className="mt-6 border-t border-gray-100 pt-5">
+                  <p className="text-sm font-semibold text-gray-900">Dashboard Header Color</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Pick a color accent for the dashboard header. You can use the picker or paste a hex color from your logo.
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {HEADER_COLOR_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch}
+                        type="button"
+                        onClick={() => setHeaderAccentInput(swatch)}
+                        className={`h-7 w-7 rounded-full border ${headerAccentInput.toUpperCase() === swatch ? "ring-2 ring-offset-1 ring-blue-500" : ""}`}
+                        style={{ backgroundColor: swatch }}
+                        aria-label={`Use ${swatch} header color`}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <input
+                      type="color"
+                      value={normalizeHexColor(headerAccentInput)?.toLowerCase() || '#ffffff'}
+                      onChange={(event) => {
+                        // HTML color input always returns lowercase hex
+                        setHeaderAccentInput(event.target.value.toUpperCase());
+                      }}
+                      className="h-10 w-14 cursor-pointer rounded-md border border-gray-300 bg-white p-1"
+                      aria-label="Pick dashboard header color"
+                      disabled={headerAccentMigrationMissing}
+                    />
+                    <input
+                      type="text"
+                      value={headerAccentInput}
+                      onChange={(event) => setHeaderAccentInput(event.target.value.toUpperCase())}
+                      placeholder="#FFFFFF"
+                      className="h-10 w-32 rounded-lg border border-gray-300 px-3 text-sm uppercase outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                      aria-label="Dashboard header color hex value"
+                      disabled={headerAccentMigrationMissing}
+                    />
+                    <button
+                      type="button"
+                      onClick={saveHeaderAccentColor}
+                      disabled={savingHeaderAccent || headerAccentMigrationMissing}
+                      className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                    >
+                      {savingHeaderAccent ? "Saving..." : "Save Color"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetHeaderAccentColor}
+                      disabled={savingHeaderAccent || headerAccentMigrationMissing}
+                      className="h-10 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Reset
+                    </button>
+                    {headerAccentMigrationMissing && (
+                      <span className="text-xs text-orange-600 ml-2">Header color is not enabled in this database yet. Run <code>supabase/admin_dashboard_header_color.sql</code> first.</span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
