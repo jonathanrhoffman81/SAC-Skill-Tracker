@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
         const { data: membersInOrg, error: membersInOrgError } = await supabase
             .from("member")
-            .select("member_id, first_name, last_name")
+            .select("member_id, first_name, last_name, is_active")
             .eq("organization_id", organizationId);
 
         if (membersInOrgError) {
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
                 const chunk = personIds.slice(i, i + QUERY_CHUNK_SIZE);
                 const { data, error } = await supabase
                     .from("person")
-                    .select("person_id, first_name, last_name, email")
+                    .select("person_id, first_name, last_name, email, is_active")
                     .in("person_id", chunk);
 
                 if (error) {
@@ -184,6 +184,12 @@ export async function GET(request: NextRequest) {
                     first_name: person.first_name || linkedMember?.first_name || "",
                     last_name: person.last_name || linkedMember?.last_name || "",
                     email: person.email || "",
+                    is_active:
+                        typeof person.is_active === "boolean"
+                            ? person.is_active
+                            : typeof linkedMember?.is_active === "boolean"
+                                ? linkedMember.is_active
+                                : true,
                     is_member_only: false,
                     linkedSwimmers: Array.from(guardianMemberIdsByPersonId.get(person.person_id) || [])
                         .map((memberId) => {
@@ -205,7 +211,33 @@ export async function GET(request: NextRequest) {
                 };
             });
 
-        const accounts = [...accountsFromPeople]
+        const linkedMemberIdsFromPeople = new Set<string>();
+        accountsFromPeople.forEach((account: any) => {
+            if (account.member_id) {
+                linkedMemberIdsFromPeople.add(account.member_id);
+            }
+        });
+
+        const accountsFromMembers = (membersInOrg || [])
+            .filter((member: any) => !linkedMemberIdsFromPeople.has(member.member_id))
+            .map((member: any) => ({
+                person_id: null,
+                member_id: member.member_id,
+                first_name: member.first_name || "",
+                last_name: member.last_name || "",
+                email: "",
+                is_active: typeof member.is_active === "boolean" ? member.is_active : true,
+                is_member_only: true,
+                linkedSwimmers: [],
+                roles: {
+                    admin: false,
+                    instructor: false,
+                    parent: false,
+                    swimmer: true,
+                },
+            }));
+
+        const accounts = [...accountsFromPeople, ...accountsFromMembers]
             .sort((a: any, b: any) => {
                 const aName = `${a.first_name || ""} ${a.last_name || ""}`.trim().toLowerCase();
                 const bName = `${b.first_name || ""} ${b.last_name || ""}`.trim().toLowerCase();
