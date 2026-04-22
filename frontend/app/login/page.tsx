@@ -1,6 +1,7 @@
 /**
  * Primary login page.
  * Uses auth metadata first, then DB role resolution fallback.
+ * Supports multi-role users — redirects to /role-select when multiple roles exist.
  */
 
 "use client";
@@ -10,9 +11,12 @@ import { useRouter } from "next/navigation";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
-  getDashboardPathForRole,
+  getDashboardPathsForRoles,
+  getAllAppRoles,
   normalizeEmail,
   normalizeRole,
+  saveAvailableRoles,
+  saveActiveRole,
 } from "@/lib/authRoles";
 
 const LEGACY_LOCALSTORAGE_ROLE_SET = new Set(["admin", "super-admin"]);
@@ -89,50 +93,64 @@ export default function Login() {
       const authenticatedEmail = normalizeEmail(
         data.user.email || normalizedEmail,
       );
-      const metadataCandidates = [
+
+      // ── Step 1: collect all raw roles from metadata ───────────────────────
+      const metadataRawRoles = [
         data.user.user_metadata?.role,
         data.user.user_metadata?.user_role,
         data.user.app_metadata?.role,
         data.user.app_metadata?.user_role,
-      ];
-
-      const rawRole = metadataCandidates.find(
-        (value) => typeof value === "string" && value.trim().length > 0,
+      ].filter(
+        (v): v is string => typeof v === "string" && v.trim().length > 0,
       );
 
-      const effectiveRole = normalizeRole(String(rawRole || ""));
-      let resolvedRole = effectiveRole;
+      let allRawRoles: string[] = metadataRawRoles.map((r) => normalizeRole(r));
 
-      // Fallback: if metadata role is missing, resolve from person/org role tables
-      // using the authenticated session only — no unauthenticated email fallback.
-      if (!resolvedRole) {
+      // ── Step 2: if metadata has no roles, fall back to DB resolve ──────────
+      if (allRawRoles.length === 0) {
         const authHeaders = await createAuthenticatedHeaders();
         const roleResponse = await fetch("/api/auth/resolve-role", {
           headers: authHeaders,
         });
 
-        // FIX: removed unauthenticated email fallback — it leaked role info
-        // to anyone who could guess an email address.
         if (!roleResponse.ok) {
           throw new Error("Could not resolve your role. Please try again.");
         }
 
         const rolePayload = await roleResponse.json();
-        resolvedRole = normalizeRole(String(rolePayload?.role || ""));
+
+        // resolve-role may return a single `role` or an array `roles`
+        const payloadRoles: string[] = Array.isArray(rolePayload?.roles)
+          ? rolePayload.roles
+          : rolePayload?.role
+            ? [String(rolePayload.role)]
+            : [];
+
+        allRawRoles = payloadRoles.map((r) => normalizeRole(r)).filter(Boolean);
       }
 
-      if (!resolvedRole) {
+      if (allRawRoles.length === 0) {
         throw new Error(
           "No role found on your auth profile or role tables. Please contact an admin.",
         );
       }
 
-      const dashboardPath = getDashboardPathForRole(resolvedRole);
-      if (!dashboardPath) {
-        throw new Error(`Unsupported role: ${resolvedRole}`);
+      // ── Step 3: convert raw roles → unique app-level roles ─────────────────
+      const appRoles = getAllAppRoles(allRawRoles);
+      const availableDashboards = getDashboardPathsForRoles(appRoles);
+
+      if (availableDashboards.length === 0) {
+        throw new Error(
+          `Unsupported role(s): ${appRoles.join(", ")}. Please contact an admin.`,
+        );
       }
 
-      if (LEGACY_LOCALSTORAGE_ROLE_SET.has(resolvedRole)) {
+      // ── Step 4: persist roles for use by the role switcher widget ──────────
+      saveAvailableRoles(appRoles);
+
+      // ── Step 5: legacy localStorage cleanup ───────────────────────────────
+      const highestRole = appRoles[0];
+      if (LEGACY_LOCALSTORAGE_ROLE_SET.has(highestRole)) {
         localStorage.setItem(
           "user",
           JSON.stringify({ email: authenticatedEmail }),
@@ -141,7 +159,14 @@ export default function Login() {
         localStorage.removeItem("user");
       }
 
-      router.push(dashboardPath);
+      // ── Step 6: route — multi-role → picker, single role → dashboard ───────
+      if (availableDashboards.length > 1) {
+        router.push("/role-select");
+      } else {
+        const { role, path } = availableDashboards[0];
+        saveActiveRole(role);
+        router.push(path);
+      }
     } catch (err: any) {
       console.error("Login Error:", err);
       const message = String(err?.message || "Login failed.");
@@ -159,6 +184,7 @@ export default function Login() {
             const existsInRoster = Boolean(payload?.existsInRoster);
             const hasAuthUser = Boolean(payload?.hasAuthUser);
 
+            // hasAuthUser must be checked first — takes priority over existsInRoster
             if (hasAuthUser) {
               setError("Invalid email or password.");
               return;
@@ -177,7 +203,7 @@ export default function Login() {
             return;
           }
         } catch {
-          // If the check-email call fails, fall through to the generic message
+          // fall through to generic message
         }
 
         setError("Invalid email or password.");
@@ -193,7 +219,6 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-        {/* Logo */}
         <div className="flex justify-center mb-6">
           <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
             <svg
@@ -212,7 +237,6 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Title and Subtitle */}
         <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">
           SAC Skill Tracker
         </h1>
@@ -220,9 +244,7 @@ export default function Login() {
           Swimming Progress Dashboard
         </p>
 
-        {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
-          {/* Email Input */}
           <div>
             <label
               htmlFor="email"
@@ -256,7 +278,6 @@ export default function Login() {
             />
           </div>
 
-          {/* Error Message */}
           {error && (
             <div className="text-red-600 text-sm text-center">{error}</div>
           )}
@@ -271,7 +292,6 @@ export default function Login() {
             </button>
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}

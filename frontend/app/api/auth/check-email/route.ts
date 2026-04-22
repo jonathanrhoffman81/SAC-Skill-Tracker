@@ -3,20 +3,13 @@ import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import {
   normalizeEmail,
   pickHighestPriorityRole,
+  getAllAppRoles,
   toAppRole,
 } from "@/lib/authRoles";
 
-type PersonOrgRow = {
-  person_organization_id: string;
-};
-
-type RoleLinkRow = {
-  role_id: string;
-};
-
-type RoleRow = {
-  name: string;
-};
+type PersonOrgRow = { person_organization_id: string };
+type RoleLinkRow = { role_id: string };
+type RoleRow = { name: string };
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,6 +22,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = getSupabaseAdminClient();
 
+    // FIX: use Admin Auth API — .schema("auth").from("users") silently fails
     let hasAuthUser = false;
     const { data: authList, error: authListError } =
       await supabase.auth.admin.listUsers();
@@ -81,8 +75,10 @@ export async function GET(request: NextRequest) {
     );
     const hasActiveOrganization = personOrgIds.length > 0;
 
-    let appRole: string | null = null;
+    // Collect ALL role names across all org memberships
+    let allRoleNames: string[] = [];
     let dbRole: string | null = null;
+    let appRole: string | null = null;
 
     if (hasActiveOrganization) {
       const { data: roleLinks, error: roleLinksError } = await supabase
@@ -118,11 +114,14 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        const roleNames = ((roles || []) as RoleRow[]).map((item) => item.name);
-        dbRole = pickHighestPriorityRole(roleNames);
+        allRoleNames = ((roles || []) as RoleRow[]).map((item) => item.name);
+        dbRole = pickHighestPriorityRole(allRoleNames);
         appRole = dbRole ? toAppRole(dbRole) : null;
       }
     }
+
+    // NEW: all app-level roles so the login flow can detect multi-role users
+    const allAppRoles = getAllAppRoles(allRoleNames);
 
     return NextResponse.json({
       existsInRoster: true,
@@ -131,8 +130,9 @@ export async function GET(request: NextRequest) {
       personId: person.person_id,
       firstName: person.first_name || null,
       lastName: person.last_name || null,
-      role: appRole,
+      role: appRole, // highest-priority single role (backwards compat)
       dbRole,
+      roles: allAppRoles, // NEW: all unique app roles for multi-role users
     });
   } catch (error: any) {
     console.error("Check email error:", error);
