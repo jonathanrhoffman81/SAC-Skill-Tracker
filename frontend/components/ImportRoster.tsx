@@ -1,6 +1,14 @@
 import { useState } from "react";
 import Papa from "papaparse";
 
+type Step = "upload" | "importing" | "done";
+
+interface ImportResult {
+  importedMembers: number;
+  importedInstructors: number;
+  importedAdmins: number;
+}
+
 export default function ImportRoster({
   organizationId,
   onImportComplete,
@@ -8,17 +16,16 @@ export default function ImportRoster({
   organizationId?: string;
   onImportComplete?: () => void;
 }) {
+  const [step, setStep] = useState<Step>("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [importedMemberCount, setImportedMemberCount] = useState<number>(0);
-  const [importedInstructorCount, setImportedInstructorCount] =
-    useState<number>(0);
-  const [importedAdminCount, setImportedAdminCount] = useState<number>(0);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
-  const [status, setStatus] = useState<
-    { type: "success" | "error"; message: string } | null
-  >(null);
+  const [status, setStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const allowedBillingGroups = [
     "Group 1",
@@ -44,10 +51,12 @@ export default function ImportRoster({
   const handleFile = (file: File) => {
     if (file.type !== "text/csv") {
       setStatus({ type: "error", message: "Only CSV files are allowed." });
+      setErrors(["Only CSV files are allowed."]);
       return;
     }
 
     setStatus(null);
+    setErrors([]);
 
     Papa.parse(file, {
       header: true,
@@ -116,16 +125,16 @@ export default function ImportRoster({
 
         if (validationErrors.length > 0) {
           setStatus({ type: "error", message: "CSV validation failed." });
-          setErrors(validationErrors.slice(0, 10)); // show first 10
+          setErrors(validationErrors.slice(0, 10));
           return;
         }
 
-        setStatus({ type: "success", message: "File validated. Ready to import." });
+        setStatus({
+          type: "success",
+          message: `File validated. ${rows.length} rows ready to import.`,
+        });
         setErrors([]);
         setSelectedFile(file);
-        setImportedMemberCount(0);
-        setImportedAdminCount(0);
-        setImportedInstructorCount(0);
       },
     });
   };
@@ -133,7 +142,6 @@ export default function ImportRoster({
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-
     const file = e.dataTransfer.files?.[0];
     if (file) handleFile(file);
   };
@@ -141,6 +149,9 @@ export default function ImportRoster({
   const handleUpload = async () => {
     if (!selectedFile || !organizationId) return;
 
+    setErrors([]);
+    setStatus(null);
+    setStep("importing");
     setIsLoading(true);
 
     try {
@@ -156,23 +167,37 @@ export default function ImportRoster({
       const data = await res.json();
 
       if (res.ok) {
-        setImportedMemberCount(data.importedMembers);
-        setImportedAdminCount(data.importedAdmins);
-        setImportedInstructorCount(data.importedInstructors);
-        setStatus({ type: "success", message: "Roster imported successfully." });
-
-        setSelectedFile(null); // reset file after success
+        setImportResult({
+          importedMembers: data.importedMembers,
+          importedInstructors: data.importedInstructors,
+          importedAdmins: data.importedAdmins,
+        });
+        setStatus({
+          type: "success",
+          message: "Roster imported successfully.",
+        });
+        setStep("done");
         onImportComplete?.();
       } else {
         setStatus({ type: "error", message: data.error || "Import failed." });
         setErrors([data.error || "Import failed."]);
+        setStep("upload");
       }
     } catch (err: any) {
       setStatus({ type: "error", message: err.message || "Unexpected error." });
       setErrors([err.message || "Unexpected error."]);
+      setStep("upload");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const resetState = () => {
+    setStep("upload");
+    setSelectedFile(null);
+    setImportResult(null);
+    setErrors([]);
+    setStatus(null);
   };
 
   return (
@@ -189,87 +214,156 @@ export default function ImportRoster({
         </div>
       )}
 
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-lg sm:rounded-xl p-6 sm:p-10 flex flex-col items-center text-center mb-4 sm:mb-6 transition ${isDragging ? "border-black bg-gray-50" : "border-gray-200"
-          }`}
-      >
-        <p className="text-sm sm:text-base font-semibold text-gray-900 mb-1">
-          Import Roster Data
-        </p>
-
-        <p className="text-xs sm:text-sm text-gray-500 mb-4 sm:mb-5">
-          Import swimmer roster and class assignments from SportsEngine
-        </p>
-
-        <input
-          type="file"
-          accept=".csv"
-          className="hidden"
-          id="csvUpload"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFile(file);
+      {/* ── Step 1: Upload ─────────────────────────────────────────── */}
+      {step === "upload" && (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
           }}
-        />
-
-        <div className="flex gap-3">
-          <label
-            htmlFor="csvUpload"
-            className={`cursor-pointer flex items-center gap-2 border text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition
-      ${!isLoading ? "border-gray-300 hover:bg-gray-50" : "border-gray-200 bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none"}
-    `}
-          >
-            Upload CSV
-          </label>
-
-          <button
-            onClick={handleUpload}
-            disabled={!selectedFile || isLoading}
-            className={`text-sm font-medium px-4 py-2 rounded-lg transition ${selectedFile && !isLoading
-                ? "bg-black text-white hover:opacity-90"
-                : "bg-gray-200 text-gray-400 cursor-not-allowed"
-              }`}
-          >
-            {isLoading ? "Importing..." : "Import"}
-          </button>
-        </div>
-
-        {selectedFile && (
-          <p className="mt-3 text-xs text-gray-500">
-            Selected: {selectedFile.name}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center text-center transition ${
+            isDragging ? "border-black bg-gray-50" : "border-gray-200"
+          }`}
+        >
+          <p className="text-base font-semibold text-gray-900 mb-1">
+            Import Roster Data
           </p>
-        )}
+          <p className="text-sm text-gray-500 mb-6">
+            Import swimmer roster and class assignments from SportsEngine
+          </p>
 
-        {(importedMemberCount > 0 ||
-          importedInstructorCount > 0 ||
-          importedAdminCount > 0) && (
-            <div>
-              <p className="mt-2 text-sm text-green-600">
-                Successfully imported {importedMemberCount} swimmers.
+          <input
+            type="file"
+            accept=".csv"
+            className="hidden"
+            id="csvUpload"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFile(file);
+            }}
+          />
+
+          <div className="flex flex-col items-center gap-3">
+            <label
+              htmlFor="csvUpload"
+              className={`cursor-pointer border text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition ${
+                isLoading
+                  ? "border-gray-200 bg-gray-100 text-gray-400 pointer-events-none"
+                  : "border-gray-300 hover:bg-gray-50"
+              }`}
+            >
+              Choose file
+            </label>
+
+            {selectedFile && (
+              <p className="text-xs text-gray-500">
+                Selected: {selectedFile.name}
               </p>
-              <p className="mt-2 text-sm text-green-600">
-                Successfully imported {importedInstructorCount} instructors.
-              </p>
-              <p className="mt-2 text-sm text-green-600">
-                Successfully imported {importedAdminCount} admins.
-              </p>
+            )}
+          </div>
+
+          {errors.length > 0 && (
+            <div className="mt-4 text-sm text-red-600 space-y-1">
+              {errors.map((err, i) => (
+                <p key={i}>{err}</p>
+              ))}
             </div>
           )}
+        </div>
+      )}
 
-        {errors.length > 0 && (
-          <div className="mt-2 text-sm text-red-600 space-y-1">
-            {errors.map((err, i) => (
-              <p key={i}>{err}</p>
-            ))}
+      {/* ── Confirm button (shown below drop zone when file is ready) ─ */}
+      {step === "upload" && selectedFile && !errors.length && (
+        <div className="mt-4 flex gap-3">
+          <button
+            onClick={() => {
+              setSelectedFile(null);
+              setStatus(null);
+              setErrors([]);
+            }}
+            className="flex-1 border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition"
+          >
+            Clear
+          </button>
+          <button
+            onClick={handleUpload}
+            disabled={isLoading}
+            className="flex-1 bg-black text-white text-sm font-medium px-4 py-2.5 rounded-lg hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Confirm Import
+          </button>
+        </div>
+      )}
+
+      {/* ── Step 2: Importing ──────────────────────────────────────── */}
+      {step === "importing" && (
+        <div className="border-2 border-dashed border-gray-200 rounded-xl p-12 flex flex-col items-center text-center">
+          <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="text-sm font-medium text-gray-700">
+            Importing roster data…
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            This may take a few seconds.
+          </p>
+        </div>
+      )}
+
+      {/* ── Step 3: Done ───────────────────────────────────────────── */}
+      {step === "done" && importResult && (
+        <div className="border border-gray-200 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+              <svg
+                className="w-4 h-4 text-green-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            </div>
+            <p className="font-semibold text-gray-900">Import complete</p>
           </div>
-        )}
-      </div>
+
+          <div className="text-sm text-gray-700">
+            {[
+              {
+                label: "Swimmers imported",
+                value: importResult.importedMembers,
+              },
+              {
+                label: "Instructors imported",
+                value: importResult.importedInstructors,
+              },
+              { label: "Admins imported", value: importResult.importedAdmins },
+            ]
+              .filter(({ value }) => value > 0)
+              .map(({ label, value }) => (
+                <div
+                  key={label}
+                  className="flex justify-between py-2 border-b border-gray-100 last:border-0"
+                >
+                  <span className="text-gray-500">{label}</span>
+                  <span className="font-medium">{value}</span>
+                </div>
+              ))}
+          </div>
+
+          <button
+            onClick={resetState}
+            className="mt-5 w-full border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition"
+          >
+            Import another file
+          </button>
+        </div>
+      )}
     </div>
   );
 }
