@@ -19,6 +19,7 @@ import {
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
+import { RoleSwitcherBadge } from "@/components/RoleSwitcher";
 
 type SkillProgress = 0 | 1 | 2 | 3 | 4;
 
@@ -183,7 +184,9 @@ export default function AccountDashboard() {
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
   const [showInactive, setShowInactive] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(null);
+  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(
+    null,
+  );
   const [skillsBySwimmer, setSkillsBySwimmer] = useState<
     Record<string, SkillItem[]>
   >({});
@@ -191,7 +194,8 @@ export default function AccountDashboard() {
   const [error, setError] = useState("");
 
   // Place resolvedHeaderAccentColor here so it's available before any use
-  const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+  const resolvedHeaderAccentColor =
+    headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
 
   useEffect(() => {
     let isMounted = true;
@@ -222,7 +226,9 @@ export default function AccountDashboard() {
     function applyPayload(payload: DashboardPayload, fallbackName: string) {
       setUserName(payload.userName || fallbackName);
       setOrganizationName(payload.organizationName || "SAC Skill Tracker");
-      setHeaderAccentColor(normalizeHexColor(payload.headerAccentColor || "") ?? null);
+      setHeaderAccentColor(
+        normalizeHexColor(payload.headerAccentColor || "") ?? null,
+      );
       setSwimmers(
         (payload.swimmers ?? []).map((swimmer) => ({
           ...swimmer,
@@ -363,17 +369,19 @@ export default function AccountDashboard() {
     return Math.round(
       (skills.reduce((sum, skill) => sum + skill.progress, 0) /
         (skills.length * 4)) *
-      100,
+        100,
     );
   }
 
   const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: resolvedHeaderAccentColor }}>
+    <div
+      style={{ minHeight: "100vh", backgroundColor: resolvedHeaderAccentColor }}
+    >
       <header
         className="sticky top-0 z-10 border-b border-gray-200 bg-white"
-        style={{ background: 'white', borderTop: undefined }}
+        style={{ background: "white", borderTop: undefined }}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -414,9 +422,7 @@ export default function AccountDashboard() {
               <p className="text-sm font-medium text-gray-900">
                 {userName || "Guest User"}
               </p>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
-                Parent
-              </span>
+              <RoleSwitcherBadge currentRole="account" />
             </div>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
               {userName ? getInitials(userName) : "GU"}
@@ -596,8 +602,9 @@ export default function AccountDashboard() {
                       </div>
 
                       <svg
-                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""
-                          }`}
+                        className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -664,14 +671,14 @@ export default function AccountDashboard() {
                                       className={`inline-flex max-w-full rounded-2xl px-2.5 py-1 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
                                       title={
                                         PROFICIENCY_LABELS[
-                                        skill.progress as SkillProgress
+                                          skill.progress as SkillProgress
                                         ]
                                       }
                                     >
                                       {skill.progress} -{" "}
                                       {
                                         PROFICIENCY_LABELS[
-                                        skill.progress as SkillProgress
+                                          skill.progress as SkillProgress
                                         ]
                                       }
                                     </span>
@@ -685,8 +692,11 @@ export default function AccountDashboard() {
                                       <details className="group">
                                         <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
                                           <span className="group-open:hidden">
-                                            Show {skillNotes.length - 1} older note
-                                            {skillNotes.length - 1 === 1 ? "" : "s"}
+                                            Show {skillNotes.length - 1} older
+                                            note
+                                            {skillNotes.length - 1 === 1
+                                              ? ""
+                                              : "s"}
                                           </span>
                                           <span className="hidden group-open:inline">
                                             Hide older notes
@@ -707,7 +717,10 @@ export default function AccountDashboard() {
                                         </summary>
                                         <div className="mt-2 space-y-2">
                                           {skillNotes.slice(1).map((note) => (
-                                            <SkillNoteCard key={note.id} note={note} />
+                                            <SkillNoteCard
+                                              key={note.id}
+                                              note={note}
+                                            />
                                           ))}
                                         </div>
                                       </details>
