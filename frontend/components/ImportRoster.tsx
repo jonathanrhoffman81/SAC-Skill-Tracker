@@ -5,8 +5,13 @@ type Step = "upload" | "importing" | "done";
 
 interface ImportResult {
   importedMembers: number;
+  updatedMembers: number;
   importedInstructors: number;
+  updatedInstructors: number;
   importedAdmins: number;
+  updatedAdmins: number;
+  importedGuardians: number;
+  updatedGuardians: number;
 }
 
 export default function ImportRoster({
@@ -85,9 +90,13 @@ export default function ImportRoster({
           billing_group: row["Billing Group"]?.trim(),
         }));
 
+        // Only validate rows that have at least one field populated
+        const dataRows = rows.filter(
+          (r) => r.first_name || r.last_name || r.email,
+        );
         const validationErrors: string[] = [];
 
-        rows.forEach((row, index) => {
+        dataRows.forEach((row, index) => {
           const rowNumber = index + 2;
           if (!row.first_name)
             validationErrors.push(
@@ -115,6 +124,7 @@ export default function ImportRoster({
 
           if (row.birthday && isNaN(Date.parse(row.birthday)))
             validationErrors.push(`Row ${rowNumber}: Invalid birthday format`);
+
           if (!row.billing_group)
             validationErrors.push(`Row ${rowNumber}: Missing Billing Group`);
           else if (!allowedBillingGroups.includes(row.billing_group))
@@ -131,7 +141,7 @@ export default function ImportRoster({
 
         setStatus({
           type: "success",
-          message: `File validated. ${rows.length} rows ready to import.`,
+          message: `File validated. ${dataRows.length} rows ready to import.`,
         });
         setErrors([]);
         setSelectedFile(file);
@@ -169,8 +179,13 @@ export default function ImportRoster({
       if (res.ok) {
         setImportResult({
           importedMembers: data.importedMembers,
+          updatedMembers: data.updatedMembers ?? 0,
           importedInstructors: data.importedInstructors,
+          updatedInstructors: data.updatedInstructors ?? 0,
           importedAdmins: data.importedAdmins,
+          updatedAdmins: data.updatedAdmins ?? 0,
+          importedGuardians: data.importedGuardians ?? 0,
+          updatedGuardians: data.updatedGuardians ?? 0,
         });
         setStatus({
           type: "success",
@@ -274,7 +289,7 @@ export default function ImportRoster({
         </div>
       )}
 
-      {/* ── Confirm button (shown below drop zone when file is ready) ─ */}
+      {/* ── Confirm button shown below drop zone when file is valid ── */}
       {step === "upload" && selectedFile && !errors.length && (
         <div className="mt-4 flex gap-3">
           <button
@@ -311,59 +326,142 @@ export default function ImportRoster({
       )}
 
       {/* ── Step 3: Done ───────────────────────────────────────────── */}
-      {step === "done" && importResult && (
-        <div className="border border-gray-200 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-              <svg
-                className="w-4 h-4 text-green-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            </div>
-            <p className="font-semibold text-gray-900">Import complete</p>
-          </div>
+      {step === "done" &&
+        importResult &&
+        (() => {
+          const hasChanges =
+            importResult.importedMembers > 0 ||
+            importResult.updatedMembers > 0 ||
+            importResult.importedInstructors > 0 ||
+            importResult.updatedInstructors > 0 ||
+            importResult.importedAdmins > 0 ||
+            importResult.updatedAdmins > 0 ||
+            importResult.importedGuardians > 0 ||
+            importResult.updatedGuardians > 0;
 
-          <div className="text-sm text-gray-700">
-            {[
-              {
-                label: "Swimmers imported",
-                value: importResult.importedMembers,
-              },
-              {
-                label: "Instructors imported",
-                value: importResult.importedInstructors,
-              },
-              { label: "Admins imported", value: importResult.importedAdmins },
-            ]
-              .filter(({ value }) => value > 0)
-              .map(({ label, value }) => (
+          return (
+            <div className="border border-gray-200 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-5">
                 <div
-                  key={label}
-                  className="flex justify-between py-2 border-b border-gray-100 last:border-0"
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${hasChanges ? "bg-green-100" : "bg-gray-100"}`}
                 >
-                  <span className="text-gray-500">{label}</span>
-                  <span className="font-medium">{value}</span>
+                  {hasChanges ? (
+                    <svg
+                      className="w-4 h-4 text-green-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-4 h-4 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"
+                      />
+                    </svg>
+                  )}
                 </div>
-              ))}
-          </div>
+                <div>
+                  <p className="font-semibold text-gray-900">
+                    {hasChanges ? "Import complete" : "No new updates"}
+                  </p>
+                  {!hasChanges && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Everything in this file is already up to date.
+                    </p>
+                  )}
+                </div>
+              </div>
 
-          <button
-            onClick={resetState}
-            className="mt-5 w-full border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition"
-          >
-            Import another file
-          </button>
-        </div>
-      )}
+              {hasChanges &&
+                (() => {
+                  const newRows = [
+                    { label: "Swimmers", value: importResult.importedMembers },
+                    {
+                      label: "Parents / guardians",
+                      value: importResult.importedGuardians,
+                    },
+                    {
+                      label: "Instructors",
+                      value: importResult.importedInstructors,
+                    },
+                    { label: "Admins", value: importResult.importedAdmins },
+                  ].filter(({ value }) => value > 0);
+
+                  const updatedRows = [
+                    { label: "Swimmers", value: importResult.updatedMembers },
+                    {
+                      label: "Parents / guardians",
+                      value: importResult.updatedGuardians,
+                    },
+                    {
+                      label: "Instructors",
+                      value: importResult.updatedInstructors,
+                    },
+                    { label: "Admins", value: importResult.updatedAdmins },
+                  ].filter(({ value }) => value > 0);
+
+                  return (
+                    <div className="text-sm text-gray-700 space-y-4">
+                      {newRows.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                            New
+                          </p>
+                          {newRows.map(({ label, value }) => (
+                            <div
+                              key={label}
+                              className="flex justify-between py-2 border-b border-gray-100 last:border-0"
+                            >
+                              <span className="text-gray-500">{label}</span>
+                              <span className="font-medium">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {updatedRows.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+                            Updated
+                          </p>
+                          {updatedRows.map(({ label, value }) => (
+                            <div
+                              key={label}
+                              className="flex justify-between py-2 border-b border-gray-100 last:border-0"
+                            >
+                              <span className="text-gray-500">{label}</span>
+                              <span className="font-medium">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+              <button
+                onClick={resetState}
+                className="mt-5 w-full border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition"
+              >
+                Import another file
+              </button>
+            </div>
+          );
+        })()}
     </div>
   );
 }

@@ -7,10 +7,6 @@ import type {
 } from "@/app/api/admin/import-classes/route";
 import type { ClassSchedule } from "@/app/api/admin/import-classes/confirm/route";
 
-/* ------------------------------------------------------------------ */
-/* Types                                                               */
-/* ------------------------------------------------------------------ */
-
 type Step = "upload" | "configure" | "importing" | "done";
 
 interface ParseResult {
@@ -22,6 +18,7 @@ interface ParseResult {
 interface ConfirmResult {
   classesCreated: number;
   membersCreated: number;
+  membersFound: number;
   guardiansCreated: number;
   guardiansLinked: number;
   enrollmentsCreated: number;
@@ -48,10 +45,6 @@ const DAY_ABBR: Record<string, string> = {
   Sunday: "Sun",
 };
 
-/* ------------------------------------------------------------------ */
-/* Component                                                           */
-/* ------------------------------------------------------------------ */
-
 export default function ImportClasses({
   organizationId,
   onImportComplete,
@@ -63,17 +56,16 @@ export default function ImportClasses({
   const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
-  // Only schedules for NEW classes (already_exists === false)
   const [schedules, setSchedules] = useState<ClassSchedule[]>([]);
   const [confirmResult, setConfirmResult] = useState<ConfirmResult | null>(
     null,
   );
   const [errors, setErrors] = useState<string[]>([]);
-  const [status, setStatus] = useState<
-    { type: "success" | "error"; message: string } | null
-  >(null);
+  const [status, setStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
-  /* ---- File handling ---- */
   const handleFile = useCallback(
     async (file: File) => {
       const ext = file.name.split(".").pop()?.toLowerCase();
@@ -81,7 +73,6 @@ export default function ImportClasses({
         setErrors(["Only CSV or Excel files are accepted."]);
         return;
       }
-
       if (!organizationId) {
         setErrors(["Organization ID is missing."]);
         setStatus({ type: "error", message: "Organization ID is missing." });
@@ -104,7 +95,10 @@ export default function ImportClasses({
         const data = await res.json();
 
         if (!res.ok) {
-          setStatus({ type: "error", message: data.error ?? "Failed to parse file." });
+          setStatus({
+            type: "error",
+            message: data.error ?? "Failed to parse file.",
+          });
           setErrors([data.error ?? "Failed to parse file."]);
           return;
         }
@@ -112,7 +106,6 @@ export default function ImportClasses({
         const result = data as ParseResult;
         setParseResult(result);
 
-        // Only build schedule entries for classes that don't exist yet
         const newClasses = result.uniqueClasses.filter(
           (c) => !c.already_exists,
         );
@@ -128,9 +121,16 @@ export default function ImportClasses({
         );
 
         setStep("configure");
-        setStatus({ type: "success", message: "File parsed successfully. Configure class schedules to continue." });
+        setStatus({
+          type: "success",
+          message:
+            "File parsed successfully. Configure class schedules to continue.",
+        });
       } catch (err: any) {
-        setStatus({ type: "error", message: err.message ?? "Unexpected error." });
+        setStatus({
+          type: "error",
+          message: err.message ?? "Unexpected error.",
+        });
         setErrors([err.message ?? "Unexpected error."]);
       } finally {
         setIsParsing(false);
@@ -146,7 +146,6 @@ export default function ImportClasses({
     if (file) handleFile(file);
   };
 
-  /* ---- Schedule helpers ---- */
   const updateSchedule = (index: number, patch: Partial<ClassSchedule>) => {
     setSchedules((prev) =>
       prev.map((s, i) => (i === index ? { ...s, ...patch } : s)),
@@ -165,14 +164,15 @@ export default function ImportClasses({
     );
   };
 
-  /* ---- Confirm ---- */
   const handleConfirm = async () => {
     if (!organizationId || !parseResult) return;
 
-    // Only validate start date for new classes
     const invalid = schedules.filter((s) => !s.start_date);
     if (invalid.length > 0) {
-      setStatus({ type: "error", message: "Please complete required class schedule fields." });
+      setStatus({
+        type: "error",
+        message: "Please complete required class schedule fields.",
+      });
       setErrors([
         `Please set a start date for: ${invalid.map((s) => s.name).join(", ")}`,
       ]);
@@ -189,7 +189,7 @@ export default function ImportClasses({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organization_id: organizationId,
-          classSchedules: schedules, // only new classes
+          classSchedules: schedules,
           rows: parseResult.rows,
         }),
       });
@@ -214,16 +214,11 @@ export default function ImportClasses({
     }
   };
 
-  // Derived
   const newClasses =
     parseResult?.uniqueClasses.filter((c) => !c.already_exists) ?? [];
   const existingClasses =
     parseResult?.uniqueClasses.filter((c) => c.already_exists) ?? [];
   const hasNewClasses = newClasses.length > 0;
-
-  /* ------------------------------------------------------------------ */
-  /* Render                                                              */
-  /* ------------------------------------------------------------------ */
 
   return (
     <div className="p-4 sm:p-6">
@@ -295,7 +290,6 @@ export default function ImportClasses({
       {/* ── Step 2: Configure ──────────────────────────────────────── */}
       {step === "configure" && parseResult && (
         <div>
-          {/* Summary banner */}
           <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-sm text-blue-800">
             <span className="font-semibold">{parseResult.totalRows}</span>{" "}
             registrations across{" "}
@@ -307,7 +301,6 @@ export default function ImportClasses({
             already in the system.
           </div>
 
-          {/* Existing classes — no schedule input needed */}
           {existingClasses.length > 0 && (
             <div className="mb-5">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
@@ -337,7 +330,6 @@ export default function ImportClasses({
             </div>
           )}
 
-          {/* New classes — schedule input required */}
           {hasNewClasses && (
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
@@ -482,87 +474,127 @@ export default function ImportClasses({
       )}
 
       {/* ── Step 4: Done ───────────────────────────────────────────── */}
-      {step === "done" && confirmResult && (
-        <div className="border border-gray-200 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-              <svg
-                className="w-4 h-4 text-green-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            </div>
-            <p className="font-semibold text-gray-900">Import complete</p>
-          </div>
+      {step === "done" &&
+        confirmResult &&
+        (() => {
+          const hasChanges =
+            confirmResult.classesCreated > 0 ||
+            confirmResult.membersCreated > 0 ||
+            confirmResult.guardiansCreated > 0 ||
+            confirmResult.guardiansLinked > 0 ||
+            confirmResult.enrollmentsCreated > 0;
 
-          <div className="text-sm text-gray-700">
-            {[
-              {
-                label: "New classes created",
-                value: confirmResult.classesCreated,
-              },
-              {
-                label: "New swimmers created",
-                value: confirmResult.membersCreated,
-              },
-              {
-                label: "New parent accounts created",
-                value: confirmResult.guardiansCreated,
-              },
-              {
-                label: "Existing parents linked",
-                value: confirmResult.guardiansLinked,
-              },
-              {
-                label: "Enrollments created",
-                value: confirmResult.enrollmentsCreated,
-              },
-            ]
-              .filter(({ value }) => value > 0)
-              .map(({ label, value }) => (
+          return (
+            <div className="border border-gray-200 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-5">
                 <div
-                  key={label}
-                  className="flex justify-between py-2 border-b border-gray-100 last:border-0"
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${hasChanges ? "bg-green-100" : "bg-gray-100"}`}
                 >
-                  <span className="text-gray-500">{label}</span>
-                  <span className="font-medium">{value}</span>
+                  {hasChanges ? (
+                    <svg
+                      className="w-4 h-4 text-green-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-4 h-4 text-gray-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"
+                      />
+                    </svg>
+                  )}
                 </div>
-              ))}
-          </div>
+                <div>
+                  <p className="font-semibold text-gray-900">
+                    {hasChanges ? "Import complete" : "No new updates"}
+                  </p>
+                  {!hasChanges && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Everything in this file is already up to date.
+                    </p>
+                  )}
+                </div>
+              </div>
 
-          {confirmResult.enrollmentErrors.length > 0 && (
-            <div className="mt-4 text-sm text-red-600 space-y-1">
-              <p className="font-medium">Some enrollments failed:</p>
-              {confirmResult.enrollmentErrors.map((e, i) => (
-                <p key={i} className="text-xs">
-                  {e}
-                </p>
-              ))}
+              {hasChanges && (
+                <div className="text-sm text-gray-700">
+                  {[
+                    {
+                      label: "New classes created",
+                      value: confirmResult.classesCreated,
+                    },
+                    {
+                      label: "New swimmers created",
+                      value: confirmResult.membersCreated,
+                    },
+                    {
+                      label: "New parent accounts created",
+                      value: confirmResult.guardiansCreated,
+                    },
+                    {
+                      label: "Existing parents linked",
+                      value: confirmResult.guardiansLinked,
+                    },
+                    {
+                      label: "Enrollments created",
+                      value: confirmResult.enrollmentsCreated,
+                    },
+                  ]
+                    .filter(({ value }) => value > 0)
+                    .map(({ label, value }) => (
+                      <div
+                        key={label}
+                        className="flex justify-between py-2 border-b border-gray-100 last:border-0"
+                      >
+                        <span className="text-gray-500">{label}</span>
+                        <span className="font-medium">{value}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {confirmResult.enrollmentErrors.length > 0 && (
+                <div className="mt-4 text-sm text-red-600 space-y-1">
+                  <p className="font-medium">Some enrollments failed:</p>
+                  {confirmResult.enrollmentErrors.map((e, i) => (
+                    <p key={i} className="text-xs">
+                      {e}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  setStep("upload");
+                  setParseResult(null);
+                  setSchedules([]);
+                  setConfirmResult(null);
+                  setErrors([]);
+                }}
+                className="mt-5 w-full border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition"
+              >
+                Import another file
+              </button>
             </div>
-          )}
-
-          <button
-            onClick={() => {
-              setStep("upload");
-              setParseResult(null);
-              setSchedules([]);
-              setConfirmResult(null);
-              setErrors([]);
-            }}
-            className="mt-5 w-full border border-gray-300 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition"
-          >
-            Import another file
-          </button>
-        </div>
-      )}
+          );
+        })()}
     </div>
   );
 }
