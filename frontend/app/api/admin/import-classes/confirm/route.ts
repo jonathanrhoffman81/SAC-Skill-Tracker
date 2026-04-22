@@ -2,10 +2,13 @@
  * Import Swim Classes — Confirm Route
  * POST /api/admin/import-classes/confirm
  *
- * Guardian linking is skipped entirely if guardian_member already exists
- * for this person+member pair — no redundant role or org re-assignment.
- *
- * Class resolution skips existing classes (they keep their current schedule).
+ * Dedup strategy (safe to re-import the same file):
+ *  - member:         lookup by (org, first_name, last_name) case-insensitive,
+ *                    then verify DOB if both sides have one. DOB alone never
+ *                    blocks a match — a name match is sufficient to avoid dupes.
+ *  - enrollment:     skip if (member_id, class_id) already exists
+ *  - person:         lookup by email; insert only if not found
+ *  - guardian_member: skip if (guardian_person_id, member_id) already exists
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -25,7 +28,7 @@ export interface ClassSchedule {
 
 interface ConfirmBody {
   organization_id: string;
-  classSchedules: ClassSchedule[]; // only new classes — existing ones are excluded by frontend
+  classSchedules: ClassSchedule[];
   rows: ParsedSwimRow[];
 }
 
@@ -50,18 +53,13 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdminClient();
 
     /* ------------------------------------------------------------------ */
-    /* 1. Resolve class_entity per class                                   */
-    /*    - Existing classes: fetch their id (no update — they keep their  */
-    /*      current schedule since the admin wasn't prompted for one)      */
-    /*    - New classes: insert with the schedule the admin provided       */
+    /* 1. Resolve class_entity                                             */
     /* ------------------------------------------------------------------ */
-    const classIdMap = new Map<string, string>(); // class name → class_id
+    const classIdMap = new Map<string, string>();
     let classesCreated = 0;
 
-    // Collect all class names across both new and existing
     const allClassNames = Array.from(new Set(rows.map((r) => r.class_name)));
 
-    // Fetch any that already exist
     const { data: existingClasses } = await supabase
       .from("class_entity")
       .select("class_id, name")
@@ -72,9 +70,8 @@ export async function POST(request: NextRequest) {
       classIdMap.set(cls.name, cls.class_id);
     }
 
-    // Insert new classes (those not already in the map)
     for (const cls of classSchedules ?? []) {
-      if (classIdMap.has(cls.name)) continue; // already exists, skip
+      if (classIdMap.has(cls.name)) continue;
 
       const { data: newClass, error: insertError } = await supabase
         .from("class_entity")
@@ -103,7 +100,7 @@ export async function POST(request: NextRequest) {
     }
 
     /* ------------------------------------------------------------------ */
-    /* 2. Per-row: swimmer + guardian + enrollment                         */
+    /* 2. Per-row: swimmer + enrollment + guardian                         */
     /* ------------------------------------------------------------------ */
     let membersFound = 0;
     let membersCreated = 0;
@@ -112,9 +109,9 @@ export async function POST(request: NextRequest) {
     let enrollmentsCreated = 0;
     const enrollmentErrors: string[] = [];
 
-    // Cache email → person_id so a parent with multiple kids only hits DB once
+    // email → person_id cache so a parent with multiple kids only hits DB once
     const emailCache = new Map<string, string>();
-    // Cache "personId|||memberId" → already linked boolean
+    // "personId|||memberId" → true, already linked
     const guardianLinkCache = new Map<string, boolean>();
 
     for (const row of rows) {
@@ -123,26 +120,39 @@ export async function POST(request: NextRequest) {
 
       const dobFormatted = normaliseDate(row.dob);
 
-      /* ---- 2a. Find or create swimmer ---- */
+      /* ---- 2a. Find or create swimmer --------------------------------- */
       let memberId: string | null = null;
 
-      let memberQuery = supabase
+      // Look up by org + name only (case-insensitive). We intentionally do NOT
+      // filter by DOB here because the DOB stored from a previous import may
+      // differ in format or be null, which would cause a false "not found" and
+      // create a duplicate member. A name match within the org is sufficient.
+      const { data: existingMembers, error: findError } = await supabase
         .from("member")
-        .select("member_id")
+        .select("member_id, date_of_birth")
         .eq("organization_id", organization_id)
         .ilike("first_name", row.member_first)
         .ilike("last_name", row.member_last);
 
-      if (dobFormatted)
-        memberQuery = memberQuery.eq("date_of_birth", dobFormatted);
-
-      const { data: existingMember, error: findError } =
-        await memberQuery.maybeSingle();
       if (findError) console.error("Member lookup error:", findError);
 
-      if (existingMember) {
-        memberId = existingMember.member_id;
+      if (existingMembers && existingMembers.length > 0) {
+        // If multiple name matches, prefer the one whose DOB matches, otherwise
+        // just take the first — still better than creating a duplicate.
+        const dobMatch = existingMembers.find(
+          (m) => m.date_of_birth === dobFormatted,
+        );
+        const best = dobMatch ?? existingMembers[0];
+        memberId = best.member_id;
         membersFound++;
+
+        // Backfill DOB if the existing record doesn't have one but the CSV does
+        if (!best.date_of_birth && dobFormatted) {
+          await supabase
+            .from("member")
+            .update({ date_of_birth: dobFormatted })
+            .eq("member_id", memberId);
+        }
       } else {
         const { data: newMember, error: memberError } = await supabase
           .from("member")
@@ -167,7 +177,7 @@ export async function POST(request: NextRequest) {
         membersCreated++;
       }
 
-      /* ---- 2b. Enroll swimmer — skip if already enrolled ---- */
+      /* ---- 2b. Enroll swimmer — skip if already enrolled -------------- */
       const { data: existingEnrollment } = await supabase
         .from("enrollment")
         .select("member_id")
@@ -190,7 +200,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      /* ---- 2c. Resolve parent/guardian by email ---- */
+      /* ---- 2c. Resolve parent/guardian by email ----------------------- */
       let personId: string | null = null;
       let isNewPerson = false;
 
@@ -232,59 +242,53 @@ export async function POST(request: NextRequest) {
 
       if (!personId) continue;
 
-      /* ---- 2d. Skip guardian linking if already linked ---- */
+      /* ---- 2d. Skip guardian linking if already linked ---------------- */
       const guardianCacheKey = `${personId}|||${memberId}`;
 
-      if (guardianLinkCache.has(guardianCacheKey)) {
-        // Already confirmed linked in this import run — skip entirely
-        continue;
-      }
+      if (!guardianLinkCache.has(guardianCacheKey)) {
+        const { data: existingLink } = await supabase
+          .from("guardian_member")
+          .select("guardian_person_id")
+          .eq("guardian_person_id", personId)
+          .eq("member_id", memberId)
+          .maybeSingle();
 
-      // Check DB for existing guardian_member record
-      const { data: existingLink } = await supabase
-        .from("guardian_member")
-        .select("guardian_person_id")
-        .eq("guardian_person_id", personId)
-        .eq("member_id", memberId)
-        .maybeSingle();
+        if (existingLink) {
+          guardianLinkCache.set(guardianCacheKey, true);
+        } else {
+          /* ---- 2e. New link — org membership, role, guardian_member --- */
+          const { data: poData, error: poError } = await supabase
+            .from("person_organization")
+            .upsert(
+              { person_id: personId, organization_id, status: "active" },
+              { onConflict: "person_id,organization_id" },
+            )
+            .select("person_organization_id")
+            .single();
 
-      if (existingLink) {
-        // Already linked — nothing to do
-        guardianLinkCache.set(guardianCacheKey, true);
-        continue;
-      }
+          if (poError || !poData) {
+            console.error("person_organization upsert error:", poError);
+            continue;
+          }
 
-      /* ---- 2e. New link — set up org membership, role, and guardian_member ---- */
-      const { data: poData, error: poError } = await supabase
-        .from("person_organization")
-        .upsert(
-          { person_id: personId, organization_id, status: "active" },
-          { onConflict: "person_id,organization_id" },
-        )
-        .select("person_organization_id")
-        .single();
+          await supabase.from("person_org_role").upsert(
+            {
+              person_organization_id: poData.person_organization_id,
+              role_id: ROLE_GUARDIAN,
+            },
+            { onConflict: "person_organization_id,role_id" },
+          );
 
-      if (poError || !poData) {
-        console.error("person_organization upsert error:", poError);
-        continue;
-      }
+          const { error: gmError } = await supabase
+            .from("guardian_member")
+            .insert({ guardian_person_id: personId, member_id: memberId });
 
-      await supabase.from("person_org_role").upsert(
-        {
-          person_organization_id: poData.person_organization_id,
-          role_id: ROLE_GUARDIAN,
-        },
-        { onConflict: "person_organization_id,role_id" },
-      );
-
-      const { error: gmError } = await supabase
-        .from("guardian_member")
-        .insert({ guardian_person_id: personId, member_id: memberId });
-
-      if (!gmError) {
-        guardianLinkCache.set(guardianCacheKey, true);
-        if (isNewPerson) guardiansCreated++;
-        else guardiansLinked++;
+          if (!gmError) {
+            guardianLinkCache.set(guardianCacheKey, true);
+            if (isNewPerson) guardiansCreated++;
+            else guardiansLinked++;
+          }
+        }
       }
     }
 
@@ -292,6 +296,7 @@ export async function POST(request: NextRequest) {
       success: true,
       classesCreated,
       membersCreated,
+      membersFound,
       guardiansCreated,
       guardiansLinked,
       enrollmentsCreated,
