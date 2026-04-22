@@ -57,18 +57,25 @@ export default function Login() {
     e.preventDefault();
     setError("");
 
+    if (!normalizeEmail(email)) {
+      setError("Enter email");
+      return;
+    }
+    if (!password.trim()) {
+      setError("Enter password");
+      return;
+    }
+    if (!isSupabaseConfigured || !supabase) {
+      setError(
+        "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your frontend .env.local file.",
+      );
+      return;
+    }
+
+    setLoading(true);
+
     try {
       const normalizedEmail = normalizeEmail(email);
-
-      if (!normalizedEmail) throw new Error("Enter email");
-      if (!password.trim()) throw new Error("Enter password");
-      if (!isSupabaseConfigured || !supabase) {
-        throw new Error(
-          "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your frontend .env.local file.",
-        );
-      }
-
-      setLoading(true);
 
       const { data, error: signInError } =
         await supabase.auth.signInWithPassword({
@@ -94,27 +101,24 @@ export default function Login() {
       );
 
       const effectiveRole = normalizeRole(String(rawRole || ""));
-
       let resolvedRole = effectiveRole;
 
-      // Fallback: if metadata role is missing, resolve from person/org role tables using
-      // the authenticated session first. Email fallback remains only for legacy pages.
+      // Fallback: if metadata role is missing, resolve from person/org role tables
+      // using the authenticated session only — no unauthenticated email fallback.
       if (!resolvedRole) {
         const authHeaders = await createAuthenticatedHeaders();
-        let roleResponse = await fetch("/api/auth/resolve-role", {
+        const roleResponse = await fetch("/api/auth/resolve-role", {
           headers: authHeaders,
         });
 
+        // FIX: removed unauthenticated email fallback — it leaked role info
+        // to anyone who could guess an email address.
         if (!roleResponse.ok) {
-          roleResponse = await fetch(
-            `/api/auth/resolve-role?email=${encodeURIComponent(authenticatedEmail)}`,
-          );
+          throw new Error("Could not resolve your role. Please try again.");
         }
 
-        if (roleResponse.ok) {
-          const rolePayload = await roleResponse.json();
-          resolvedRole = normalizeRole(String(rolePayload?.role || ""));
-        }
+        const rolePayload = await roleResponse.json();
+        resolvedRole = normalizeRole(String(rolePayload?.role || ""));
       }
 
       if (!resolvedRole) {
@@ -144,32 +148,36 @@ export default function Login() {
       const normalizedMessage = message.toLowerCase();
 
       if (normalizedMessage.includes("invalid login credentials")) {
-        const normalizedEmail = normalizeEmail(email);
-        const checkEmailResponse = await fetch(
-          `/api/auth/check-email?email=${encodeURIComponent(normalizedEmail)}`,
-        );
+        try {
+          const normalizedEmail = normalizeEmail(email);
+          const checkEmailResponse = await fetch(
+            `/api/auth/check-email?email=${encodeURIComponent(normalizedEmail)}`,
+          );
 
-        if (checkEmailResponse.ok) {
-          const payload = await checkEmailResponse.json();
-          const existsInRoster = Boolean(payload?.existsInRoster);
-          const hasAuthUser = Boolean(payload?.hasAuthUser);
+          if (checkEmailResponse.ok) {
+            const payload = await checkEmailResponse.json();
+            const existsInRoster = Boolean(payload?.existsInRoster);
+            const hasAuthUser = Boolean(payload?.hasAuthUser);
 
-          if (existsInRoster && !hasAuthUser) {
+            if (hasAuthUser) {
+              setError("Invalid email or password.");
+              return;
+            }
+
+            if (existsInRoster) {
+              setError(
+                "No password is set for this email yet. Click Sign Up below to create your password.",
+              );
+              return;
+            }
+
             setError(
-              "No password is set for this email yet. Click Sign Up below to create your password.",
+              "Email not found in roster. Use your TeamEngine email or contact an admin.",
             );
             return;
           }
-
-          if (hasAuthUser) {
-            setError("Invalid email or password.");
-            return;
-          }
-
-          setError(
-            "Email not found in roster. Use your TeamEngine email or contact an admin.",
-          );
-          return;
+        } catch {
+          // If the check-email call fails, fall through to the generic message
         }
 
         setError("Invalid email or password.");

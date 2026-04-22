@@ -1,53 +1,97 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{
+    text: string;
+    type: "error" | "success";
+  }>({
+    text: "",
+    type: "error",
+  });
+  // FIX: track whether a valid reset session is present
+  const [sessionReady, setSessionReady] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const router = useRouter();
+
+  // FIX: guard the page — redirect to /login if there's no active session.
+  // Without this, anyone navigating directly to /account/reset-password would
+  // either get a confusing error or accidentally update their current password.
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setCheckingSession(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
+        router.push("/login");
+      } else {
+        setSessionReady(true);
+      }
+      setCheckingSession(false);
+    });
+  }, [router]);
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMessage("");
+    setMessage({ text: "", type: "error" });
 
     if (!isSupabaseConfigured || !supabase) {
-      setMessage("Supabase not configured");
+      setMessage({ text: "Supabase not configured", type: "error" });
       return;
     }
 
     if (!password.trim()) {
-      setMessage("Enter a new password");
+      setMessage({ text: "Enter a new password", type: "error" });
       return;
     }
 
     if (password.length < 6) {
-      setMessage("Password must be at least 6 characters");
+      setMessage({
+        text: "Password must be at least 6 characters",
+        type: "error",
+      });
       return;
     }
 
     if (password !== confirmPassword) {
-      setMessage("Passwords do not match");
+      setMessage({ text: "Passwords do not match", type: "error" });
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({
-      password,
-    });
+    const { error } = await supabase.auth.updateUser({ password });
 
     if (error) {
-      setMessage(error.message);
+      setMessage({ text: error.message, type: "error" });
     } else {
-      setMessage("Password updated successfully! Redirecting...");
-
+      // FIX: success message now uses type "success" so it renders green, not red
+      setMessage({
+        text: "Password updated successfully! Redirecting...",
+        type: "success",
+      });
       setTimeout(() => {
-        router.push("/login"); // 🔥 better than "/"
+        router.push("/login");
       }, 1500);
     }
   };
+
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <p className="text-gray-500 text-sm">Verifying session...</p>
+      </div>
+    );
+  }
+
+  if (!sessionReady) {
+    return null; // redirect in progress
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -79,8 +123,15 @@ export default function ResetPassword() {
           Update Password
         </button>
 
-        {message && (
-          <p className="text-sm text-center text-red-600">{message}</p>
+        {/* FIX: message color is now green for success, red for errors */}
+        {message.text && (
+          <p
+            className={`text-sm text-center ${
+              message.type === "success" ? "text-green-600" : "text-red-600"
+            }`}
+          >
+            {message.text}
+          </p>
         )}
       </form>
     </div>
