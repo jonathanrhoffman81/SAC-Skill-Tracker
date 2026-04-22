@@ -11,6 +11,7 @@ import {
   createAuthenticatedHeaders,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
+import { RoleSwitcherBadge } from "@/components/RoleSwitcher";
 
 const TabSkeleton = ({ title }: { title: string }) => (
   <div className="w-full min-h-[60vh] rounded-lg border border-gray-200 bg-white p-4 sm:rounded-xl sm:p-6">
@@ -31,7 +32,7 @@ const AdminInstructorEvaluations = dynamic(
   {
     loading: () => <TabSkeleton title="Swimmers" />,
     ssr: false,
-  }
+  },
 );
 
 interface InstructorDashboardPayload {
@@ -89,8 +90,12 @@ export default function InstructorDashboard() {
   const [userName, setUserName] = useState("Instructor");
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [currentInstructorId, setCurrentInstructorId] = useState<string | null>(null);
-  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(null);
+  const [currentInstructorId, setCurrentInstructorId] = useState<string | null>(
+    null,
+  );
+  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -99,11 +104,12 @@ export default function InstructorDashboard() {
       try {
         const headers = await createAuthenticatedHeaders();
         const response = await fetch("/api/instructor/dashboard", { headers });
-        const payload =
-          (await response.json()) as InstructorDashboardPayload;
+        const payload = (await response.json()) as InstructorDashboardPayload;
 
         if (!response.ok) {
-          throw new Error(payload.error || "Failed to load instructor dashboard.");
+          throw new Error(
+            payload.error || "Failed to load instructor dashboard.",
+          );
         }
 
         if (!isMounted) return;
@@ -112,7 +118,9 @@ export default function InstructorDashboard() {
         setOrganizationName(payload.organizationName || "SAC Skill Tracker");
         setLogoUrl(payload.organizationLogoUrl || null);
         setCurrentInstructorId(payload.currentInstructorId || null);
-        setHeaderAccentColor(normalizeHexColor(payload.headerAccentColor || "") ?? null);
+        setHeaderAccentColor(
+          normalizeHexColor(payload.headerAccentColor || "") ?? null,
+        );
       } catch {
         if (!isMounted) return;
         setUserName("Instructor");
@@ -130,14 +138,17 @@ export default function InstructorDashboard() {
     };
   }, []);
 
-  const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+  const resolvedHeaderAccentColor =
+    headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
   const headerAccentBackground = `linear-gradient(180deg, ${hexToRgba(resolvedHeaderAccentColor, 0.18)} 0%, ${hexToRgba(resolvedHeaderAccentColor, 0.08)} 28%, #FFFFFF 72%, #FFFFFF 100%)`;
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: resolvedHeaderAccentColor }}>
+    <div
+      style={{ minHeight: "100vh", backgroundColor: resolvedHeaderAccentColor }}
+    >
       <header
         className="sticky top-0 z-10 border-b border-gray-200 bg-white"
-        style={{ background: 'white', borderTop: undefined }}
+        style={{ background: "white", borderTop: undefined }}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -180,9 +191,7 @@ export default function InstructorDashboard() {
               <p className="text-sm font-medium text-gray-900">
                 {userName || "Instructor"}
               </p>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
-                Instructor
-              </span>
+              <RoleSwitcherBadge currentRole="instructor" />
             </div>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
               {userName ? getInitials(userName) : "IN"}

@@ -12,6 +12,7 @@ import {
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
+import { RoleSwitcherBadge } from "@/components/RoleSwitcher";
 
 const TabSkeleton = ({ title }: { title: string }) => (
   <div className="w-full min-h-[60vh] rounded-lg border border-gray-200 bg-white p-4 sm:rounded-xl sm:p-6">
@@ -28,22 +29,21 @@ const TabSkeleton = ({ title }: { title: string }) => (
 );
 
 const loadClassManager = () => import("@/components/ClassManager");
-const loadInstructorAssignmentManager = () => import("@/components/InstructorAssignmentManager");
+const loadInstructorAssignmentManager = () =>
+  import("@/components/InstructorAssignmentManager");
 const loadImportRoster = () => import("@/components/ImportRoster");
 const loadImportClasses = () => import("@/components/ImportClasses");
 const loadLogoManage = () => import("@/components/LogoManage");
 const loadAccountsManager = () => import("@/components/AccountsManager");
-const loadAdminInstructorEvaluations = () => import("@/components/AdminInstructorEvaluations");
+const loadAdminInstructorEvaluations = () =>
+  import("@/components/AdminInstructorEvaluations");
 
 const ClassManager = dynamic(loadClassManager, {
   loading: () => <TabSkeleton title="classes" />,
 });
-const InstructorAssignmentManager = dynamic(
-  loadInstructorAssignmentManager,
-  {
-    loading: () => <TabSkeleton title="assignments" />,
-  },
-);
+const InstructorAssignmentManager = dynamic(loadInstructorAssignmentManager, {
+  loading: () => <TabSkeleton title="assignments" />,
+});
 const ImportRoster = dynamic(loadImportRoster, {
   loading: () => <TabSkeleton title="roster" />,
 });
@@ -56,12 +56,9 @@ const LogoManage = dynamic(loadLogoManage, {
 const AccountsManager = dynamic(loadAccountsManager, {
   loading: () => <TabSkeleton title="accounts" />,
 });
-const AdminInstructorEvaluations = dynamic(
-  loadAdminInstructorEvaluations,
-  {
-    loading: () => <TabSkeleton title="swimmer evaluations" />,
-  },
-);
+const AdminInstructorEvaluations = dynamic(loadAdminInstructorEvaluations, {
+  loading: () => <TabSkeleton title="swimmer evaluations" />,
+});
 
 const MemoAccountsManager = memo(AccountsManager);
 const MemoClassManager = memo(ClassManager);
@@ -544,18 +541,21 @@ function EntityEditor({
 export default function AdminDashboard() {
   const [userName, setUserName] = useState("Admin User");
   const [activeTab, setActiveTab] = useState<Tab>("assignments");
-  const [visitedTabs] = useState<Set<Tab>>(
-    new Set(ALL_ADMIN_TABS),
-  );
+  const [visitedTabs] = useState<Set<Tab>>(new Set(ALL_ADMIN_TABS));
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(null);
-  const [headerAccentInput, setHeaderAccentInput] = useState(DEFAULT_HEADER_ACCENT_COLOR);
+  const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(
+    null,
+  );
+  const [headerAccentInput, setHeaderAccentInput] = useState(
+    DEFAULT_HEADER_ACCENT_COLOR,
+  );
   const [savingHeaderAccent, setSavingHeaderAccent] = useState(false);
-  const [headerAccentMigrationMissing, setHeaderAccentMigrationMissing] = useState(false);
+  const [headerAccentMigrationMissing, setHeaderAccentMigrationMissing] =
+    useState(false);
   const [importTab, setImportTab] = useState<"roster" | "classes">("roster");
   const [entityDeleteDialog, setEntityDeleteDialog] = useState<{
     show: boolean;
@@ -563,7 +563,8 @@ export default function AdminDashboard() {
     entityId: string | null;
     entityLabel: string;
   }>({ show: false, type: null, entityId: null, entityLabel: "" });
-  const [evaluationFilterBootstrap, setEvaluationFilterBootstrap] = useState<EvaluationFilterBootstrap | null>(null);
+  const [evaluationFilterBootstrap, setEvaluationFilterBootstrap] =
+    useState<EvaluationFilterBootstrap | null>(null);
 
   const readCachedStats = useCallback((): AdminStats | null => {
     if (typeof window === "undefined") return null;
@@ -595,7 +596,10 @@ export default function AdminDashboard() {
         savedAt: Date.now(),
         stats: nextStats,
       };
-      window.sessionStorage.setItem(ADMIN_STATS_CACHE_KEY, JSON.stringify(payload));
+      window.sessionStorage.setItem(
+        ADMIN_STATS_CACHE_KEY,
+        JSON.stringify(payload),
+      );
     } catch {
       window.sessionStorage.removeItem(ADMIN_STATS_CACHE_KEY);
     }
@@ -630,19 +634,27 @@ export default function AdminDashboard() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("tab") === tab) return;
     params.set("tab", tab);
-    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}?${params.toString()}`,
+    );
   };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const applyTabFromUrl = () => {
-      const requestedTab = new URLSearchParams(window.location.search).get("tab");
+      const requestedTab = new URLSearchParams(window.location.search).get(
+        "tab",
+      );
       if (!requestedTab) return;
       if (!validTabIds.has(requestedTab as Tab)) return;
 
       setActiveTab((currentTab) =>
-        currentTab === (requestedTab as Tab) ? currentTab : (requestedTab as Tab),
+        currentTab === (requestedTab as Tab)
+          ? currentTab
+          : (requestedTab as Tab),
       );
     };
 
@@ -651,9 +663,9 @@ export default function AdminDashboard() {
     return () => window.removeEventListener("popstate", applyTabFromUrl);
   }, [validTabIds]);
 
-useEffect(() => {
-  setLogoUrl(stats?.organizationLogoUrl ?? null);
-}, [stats?.organizationLogoUrl]);
+  useEffect(() => {
+    setLogoUrl(stats?.organizationLogoUrl ?? null);
+  }, [stats?.organizationLogoUrl]);
 
   const getInitials = (name: string) =>
     name
@@ -676,7 +688,9 @@ useEffect(() => {
     if (typeof window === "undefined") return null;
 
     try {
-      const raw = window.sessionStorage.getItem(`${ENTITY_CACHE_KEY_PREFIX}${type}`);
+      const raw = window.sessionStorage.getItem(
+        `${ENTITY_CACHE_KEY_PREFIX}${type}`,
+      );
       if (!raw) return null;
 
       const parsed = JSON.parse(raw) as EntityCachePayload;
@@ -712,52 +726,59 @@ useEffect(() => {
   }, []);
 
   // Fetch dashboard bootstrap (stats + tab essentials)
-  const fetchBootstrap = useCallback(async (options?: { force?: boolean }) => {
-    if (!options?.force) {
-      const cachedStats = readCachedStats();
-      if (cachedStats) {
-        setStats(cachedStats);
+  const fetchBootstrap = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!options?.force) {
+        const cachedStats = readCachedStats();
+        if (cachedStats) {
+          setStats(cachedStats);
+          setLoading(false);
+        }
+      }
+
+      try {
+        const headers = await createAuthenticatedHeaders();
+        const response = await fetch(`/api/admin/dashboard/bootstrap`, {
+          headers,
+        });
+        if (!response.ok) throw new Error("Failed to load stats");
+        const data = (await response.json()) as DashboardBootstrapPayload;
+
+        if (data.stats) {
+          setStats(data.stats);
+          writeCachedStats(data.stats);
+        }
+
+        const bootstrapSkills = (data.tabEssentials?.skills ?? []).map(
+          (item) => ({
+            ...item,
+            id: item.skill_id,
+          }),
+        );
+
+        if (bootstrapSkills.length > 0) {
+          setEntities((prev) => ({
+            ...prev,
+            skills: {
+              ...prev.skills,
+              list: bootstrapSkills,
+              loading: false,
+            },
+          }));
+          writeCachedEntity("skills", bootstrapSkills);
+        }
+
+        if (data.tabEssentials?.evaluationFilters) {
+          setEvaluationFilterBootstrap(data.tabEssentials.evaluationFilters);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
         setLoading(false);
       }
-    }
-
-    try {
-      const headers = await createAuthenticatedHeaders();
-      const response = await fetch(`/api/admin/dashboard/bootstrap`, { headers });
-      if (!response.ok) throw new Error("Failed to load stats");
-      const data = (await response.json()) as DashboardBootstrapPayload;
-
-      if (data.stats) {
-        setStats(data.stats);
-        writeCachedStats(data.stats);
-      }
-
-      const bootstrapSkills = (data.tabEssentials?.skills ?? []).map((item) => ({
-        ...item,
-        id: item.skill_id,
-      }));
-
-      if (bootstrapSkills.length > 0) {
-        setEntities((prev) => ({
-          ...prev,
-          skills: {
-            ...prev.skills,
-            list: bootstrapSkills,
-            loading: false,
-          },
-        }));
-        writeCachedEntity("skills", bootstrapSkills);
-      }
-
-      if (data.tabEssentials?.evaluationFilters) {
-        setEvaluationFilterBootstrap(data.tabEssentials.evaluationFilters);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }, [readCachedStats, writeCachedStats, writeCachedEntity]);
+    },
+    [readCachedStats, writeCachedStats, writeCachedEntity],
+  );
 
   const refreshStats = useCallback(() => {
     void fetchBootstrap({ force: true });
@@ -794,15 +815,22 @@ useEffect(() => {
       setHeaderAccentMigrationMissing(false);
       const response = await fetch("/api/admin/settings/branding", {
         method: "PATCH",
-        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        headers: await createAuthenticatedHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ headerColor: normalizedColor }),
       });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        if ((payload?.error || "").toLowerCase().includes("migration required")) {
+        if (
+          (payload?.error || "").toLowerCase().includes("migration required")
+        ) {
           setHeaderAccentMigrationMissing(true);
-          showToast("Header color is not enabled in this database yet. Run supabase/admin_dashboard_header_color.sql first.", "error");
+          showToast(
+            "Header color is not enabled in this database yet. Run supabase/admin_dashboard_header_color.sql first.",
+            "error",
+          );
           return;
         }
         throw new Error(payload?.error || "Failed to save header color");
@@ -826,15 +854,22 @@ useEffect(() => {
       setHeaderAccentMigrationMissing(false);
       const response = await fetch("/api/admin/settings/branding", {
         method: "PATCH",
-        headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+        headers: await createAuthenticatedHeaders({
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ headerColor: null }),
       });
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        if ((payload?.error || "").toLowerCase().includes("migration required")) {
+        if (
+          (payload?.error || "").toLowerCase().includes("migration required")
+        ) {
           setHeaderAccentMigrationMissing(true);
-          showToast("Header color is not enabled in this database yet. Run supabase/admin_dashboard_header_color.sql first.", "error");
+          showToast(
+            "Header color is not enabled in this database yet. Run supabase/admin_dashboard_header_color.sql first.",
+            "error",
+          );
           return;
         }
         throw new Error(payload?.error || "Failed to reset header color");
@@ -858,7 +893,7 @@ useEffect(() => {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName(identity.displayName || "Admin User");
-      } catch { }
+      } catch {}
       void fetchBootstrap();
     })();
   }, [fetchBootstrap]);
@@ -953,7 +988,10 @@ useEffect(() => {
   );
 
   // Fetch a specific entity type from API with loading state management
-  const fetchEntity = async (type: EntityType, options?: { force?: boolean }) => {
+  const fetchEntity = async (
+    type: EntityType,
+    options?: { force?: boolean },
+  ) => {
     if (!options?.force) {
       const cachedList = readCachedEntity(type);
       if (cachedList) {
@@ -1024,7 +1062,10 @@ useEffect(() => {
     const runChunk = (deadline?: IdleDeadline) => {
       if (cancelled) return;
 
-      while (index < preloaders.length && (!deadline || deadline.timeRemaining() > 8)) {
+      while (
+        index < preloaders.length &&
+        (!deadline || deadline.timeRemaining() > 8)
+      ) {
         void preloaders[index++]();
       }
 
@@ -1133,8 +1174,9 @@ useEffect(() => {
   }, [isDesktop]);
 
   const sidebarVisible = isDesktop ? sidebarPinned : sidebarOpen;
-  const resolvedHeaderAccentColor = headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
- 
+  const resolvedHeaderAccentColor =
+    headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+
   const closeSidebar = () => {
     setSidebarOpen(false);
     if (isDesktop) {
@@ -1197,7 +1239,9 @@ useEffect(() => {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: resolvedHeaderAccentColor }}>
+    <div
+      style={{ minHeight: "100vh", backgroundColor: resolvedHeaderAccentColor }}
+    >
       {sidebarVisible && !isDesktop && (
         <button
           type="button"
@@ -1208,8 +1252,9 @@ useEffect(() => {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "-translate-x-full"
-          }`}
+        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${
+          sidebarVisible ? "translate-x-0" : "-translate-x-full"
+        }`}
         aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
@@ -1247,10 +1292,11 @@ useEffect(() => {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
-                ? "bg-gray-100 text-gray-900"
-                : "text-gray-700 hover:bg-gray-50"
-                }`}
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${
+                activeTab === tab.id
+                  ? "bg-gray-100 text-gray-900"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
               <span>{tab.label}</span>
@@ -1325,9 +1371,7 @@ useEffect(() => {
               </div>
               <div className="hidden text-left lg:block">
                 <p className="text-sm font-medium text-gray-900">{userName}</p>
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
-                  Administrator
-                </span>
+                <RoleSwitcherBadge currentRole="admin" />
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
@@ -1435,27 +1479,31 @@ useEffect(() => {
           </div>
 
           {visitedTabs.has("roster") && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "roster" ? "" : "hidden"}`}>
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "roster" ? "" : "hidden"}`}
+            >
               {/* Tabs */}
               <div className="flex border-b border-gray-200 bg-white/80 backdrop-blur rounded-t-md">
                 <button
                   onClick={() => setImportTab("roster")}
-                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${importTab === "roster"
-                    ? "border-b-2 border-blue-600 text-blue-700 bg-white"
-                    : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
-                    }`}
-                  style={{ borderTopLeftRadius: '0.375rem' }}
+                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${
+                    importTab === "roster"
+                      ? "border-b-2 border-blue-600 text-blue-700 bg-white"
+                      : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
+                  }`}
+                  style={{ borderTopLeftRadius: "0.375rem" }}
                 >
                   Import Roster
                 </button>
 
                 <button
                   onClick={() => setImportTab("classes")}
-                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${importTab === "classes"
-                    ? "border-b-2 border-blue-600 text-blue-700 bg-white"
-                    : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
-                    }`}
-                  style={{ borderTopRightRadius: '0.375rem' }}
+                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${
+                    importTab === "classes"
+                      ? "border-b-2 border-blue-600 text-blue-700 bg-white"
+                      : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
+                  }`}
+                  style={{ borderTopRightRadius: "0.375rem" }}
                 >
                   Import Classes
                 </button>
@@ -1495,17 +1543,24 @@ useEffect(() => {
           )}
 
           {visitedTabs.has("settings") && stats?.organizationId && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "settings" ? "" : "hidden"}`}>
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "settings" ? "" : "hidden"}`}
+            >
               <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
                 <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
-                <MemoLogoManage organizationLogoUrl={stats.organizationLogoUrl} />
+                <MemoLogoManage
+                  organizationLogoUrl={stats.organizationLogoUrl}
+                />
 
                 <div className="mt-6 border-t border-gray-100 pt-5">
-                  <p className="text-sm font-semibold text-gray-900">Dashboard Header Color</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    Dashboard Header Color
+                  </p>
                   <p className="mt-1 text-xs text-gray-500">
-                    Pick a color accent for the dashboard header. You can use the picker or paste a hex color from your logo.
+                    Pick a color accent for the dashboard header. You can use
+                    the picker or paste a hex color from your logo.
                   </p>
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1524,7 +1579,10 @@ useEffect(() => {
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <input
                       type="color"
-                      value={normalizeHexColor(headerAccentInput)?.toLowerCase() || '#ffffff'}
+                      value={
+                        normalizeHexColor(headerAccentInput)?.toLowerCase() ||
+                        "#ffffff"
+                      }
                       onChange={(event) => {
                         // HTML color input always returns lowercase hex
                         setHeaderAccentInput(event.target.value.toUpperCase());
@@ -1536,7 +1594,9 @@ useEffect(() => {
                     <input
                       type="text"
                       value={headerAccentInput}
-                      onChange={(event) => setHeaderAccentInput(event.target.value.toUpperCase())}
+                      onChange={(event) =>
+                        setHeaderAccentInput(event.target.value.toUpperCase())
+                      }
                       placeholder="#FFFFFF"
                       className="h-10 w-32 rounded-lg border border-gray-300 px-3 text-sm uppercase outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                       aria-label="Dashboard header color hex value"
@@ -1545,7 +1605,9 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={saveHeaderAccentColor}
-                      disabled={savingHeaderAccent || headerAccentMigrationMissing}
+                      disabled={
+                        savingHeaderAccent || headerAccentMigrationMissing
+                      }
                       className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
                     >
                       {savingHeaderAccent ? "Saving..." : "Save Color"}
@@ -1553,13 +1615,19 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={resetHeaderAccentColor}
-                      disabled={savingHeaderAccent || headerAccentMigrationMissing}
+                      disabled={
+                        savingHeaderAccent || headerAccentMigrationMissing
+                      }
                       className="h-10 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Reset
                     </button>
                     {headerAccentMigrationMissing && (
-                      <span className="text-xs text-orange-600 ml-2">Header color is not enabled in this database yet. Run <code>supabase/admin_dashboard_header_color.sql</code> first.</span>
+                      <span className="text-xs text-orange-600 ml-2">
+                        Header color is not enabled in this database yet. Run{" "}
+                        <code>supabase/admin_dashboard_header_color.sql</code>{" "}
+                        first.
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1568,31 +1636,43 @@ useEffect(() => {
           )}
 
           {visitedTabs.has("accounts") && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "accounts" ? "" : "hidden"}`}>
-            <MemoAccountsManager onRefresh={refreshStats} />
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "accounts" ? "" : "hidden"}`}
+            >
+              <MemoAccountsManager onRefresh={refreshStats} />
             </div>
           )}
 
           {visitedTabs.has("evaluations") && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "evaluations" ? "" : "hidden"}`}>
-            <MemoAdminInstructorEvaluations initialFilters={evaluationFilterBootstrap ?? undefined} />
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "evaluations" ? "" : "hidden"}`}
+            >
+              <MemoAdminInstructorEvaluations
+                initialFilters={evaluationFilterBootstrap ?? undefined}
+              />
             </div>
           )}
 
           {visitedTabs.has("classes") && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "classes" ? "" : "hidden"}`}>
-            <MemoClassManager onRefresh={refreshStats} />
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "classes" ? "" : "hidden"}`}
+            >
+              <MemoClassManager onRefresh={refreshStats} />
             </div>
           )}
 
           {visitedTabs.has("assignments") && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "assignments" ? "" : "hidden"}`}>
-            <MemoInstructorAssignmentManager />
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "assignments" ? "" : "hidden"}`}
+            >
+              <MemoInstructorAssignmentManager />
             </div>
           )}
 
           {visitedTabs.has("skills") && (
-            <div className={`w-full min-h-[60vh] ${activeTab === "skills" ? "" : "hidden"}`}>
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "skills" ? "" : "hidden"}`}
+            >
               <EntityEditor
                 type="skills"
                 state={entities.skills}
@@ -1645,10 +1725,11 @@ useEffect(() => {
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${toast.type === "success"
-                  ? "bg-green-50 border-green-200 text-green-800"
-                  : "bg-red-50 border-red-200 text-red-800"
-                  }`}
+                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
+                  toast.type === "success"
+                    ? "bg-green-50 border-green-200 text-green-800"
+                    : "bg-red-50 border-red-200 text-red-800"
+                }`}
               >
                 {toast.message}
               </div>
