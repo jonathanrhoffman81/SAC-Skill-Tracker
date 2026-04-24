@@ -8,7 +8,9 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
+  authFetch,
   createAuthenticatedHeaders,
+  SessionExpiredError,
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
@@ -737,10 +739,7 @@ export default function AdminDashboard() {
       }
 
       try {
-        const headers = await createAuthenticatedHeaders();
-        const response = await fetch(`/api/admin/dashboard/bootstrap`, {
-          headers,
-        });
+        const response = await authFetch(`/api/admin/dashboard/bootstrap`);
         if (!response.ok) throw new Error("Failed to load stats");
         const data = (await response.json()) as DashboardBootstrapPayload;
 
@@ -772,6 +771,9 @@ export default function AdminDashboard() {
           setEvaluationFilterBootstrap(data.tabEssentials.evaluationFilters);
         }
       } catch (err) {
+        // SessionExpiredError means a redirect is already in-flight — don't
+        // flash an error state on the way out.
+        if (err instanceof SessionExpiredError) return;
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
         setLoading(false);

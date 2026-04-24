@@ -15,7 +15,8 @@ const PROFICIENCY_LABELS: Record<SkillProgress, string> = {
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  createAuthenticatedHeaders,
+  authFetch,
+  SessionExpiredError,
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
@@ -266,9 +267,10 @@ export default function AccountDashboard() {
           }
         }
 
-        // Fetch all parent dashboard data in one request.
-        const headers = await createAuthenticatedHeaders();
-        const response = await fetch("/api/account/dashboard", { headers });
+        // Fetch all parent dashboard data in one request. authFetch auto-redirects
+        // to /login?reason=session_expired on 401 and throws SessionExpiredError
+        // so the catch below can ignore it.
+        const response = await authFetch("/api/account/dashboard");
         const payload = (await response.json()) as DashboardPayload & {
           error?: string;
         };
@@ -284,6 +286,9 @@ export default function AccountDashboard() {
         seedProfileCaches(identity.authUserId, payload);
       } catch (fetchError) {
         if (!isMounted) return;
+        // SessionExpiredError means a redirect to /login has already been
+        // queued — don't flash an error banner on the way out.
+        if (fetchError instanceof SessionExpiredError) return;
         const message =
           fetchError instanceof Error ? fetchError.message : "Unexpected error";
         if (!hasCachedData) {

@@ -8,7 +8,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  createAuthenticatedHeaders,
+  authFetch,
+  SessionExpiredError,
   logoutAndRedirect,
 } from "@/lib/clientAuth";
 import { RoleSwitcherBadge } from "@/components/RoleSwitcher";
@@ -102,8 +103,7 @@ export default function InstructorDashboard() {
 
     async function loadBannerData() {
       try {
-        const headers = await createAuthenticatedHeaders();
-        const response = await fetch("/api/instructor/dashboard", { headers });
+        const response = await authFetch("/api/instructor/dashboard");
         const payload = (await response.json()) as InstructorDashboardPayload;
 
         if (!response.ok) {
@@ -121,7 +121,10 @@ export default function InstructorDashboard() {
         setHeaderAccentColor(
           normalizeHexColor(payload.headerAccentColor || "") ?? null,
         );
-      } catch {
+      } catch (err) {
+        // SessionExpiredError → redirect is already in-flight, don't fall
+        // through to the "Instructor" placeholder reset.
+        if (err instanceof SessionExpiredError) return;
         if (!isMounted) return;
         setUserName("Instructor");
         setOrganizationName("SAC Skill Tracker");

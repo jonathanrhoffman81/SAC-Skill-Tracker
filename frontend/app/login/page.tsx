@@ -6,8 +6,8 @@
 
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
@@ -23,10 +23,18 @@ const LEGACY_LOCALSTORAGE_ROLE_SET = new Set(["admin", "super-admin"]);
 
 export default function Login() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
+  const [expiredNotice, setExpiredNotice] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("reason") === "session_expired") {
+      setExpiredNotice(true);
+    }
+  }, [searchParams]);
 
   const handleForgotPassword = async () => {
     setError("");
@@ -243,6 +251,17 @@ export default function Login() {
         <p className="text-center text-sm text-gray-600 mb-6">
           Swimming Progress Dashboard
         </p>
+
+        {expiredNotice && (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              Your session expired
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              Please sign in again to continue.
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>

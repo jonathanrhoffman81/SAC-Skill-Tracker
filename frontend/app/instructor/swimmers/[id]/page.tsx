@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { createAuthenticatedHeaders } from "@/lib/clientAuth";
+import { authFetch, SessionExpiredError } from "@/lib/clientAuth";
 
 interface SwimmerDetail {
   id: string;
@@ -233,10 +233,7 @@ export default function InstructorSwimmerDetailPage() {
         setIsLoading(true);
         setError("");
 
-        const headers = await createAuthenticatedHeaders();
-        const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
-          headers,
-        });
+        const response = await authFetch(`/api/instructor/swimmers/${swimmerId}`);
         const payload = (await response.json()) as SwimmerPayload;
 
         if (!response.ok) {
@@ -252,6 +249,8 @@ export default function InstructorSwimmerDetailPage() {
         );
       } catch (fetchError) {
         if (!isMounted) return;
+        // Redirect already queued — skip the error-state render.
+        if (fetchError instanceof SessionExpiredError) return;
         const message =
           fetchError instanceof Error ? fetchError.message : "Unexpected error";
         setError(message);
