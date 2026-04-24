@@ -58,8 +58,10 @@ export function redirectToLoginExpired(): void {
  * expired, can hang on a background refresh attempt for several seconds
  * before returning null. If localStorage has no sb-*-auth-token key at all,
  * we know the session is gone and can redirect immediately.
+ *
+ * Exported so the idle-session poller in AuthListener can share the logic.
  */
-function hasLocalSupabaseAuthToken(): boolean {
+export function hasLocalSupabaseAuthToken(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     for (let i = 0; i < localStorage.length; i += 1) {
