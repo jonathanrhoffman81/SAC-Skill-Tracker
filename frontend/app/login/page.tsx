@@ -7,7 +7,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
@@ -23,18 +23,22 @@ const LEGACY_LOCALSTORAGE_ROLE_SET = new Set(["admin", "super-admin"]);
 
 export default function Login() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
   const [expiredNotice, setExpiredNotice] = useState(false);
 
+  // Read ?reason=session_expired directly from window.location. Avoids
+  // useSearchParams(), which requires the page to be wrapped in <Suspense>
+  // during static pre-rendering and was failing the Vercel build.
   useEffect(() => {
-    if (searchParams.get("reason") === "session_expired") {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reason") === "session_expired") {
       setExpiredNotice(true);
     }
-  }, [searchParams]);
+  }, []);
 
   const handleForgotPassword = async () => {
     setError("");
