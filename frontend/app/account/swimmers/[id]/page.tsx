@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-    createAuthenticatedHeaders,
+    authFetch,
+    SessionExpiredError,
     getAuthenticatedSessionIdentity,
 } from "@/lib/clientAuth";
 import CertificatePage from "@/components/CertificateLayout";
@@ -299,10 +300,7 @@ export default function ParentSwimmerDetail() {
                     }
                 }
 
-                const headers = await createAuthenticatedHeaders();
-                const response = await fetch(`/api/account/swimmers/${swimmerId}`, {
-                    headers,
-                });
+                const response = await authFetch(`/api/account/swimmers/${swimmerId}`);
                 const payload = (await response.json()) as SwimmerPayload;
 
                 if (!response.ok) {
@@ -319,6 +317,8 @@ export default function ParentSwimmerDetail() {
                 sessionStorage.setItem(profileCacheKey, JSON.stringify(payload));
             } catch (fetchError) {
                 if (!isMounted) return;
+                // Redirect already in-flight — don't render an error banner.
+                if (fetchError instanceof SessionExpiredError) return;
                 const message =
                     fetchError instanceof Error ? fetchError.message : "Unexpected error";
                 if (!hasCachedData) {

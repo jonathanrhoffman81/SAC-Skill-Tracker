@@ -4,6 +4,7 @@
  */
 
 import './globals.css';
+import AuthListener from '@/components/AuthListener';
 
 export const metadata = {
     title: 'SAC Skill Tracker',
@@ -17,7 +18,10 @@ export default function RootLayout({
 }) {
     return (
         <html lang="en">
-            <body>{children}</body>
+            <body>
+                <AuthListener />
+                {children}
+            </body>
         </html>
     );
 }
