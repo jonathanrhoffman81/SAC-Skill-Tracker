@@ -383,6 +383,7 @@ export default function AdminInstructorEvaluations({
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+    const [isFiltersOpen, setIsFiltersOpen] = useState(false);
     const [classFilter, setClassFilter] = useState("all");
     const [instructorFilter, setInstructorFilter] = useState(initialInstructorFilter ?? "all");
     const [groupFilter, setGroupFilter] = useState("all");
@@ -394,6 +395,13 @@ export default function AdminInstructorEvaluations({
     const [isProficiencyScaleOpen, setIsProficiencyScaleOpen] = useState(false);
     const [activeEvaluationClassIdBySwimmer, setActiveEvaluationClassIdBySwimmer] = useState<Record<string, string | null>>({});
     const [editingEvaluationBySwimmer, setEditingEvaluationBySwimmer] = useState<Record<string, {
+        evaluationId: string;
+        classId: string;
+        isSkillNote: boolean;
+        skillId?: string;
+        feedback?: string;
+    } | null>>({});
+    const [viewingEvaluationBySwimmer, setViewingEvaluationBySwimmer] = useState<Record<string, {
         evaluationId: string;
         classId: string;
         isSkillNote: boolean;
@@ -939,11 +947,60 @@ export default function AdminInstructorEvaluations({
             ...prev,
             [swimmerId]: null,
         }));
+        setViewingEvaluationBySwimmer((prev) => ({
+            ...prev,
+            [swimmerId]: null,
+        }));
         setHistoryActionErrorBySwimmer((prev) => ({
             ...prev,
             [swimmerId]: "",
         }));
         setOpenSwimmerId((current) => (current === swimmerId ? null : swimmerId));
+    };
+
+    const openEvaluationEntryForEditing = async (args: {
+        swimmerId: string;
+        classId: string;
+        entry: {
+            evaluationId: string;
+            isSkillNote: boolean;
+            skillName?: string;
+            feedback?: string;
+        };
+        skills: DashboardSkill[];
+    }) => {
+        if (!hasUsableEvaluationId(args.entry.evaluationId)) {
+            await loadData(currentPage, debouncedSearchQuery, {
+                forceRefresh: true,
+            });
+            setHistoryActionErrorBySwimmer((prev) => ({
+                ...prev,
+                [args.swimmerId]:
+                    "This evaluation entry was out of sync. The list was refreshed; please try again.",
+            }));
+            return;
+        }
+
+        setActiveEvaluationClassIdBySwimmer((prev) => ({
+            ...prev,
+            [args.swimmerId]: null,
+        }));
+        setEditingEvaluationBySwimmer((prev) => ({
+            ...prev,
+            [args.swimmerId]: {
+                evaluationId: args.entry.evaluationId,
+                classId: args.classId,
+                isSkillNote: args.entry.isSkillNote,
+                skillId: args.entry.isSkillNote
+                    ? args.skills.find((skill) => skill.name === args.entry.skillName)?.id
+                    : undefined,
+                feedback: args.entry.feedback,
+            },
+        }));
+        setHistoryActionErrorBySwimmer((prev) => ({
+            ...prev,
+            [args.swimmerId]: "",
+        }));
     };
 
     const deleteEvaluationEntry = async (args: {
@@ -1602,8 +1659,36 @@ export default function AdminInstructorEvaluations({
                                 className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                         </div>
-
                         <div className="space-y-1">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Filters</p>
+                            <button
+                                type="button"
+                                onClick={() => setIsFiltersOpen((current) => !current)}
+                                className="flex w-full items-center justify-between rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm hover:bg-gray-50 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                aria-expanded={isFiltersOpen}
+                                aria-controls="evaluation-filters-panel"
+                            >
+                                <span>{isFiltersOpen ? "Hide filters" : "Show filters"}</span>
+                                <svg
+                                    className={`h-4 w-4 text-gray-500 transition-transform ${isFiltersOpen ? "rotate-180" : ""}`}
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 9l-7 7-7-7"
+                                    />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    {isFiltersOpen && (
+                        <div id="evaluation-filters-panel" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                            <div className="space-y-1">
                             <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">View</p>
                             <DropdownButton
                                 value={listView}
@@ -1622,9 +1707,9 @@ export default function AdminInstructorEvaluations({
                                 ]}
                                 ariaLabel="Select swimmer list view"
                             />
-                        </div>
+                            </div>
 
-                        <div className="space-y-1">
+                            <div className="space-y-1">
                             <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Class</p>
                             <DropdownButton
                                 value={classFilter}
@@ -1636,9 +1721,9 @@ export default function AdminInstructorEvaluations({
                                 options={classFilterOptions}
                                 ariaLabel="Filter swimmers by class"
                             />
-                        </div>
+                            </div>
 
-                        <div className="space-y-1">
+                            <div className="space-y-1">
                             <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Instructor</p>
                             <DropdownButton
                                 value={instructorFilter}
@@ -1650,9 +1735,9 @@ export default function AdminInstructorEvaluations({
                                 options={instructorFilterOptions}
                                 ariaLabel="Filter swimmers by instructor"
                             />
-                        </div>
+                            </div>
 
-                        <div className="space-y-1">
+                            <div className="space-y-1">
                             <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Group</p>
                             <DropdownButton
                                 value={groupFilter}
@@ -1664,9 +1749,9 @@ export default function AdminInstructorEvaluations({
                                 options={groupFilterOptions}
                                 ariaLabel="Filter swimmers by group"
                             />
-                        </div>
+                            </div>
 
-                        <div className="space-y-1">
+                            <div className="space-y-1">
                             <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Status</p>
                             <DropdownButton
                                 value={statusFilter}
@@ -1683,7 +1768,8 @@ export default function AdminInstructorEvaluations({
                                 ariaLabel="Filter swimmers by status"
                             />
                         </div>
-                    </div>
+                        </div>
+                    )}
                 </div>
 
                 {!isLoading && error && (
@@ -1884,30 +1970,54 @@ export default function AdminInstructorEvaluations({
                                 {isOpen && (
                                     <div className="border-t border-gray-100 p-5 sm:p-6">
                                         {resolvedSkills.length ? (
-                                            <div className="space-y-5">
-                                                <div className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+                                            <div className="space-y-4">
+                                                <div className="px-1">
                                                     <div>
-                                                        <h3 className="text-sm font-semibold text-gray-900">
-                                                            Classes
-                                                        </h3>
+                                                        <h3 className="text-sm font-semibold text-gray-900">Classes</h3>
                                                     </div>
 
-                                                    <div className="mt-4 space-y-3">
+                                                    <div className="mt-3 divide-y divide-gray-200">
                                                         {resolvedClasses.map((classItem) => {
                                                             const classSummary = classEvaluationSummaryById.get(classItem.id);
                                                             const isSelectedForEvaluation = selectedEvaluationClassId === classItem.id;
+                                                            const latestEvaluationEntry = classSummary?.recentEntries?.[0];
+                                                            const progressBySkillName = new Map(
+                                                                resolvedSkills.map((skill) => [skill.name, skill.progress]),
+                                                            );
+                                                            const skillPreview = Array.from(
+                                                                new Set(
+                                                                    (classSummary?.recentEntries ?? [])
+                                                                        .filter((entry) => entry.isSkillNote && entry.skillName)
+                                                                        .map((entry) => entry.skillName as string),
+                                                                ),
+                                                            );
+                                                            const masteredSkillPreview = skillPreview.filter(
+                                                                (skillName) => (progressBySkillName.get(skillName) ?? 0) === 4,
+                                                            );
+                                                            const isEditingThisClass =
+                                                                Boolean(editingEvaluation) &&
+                                                                editingEvaluation?.classId === classItem.id;
+                                                            const isAddingThisClass =
+                                                                !editingEvaluation &&
+                                                                selectedEvaluationClassId === classItem.id;
+                                                            const viewingEvaluation = viewingEvaluationBySwimmer[swimmer.id];
+                                                            const isViewingThisClass =
+                                                                Boolean(viewingEvaluation) &&
+                                                                viewingEvaluation?.classId === classItem.id &&
+                                                                viewingEvaluation?.evaluationId === latestEvaluationEntry?.evaluationId;
 
                                                             return (
                                                                 <div
                                                                     key={classItem.id}
-                                                                    className={`rounded-xl border p-4 transition ${isSelectedForEvaluation
-                                                                        ? "border-blue-200 bg-blue-50/60"
-                                                                        : "border-gray-200 bg-gray-50"
+                                                                    className={`py-4 transition ${isSelectedForEvaluation || isEditingThisClass
+                                                                        ? "bg-blue-50/20"
+                                                                        : ""
                                                                         }`}
                                                                 >
-                                                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                                                    <div className="flex flex-col gap-4">
                                                                         <div className="min-w-0 flex-1">
-                                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                            <div className="flex items-start justify-between gap-3">
+                                                                                <div className="flex flex-wrap items-center gap-2">
                                                                                 <h4 className="text-sm font-semibold text-gray-900">
                                                                                     {classItem.name}
                                                                                 </h4>
@@ -1929,6 +2039,122 @@ export default function AdminInstructorEvaluations({
                                                                                         No evaluation yet
                                                                                     </span>
                                                                                 )}
+                                                                                </div>
+                                                                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                                                                    {latestEvaluationEntry && (
+                                                                                        <>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setEditingEvaluationBySwimmer((prev) => ({
+                                                                                                        ...prev,
+                                                                                                        [swimmer.id]: null,
+                                                                                                    }));
+                                                                                                    setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                        ...prev,
+                                                                                                        [swimmer.id]: null,
+                                                                                                    }));
+                                                                                                    setViewingEvaluationBySwimmer((prev) => ({
+                                                                                                        ...prev,
+                                                                                                        [swimmer.id]:
+                                                                                                            isViewingThisClass
+                                                                                                                ? null
+                                                                                                                : {
+                                                                                                                    classId: classItem.id,
+                                                                                                                    evaluationId: latestEvaluationEntry.evaluationId,
+                                                                                                                    isSkillNote: latestEvaluationEntry.isSkillNote,
+                                                                                                                    skillId: latestEvaluationEntry.isSkillNote
+                                                                                                                        ? resolvedSkills.find((skill) => skill.name === latestEvaluationEntry.skillName)?.id
+                                                                                                                        : undefined,
+                                                                                                                    feedback: latestEvaluationEntry.feedback,
+                                                                                                                },
+                                                                                                    }));
+                                                                                                }}
+                                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100"
+                                                                                                aria-label="Show evaluation"
+                                                                                                title="Show evaluation"
+                                                                                            >
+                                                                                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => void openEvaluationEntryForEditing({
+                                                                                                    swimmerId: swimmer.id,
+                                                                                                    classId: classItem.id,
+                                                                                                    entry: latestEvaluationEntry,
+                                                                                                    skills: resolvedSkills,
+                                                                                                })}
+                                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100"
+                                                                                                aria-label="Edit evaluation"
+                                                                                                title="Edit evaluation"
+                                                                                            >
+                                                                                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => void deleteEvaluationEntry({
+                                                                                                    swimmerId: swimmer.id,
+                                                                                                    classId: classItem.id,
+                                                                                                    evaluationId: latestEvaluationEntry.evaluationId,
+                                                                                                })}
+                                                                                                disabled={deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${latestEvaluationEntry.evaluationId}`}
+                                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                                                aria-label="Delete evaluation"
+                                                                                                title="Delete evaluation"
+                                                                                            >
+                                                                                                {deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${latestEvaluationEntry.evaluationId}` ? (
+                                                                                                    <span className="h-3 w-3 animate-spin rounded-full border-b-2 border-red-600" />
+                                                                                                ) : (
+                                                                                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
+                                                                                                    </svg>
+                                                                                                )}
+                                                                                            </button>
+                                                                                        </>
+                                                                                    )}
+                                                                                    {!latestEvaluationEntry && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => {
+                                                                                            setViewingEvaluationBySwimmer((prev) => ({
+                                                                                                ...prev,
+                                                                                                [swimmer.id]: null,
+                                                                                            }));
+                                                                                            setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                ...prev,
+                                                                                                [swimmer.id]: classItem.id,
+                                                                                            }));
+                                                                                        }}
+                                                                                        className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+                                                                                    >
+                                                                                        {classSummary ? "Add Eval" : "Add Evaluation"}
+                                                                                    </button>
+                                                                                    )}
+                                                                                    {isSelectedForEvaluation && (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: null,
+                                                                                                }));
+                                                                                                setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: "",
+                                                                                                }));
+                                                                                            }}
+                                                                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+                                                                                        >
+                                                                                            Close Form
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
                                                                             </div>
 
                                                                             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -1951,7 +2177,7 @@ export default function AdminInstructorEvaluations({
                                                                             </div>
 
                                                                             {classSummary?.recentEntries?.length ? (
-                                                                                <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                                                                                <div className="mt-4 px-1 py-2">
                                                                                     <div className="flex items-center justify-between gap-3">
                                                                                         <p className="text-xs font-semibold text-gray-700">
                                                                                             Evaluation History
@@ -1961,231 +2187,146 @@ export default function AdminInstructorEvaluations({
                                                                                         </p>
                                                                                     </div>
 
-                                                                                    <div className="mt-3 space-y-3">
-                                                                                        {classSummary.recentEntries.slice(0, 2).map((entry) => (
-                                                                                            <div
-                                                                                                key={entry.evaluationId}
-                                                                                                className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
-                                                                                            >
-                                                                                                <div className="flex items-start justify-between gap-3">
-                                                                                                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                                                                                        <span>{entry.date}</span>
-                                                                                                        <span>by {entry.instructor}</span>
-                                                                                                        <span className={`rounded-full px-2 py-0.5 ${entry.isSkillNote
-                                                                                                            ? "bg-blue-100 text-blue-700"
-                                                                                                            : "bg-slate-100 text-slate-700"
-                                                                                                            }`}>
-                                                                                                            {entry.isSkillNote
-                                                                                                                ? entry.skillName
-                                                                                                                    ? `${entry.skillName} note`
-                                                                                                                    : "Skill note"
-                                                                                                                : "Class note"}
+                                                                                    <div className="mt-2 space-y-2 text-xs text-gray-600">
+                                                                                        <p>
+                                                                                            Latest: {classSummary.lastEvaluationDate || "N/A"} by{" "}
+                                                                                            {(classSummary.instructors?.[0] || "Instructor")}
+                                                                                        </p>
+                                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                                            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                                                                                                Completed skills:
+                                                                                            </span>
+                                                                                            {masteredSkillPreview.length > 0 ? (
+                                                                                                <>
+                                                                                                    {masteredSkillPreview.slice(0, 5).map((skillName) => (
+                                                                                                        <span
+                                                                                                            key={`${classItem.id}:${skillName}`}
+                                                                                                            className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
+                                                                                                        >
+                                                                                                            {skillName}
                                                                                                         </span>
-                                                                                                    </div>
-                                                                                                    <div className="flex items-center gap-3">
-                                                                                                        <button
-                                                                                                            type="button"
-                                                                                                            onClick={async () => {
-                                                                                                                if (!hasUsableEvaluationId(entry.evaluationId)) {
-                                                                                                                    await loadData(currentPage, debouncedSearchQuery, {
-                                                                                                                        forceRefresh: true,
-                                                                                                                    });
-                                                                                                                    setHistoryActionErrorBySwimmer((prev) => ({
-                                                                                                                        ...prev,
-                                                                                                                        [swimmer.id]: "This evaluation entry was out of sync. The list was refreshed; please try again.",
-                                                                                                                    }));
-                                                                                                                    return;
-                                                                                                                }
-                                                                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                                                                    ...prev,
-                                                                                                                    [swimmer.id]: null,
-                                                                                                                }));
-                                                                                                                setEditingEvaluationBySwimmer((prev) => ({
-                                                                                                                    ...prev,
-                                                                                                                    [swimmer.id]: {
-                                                                                                                        evaluationId: entry.evaluationId,
-                                                                                                                        classId: classItem.id,
-                                                                                                                        isSkillNote: entry.isSkillNote,
-                                                                                                                        skillId: entry.isSkillNote
-                                                                                                                            ? resolvedSkills.find((skill) => skill.name === entry.skillName)?.id
-                                                                                                                            : undefined,
-                                                                                                                        feedback: entry.feedback,
-                                                                                                                    },
-                                                                                                                }));
-                                                                                                                setHistoryActionErrorBySwimmer((prev) => ({
-                                                                                                                    ...prev,
-                                                                                                                    [swimmer.id]: "",
-                                                                                                                }));
-                                                                                                            }}
-                                                                                                            className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                                                                                                        >
-                                                                                                            Edit
-                                                                                                        </button>
-                                                                                                        <button
-                                                                                                            type="button"
-                                                                                                            disabled={deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}`}
-                                                                                                            onClick={() => void deleteEvaluationEntry({
-                                                                                                                swimmerId: swimmer.id,
-                                                                                                                classId: classItem.id,
-                                                                                                                evaluationId: entry.evaluationId,
-                                                                                                            })}
-                                                                                                            className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                                                                                                        >
-                                                                                                            {deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}` ? "Deleting..." : "Delete"}
-                                                                                                        </button>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                                <p className="mt-2 text-sm text-gray-700">
-                                                                                                    {entry.feedback?.trim() || "No note text recorded."}
-                                                                                                </p>
-                                                                                            </div>
-                                                                                        ))}
-
-                                                                                        {classSummary.recentEntries.length > 2 && (
-                                                                                            <details className="group">
-                                                                                                <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
-                                                                                                    <span className="group-open:hidden">
-                                                                                                        Show {classSummary.recentEntries.length - 2} older entry
-                                                                                                        {classSummary.recentEntries.length - 2 === 1 ? "" : "s"}
-                                                                                                    </span>
-                                                                                                    <span className="hidden group-open:inline">
-                                                                                                        Hide older entries
-                                                                                                    </span>
-                                                                                                    <svg
-                                                                                                        className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
-                                                                                                        fill="none"
-                                                                                                        stroke="currentColor"
-                                                                                                        viewBox="0 0 24 24"
-                                                                                                    >
-                                                                                                        <path
-                                                                                                            strokeLinecap="round"
-                                                                                                            strokeLinejoin="round"
-                                                                                                            strokeWidth={2}
-                                                                                                            d="M19 9l-7 7-7-7"
-                                                                                                        />
-                                                                                                    </svg>
-                                                                                                </summary>
-                                                                                                <div className="mt-3 space-y-3">
-                                                                                                    {classSummary.recentEntries.slice(2).map((entry) => (
-                                                                                                        <div
-                                                                                                            key={entry.evaluationId}
-                                                                                                            className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
-                                                                                                        >
-                                                                                                            <div className="flex items-start justify-between gap-3">
-                                                                                                                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                                                                                                    <span>{entry.date}</span>
-                                                                                                                    <span>by {entry.instructor}</span>
-                                                                                                                    <span className={`rounded-full px-2 py-0.5 ${entry.isSkillNote
-                                                                                                                        ? "bg-blue-100 text-blue-700"
-                                                                                                                        : "bg-slate-100 text-slate-700"
-                                                                                                                        }`}>
-                                                                                                                        {entry.isSkillNote
-                                                                                                                            ? entry.skillName
-                                                                                                                                ? `${entry.skillName} note`
-                                                                                                                                : "Skill note"
-                                                                                                                            : "Class note"}
-                                                                                                                    </span>
-                                                                                                                </div>
-                                                                                                                <div className="flex items-center gap-3">
-                                                                                                                    <button
-                                                                                                                        type="button"
-                                                                                                                        onClick={async () => {
-                                                                                                                            if (!hasUsableEvaluationId(entry.evaluationId)) {
-                                                                                                                                await loadData(currentPage, debouncedSearchQuery, {
-                                                                                                                                    forceRefresh: true,
-                                                                                                                                });
-                                                                                                                                setHistoryActionErrorBySwimmer((prev) => ({
-                                                                                                                                    ...prev,
-                                                                                                                                    [swimmer.id]: "This evaluation entry was out of sync. The list was refreshed; please try again.",
-                                                                                                                                }));
-                                                                                                                                return;
-                                                                                                                            }
-                                                                                                                            setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                                                                                ...prev,
-                                                                                                                                [swimmer.id]: null,
-                                                                                                                            }));
-                                                                                                                            setEditingEvaluationBySwimmer((prev) => ({
-                                                                                                                                ...prev,
-                                                                                                                                [swimmer.id]: {
-                                                                                                                                    evaluationId: entry.evaluationId,
-                                                                                                                                    classId: classItem.id,
-                                                                                                                                    isSkillNote: entry.isSkillNote,
-                                                                                                                                    skillId: entry.isSkillNote
-                                                                                                                                        ? resolvedSkills.find((skill) => skill.name === entry.skillName)?.id
-                                                                                                                                        : undefined,
-                                                                                                                                    feedback: entry.feedback,
-                                                                                                                                },
-                                                                                                                            }));
-                                                                                                                            setHistoryActionErrorBySwimmer((prev) => ({
-                                                                                                                                ...prev,
-                                                                                                                                [swimmer.id]: "",
-                                                                                                                            }));
-                                                                                                                        }}
-                                                                                                                        className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                                                                                                                    >
-                                                                                                                        Edit
-                                                                                                                    </button>
-                                                                                                                    <button
-                                                                                                                        type="button"
-                                                                                                                        disabled={deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}`}
-                                                                                                                        onClick={() => void deleteEvaluationEntry({
-                                                                                                                            swimmerId: swimmer.id,
-                                                                                                                            classId: classItem.id,
-                                                                                                                            evaluationId: entry.evaluationId,
-                                                                                                                        })}
-                                                                                                                        className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                                                                                                                    >
-                                                                                                                        {deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${entry.evaluationId}` ? "Deleting..." : "Delete"}
-                                                                                                                    </button>
-                                                                                                                </div>
-                                                                                                            </div>
-                                                                                                            <p className="mt-2 text-sm text-gray-700">
-                                                                                                                {entry.feedback?.trim() || "No note text recorded."}
-                                                                                                            </p>
-                                                                                                        </div>
                                                                                                     ))}
-                                                                                                </div>
-                                                                                            </details>
-                                                                                        )}
+                                                                                                    {masteredSkillPreview.length > 5 && (
+                                                                                                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
+                                                                                                            +{masteredSkillPreview.length - 5} more
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </>
+                                                                                            ) : (
+                                                                                                <span className="text-gray-500">No level-4 skills recorded yet.</span>
+                                                                                            )}
+                                                                                        </div>
                                                                                     </div>
                                                                                 </div>
                                                                             ) : (
-                                                                                <div className="mt-4 rounded-lg border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                                                                                <div className="mt-4 px-1 py-2 text-sm text-gray-500">
                                                                                     No recorded evaluation history for this class yet.
                                                                                 </div>
                                                                             )}
-                                                                        </div>
 
-                                                                        <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[190px]">
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                                        ...prev,
-                                                                                        [swimmer.id]: classItem.id,
-                                                                                    }));
-                                                                                }}
-                                                                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
-                                                                            >
-                                                                                {classSummary ? "Add Another Evaluation" : "Add Evaluation"}
-                                                                            </button>
-                                                                            {isSelectedForEvaluation && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => {
-                                                                                        setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                                            ...prev,
-                                                                                            [swimmer.id]: null,
-                                                                                        }));
-                                                                                        setHistoryActionErrorBySwimmer((prev) => ({
-                                                                                            ...prev,
-                                                                                            [swimmer.id]: "",
-                                                                                        }));
-                                                                                    }}
-                                                                                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                                                                                >
-                                                                                    Close Form
-                                                                                </button>
+                                                                            {(isEditingThisClass || isAddingThisClass) && (
+                                                                                <div className="mt-4 space-y-3 rounded-lg bg-blue-50/60 p-4">
+                                                                                    <div className="flex items-center justify-between gap-2">
+                                                                                        <div>
+                                                                                            <p className="text-sm font-semibold text-blue-900">
+                                                                                                {isEditingThisClass
+                                                                                                    ? `Edit evaluation for ${classItem.name}`
+                                                                                                    : `New evaluation for ${classItem.name}`}
+                                                                                            </p>
+                                                                                            <p className="mt-1 text-xs text-blue-800">
+                                                                                                {isEditingThisClass
+                                                                                                    ? "Update this existing class evaluation."
+                                                                                                    : "Create a class evaluation here."}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                setEditingEvaluationBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: null,
+                                                                                                }));
+                                                                                                setViewingEvaluationBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: null,
+                                                                                                }));
+                                                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: null,
+                                                                                                }));
+                                                                                                setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: "",
+                                                                                                }));
+                                                                                            }}
+                                                                                            className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
+                                                                                        >
+                                                                                            Close
+                                                                                        </button>
+                                                                                    </div>
+
+                                                                                    {historyActionErrorBySwimmer[swimmer.id] && (
+                                                                                        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                                                                            {historyActionErrorBySwimmer[swimmer.id]}
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    <EvaluationForm
+                                                                                        swimmerId={swimmer.id}
+                                                                                        skills={resolvedSkills}
+                                                                                        classes={resolvedClasses}
+                                                                                        initialClassId={classItem.id}
+                                                                                        editingEvaluation={isEditingThisClass ? editingEvaluation ?? undefined : undefined}
+                                                                                        onSubmissionComplete={async () => {
+                                                                                            await loadData(currentPage, debouncedSearchQuery, {
+                                                                                                forceRefresh: true,
+                                                                                            });
+                                                                                            setEditingEvaluationBySwimmer((prev) => ({
+                                                                                                ...prev,
+                                                                                                [swimmer.id]: null,
+                                                                                            }));
+                                                                                            setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                ...prev,
+                                                                                                [swimmer.id]: null,
+                                                                                            }));
+                                                                                            setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                ...prev,
+                                                                                                [swimmer.id]: "",
+                                                                                            }));
+                                                                                        }}
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+
+                                                                            {isViewingThisClass && latestEvaluationEntry && (
+                                                                                <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+                                                                                    <div className="flex items-center justify-between gap-2">
+                                                                                        <p className="text-sm font-semibold text-gray-900">Evaluation details</p>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                setViewingEvaluationBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: null,
+                                                                                                }));
+                                                                                            }}
+                                                                                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                                                                                        >
+                                                                                            Close
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    <p className="mt-2 text-xs text-gray-500">
+                                                                                        {latestEvaluationEntry.date} by {latestEvaluationEntry.instructor}
+                                                                                    </p>
+                                                                                    <EvaluationForm
+                                                                                        swimmerId={swimmer.id}
+                                                                                        skills={resolvedSkills}
+                                                                                        classes={resolvedClasses}
+                                                                                        initialClassId={classItem.id}
+                                                                                        editingEvaluation={viewingEvaluation ?? undefined}
+                                                                                        viewOnly
+                                                                                    />
+                                                                                </div>
                                                                             )}
                                                                         </div>
                                                                     </div>
@@ -2195,73 +2336,7 @@ export default function AdminInstructorEvaluations({
                                                     </div>
                                                 </div>
 
-                                                {historyActionErrorBySwimmer[swimmer.id] && !editingEvaluationBySwimmer[swimmer.id] && (
-                                                    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                                        {historyActionErrorBySwimmer[swimmer.id]}
-                                                    </div>
-                                                )}
-
-                                                {editingEvaluationClass && editingEvaluation ? (
-                                                    <div className="space-y-3">
-                                                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                                                            <p className="text-sm font-semibold text-blue-900">
-                                                                Edit evaluation for {editingEvaluationClass.name}
-                                                            </p>
-                                                            <p className="mt-1 text-xs text-blue-800">
-                                                                This opens the full evaluation form with the selected history entry loaded for editing.
-                                                            </p>
-                                                        </div>
-                                                        {historyActionErrorBySwimmer[swimmer.id] && (
-                                                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                                                {historyActionErrorBySwimmer[swimmer.id]}
-                                                            </div>
-                                                        )}
-                                                        <EvaluationForm
-                                                            swimmerId={swimmer.id}
-                                                            skills={resolvedSkills}
-                                                            classes={resolvedClasses}
-                                                            initialClassId={editingEvaluation.classId}
-                                                            editingEvaluation={editingEvaluation}
-                                                            onSubmissionComplete={async () => {
-                                                                await loadData(currentPage, debouncedSearchQuery, {
-                                                                    forceRefresh: true,
-                                                                });
-                                                                setEditingEvaluationBySwimmer((prev) => ({
-                                                                    ...prev,
-                                                                    [swimmer.id]: null,
-                                                                }));
-                                                                setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
-                                                            }}
-                                                        />
-                                                    </div>
-                                                ) : selectedEvaluationClass ? (
-                                                    <div className="space-y-3">
-                                                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                                                            <p className="text-sm font-semibold text-blue-900">
-                                                                New evaluation for {selectedEvaluationClass.name}
-                                                            </p>
-                                                            <p className="mt-1 text-xs text-blue-800">
-                                                                The class selector is preloaded so the note and skill updates save against this class.
-                                                            </p>
-                                                        </div>
-                                                        <EvaluationForm
-                                                            swimmerId={swimmer.id}
-                                                            skills={resolvedSkills}
-                                                            classes={resolvedClasses}
-                                                            initialClassId={selectedEvaluationClass.id}
-                                                            onSubmissionComplete={async () => {
-                                                                await loadData(currentPage, debouncedSearchQuery, {
-                                                                    forceRefresh: true,
-                                                                });
-                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                    ...prev,
-                                                                    [swimmer.id]: null,
-                                                                }));
-                                                                setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
-                                                            }}
-                                                        />
-                                                    </div>
-                                                ) : resolvedClasses.length === 0 ? (
+                                                {resolvedClasses.length === 0 ? (
                                                     <EvaluationForm
                                                         swimmerId={swimmer.id}
                                                         skills={resolvedSkills}
@@ -2273,11 +2348,7 @@ export default function AdminInstructorEvaluations({
                                                             setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
                                                         }}
                                                     />
-                                                ) : (
-                                                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                                                        Choose a class or history entry above to open the evaluation form.
-                                                    </div>
-                                                )}
+                                                ) : null}
                                             </div>
                                         ) : (
                                             <div className="text-sm text-gray-500">No skills available for this swimmer.</div>

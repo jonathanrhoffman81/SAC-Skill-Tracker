@@ -133,6 +133,23 @@ export function getDashboardPathsForRoles(
     );
 }
 
+/**
+ * Returns the forced dashboard when a role combination should bypass /role-select.
+ */
+export function getRoleSelectBypass(appRoles: string[]): {
+  role: string;
+  path: string;
+} | null {
+  const normalized = new Set(appRoles.map((role) => normalizeRole(role)));
+
+  // Product rule: super-admin users should always land on admin.
+  if (normalized.has("super-admin")) {
+    return { role: "admin", path: "/admin/dashboard" };
+  }
+
+  return null;
+}
+
 // ─── Session storage helpers for multi-role persistence ──────────────────────
 
 const MULTI_ROLE_KEY = "auth:available-roles";

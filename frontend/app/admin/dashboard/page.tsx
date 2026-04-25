@@ -1332,7 +1332,7 @@ export default function AdminDashboard() {
         className={`flex min-h-screen flex-col ${sidebarVisible ? "lg:pl-72" : ""}`}
       >
         <header
-          className="sticky top-0 z-10 border-b border-gray-200 bg-white"
+          className="sticky top-0 z-50 border-b border-gray-200 bg-white"
           style={{
             background: "white",
             borderTop: `0px solid ${resolvedHeaderAccentColor}`,
@@ -1413,7 +1413,7 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
+        <main className="relative z-0 flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
           {loading && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
               <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-blue-600 flex-shrink-0"></div>
@@ -1484,63 +1484,52 @@ export default function AdminDashboard() {
             <div
               className={`w-full min-h-[60vh] ${activeTab === "roster" ? "" : "hidden"}`}
             >
-              {/* Tabs */}
-              <div className="flex border-b border-gray-200 bg-white/80 backdrop-blur rounded-t-md">
-                <button
-                  onClick={() => setImportTab("roster")}
-                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${
-                    importTab === "roster"
-                      ? "border-b-2 border-blue-600 text-blue-700 bg-white"
-                      : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
-                  }`}
-                  style={{ borderTopLeftRadius: "0.375rem" }}
-                >
-                  Import Roster
-                </button>
+              <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm mt-0">
+                <div className="p-4 sm:p-6 border-b border-gray-100">
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">
+                    {importTab === "roster"
+                      ? "Import from SportsEngine"
+                      : "Import Classes"}
+                  </h2>
+                  <div className="mt-3 -mb-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportTab("roster")}
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
+                        importTab === "roster"
+                          ? "border-blue-600 bg-blue-600 text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      Roster
+                    </button>
 
-                <button
-                  onClick={() => setImportTab("classes")}
-                  className={`px-4 py-2 text-sm font-semibold transition-colors duration-150 focus:outline-none ${
-                    importTab === "classes"
-                      ? "border-b-2 border-blue-600 text-blue-700 bg-white"
-                      : "text-gray-800 hover:text-blue-700 hover:bg-gray-100"
-                  }`}
-                  style={{ borderTopRightRadius: "0.375rem" }}
-                >
-                  Import Classes
-                </button>
-              </div>
-
-              {/* Content */}
-              {importTab === "roster" && (
-                <div className="bg-white rounded-b-lg sm:rounded-b-xl border border-gray-200 shadow-sm mt-0">
-                  <div className="p-4 sm:p-6 border-b border-gray-100">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900">
-                      Import from SportsEngine
-                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => setImportTab("classes")}
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
+                        importTab === "classes"
+                          ? "border-blue-600 bg-blue-600 text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      Classes
+                    </button>
                   </div>
+                </div>
 
+                {importTab === "roster" ? (
                   <MemoImportRoster
                     organizationId={stats?.organizationId}
                     onImportComplete={refreshStats}
                   />
-                </div>
-              )}
-
-              {importTab === "classes" && (
-                <div className="bg-white rounded-b-lg sm:rounded-b-xl border border-gray-200 shadow-sm mt-0">
-                  <div className="p-4 sm:p-6 border-b border-gray-100">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900">
-                      Import Classes
-                    </h2>
-                  </div>
-
+                ) : (
                   <MemoImportClasses
                     organizationId={stats?.organizationId}
                     onImportComplete={refreshStats}
                   />
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 

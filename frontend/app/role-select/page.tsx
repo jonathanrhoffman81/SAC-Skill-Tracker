@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import {
   getAvailableRoles,
   getDashboardPathsForRoles,
+  getRoleSelectBypass,
   saveActiveRole,
 } from "@/lib/authRoles";
 
@@ -131,7 +132,14 @@ export default function RoleSelect() {
 
   useEffect(() => {
     const roles = getAvailableRoles();
+    const bypass = getRoleSelectBypass(roles);
     const available = getDashboardPathsForRoles(roles);
+
+    if (bypass) {
+      saveActiveRole(bypass.role);
+      router.replace(bypass.path);
+      return;
+    }
 
     if (available.length === 0) {
       // No roles saved — send back to login
