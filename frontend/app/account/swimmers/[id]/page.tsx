@@ -118,39 +118,51 @@ function getClassWindowLabel(classHistory: ClassHistoryView | null) {
     return classHistory.isGeneral ? "General history" : "Dates TBD";
 }
 
-function NoteCard({ note }: { note: NoteItem }) {
+/**
+ * Unboxed note — indented with a subtle left border, no heavy card chrome.
+ * Used for both per-skill notes and class-level notes so everything reads as
+ * one visual hierarchy.
+ */
+function NoteLine({ note }: { note: NoteItem }) {
     return (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                <span>{note.author}</span>
+        <div className="border-l-2 border-gray-200 pl-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                <span className="font-medium text-gray-600">{note.author}</span>
+                <span aria-hidden>·</span>
                 <span>{note.date}</span>
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
+            <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">
                 {note.content}
             </p>
         </div>
     );
 }
 
-function ClassNoteCard({ note }: { note: NoteItem }) {
+/** Shared chevron for all collapse toggles on the page. */
+function ChevronIcon({ className = "h-3 w-3" }: { className?: string }) {
     return (
-        <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                <span>{note.author}</span>
-                <span>{note.date}</span>
-            </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-800">
-                {note.content}
-            </p>
-        </div>
+        <svg
+            className={`flex-shrink-0 transform transition-transform group-open:rotate-180 ${className}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+        >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
     );
 }
 
 function getClassDropdownLabel(classHistory: ClassHistoryView) {
     if (classHistory.isGeneral) return classHistory.name;
-    const window = getClassWindowLabel(classHistory);
+    // Dropdown shows the START date only (full window stays visible in the
+    // "Window" stat below the selector).
+    const startsLabel = classHistory.startDate
+        ? `Starts ${classHistory.startDate}`
+        : null;
     const suffix = classHistory.isCurrent ? " · Current" : "";
-    return window ? `${classHistory.name} · ${window}${suffix}` : classHistory.name;
+    return startsLabel
+        ? `${classHistory.name} · ${startsLabel}${suffix}`
+        : classHistory.name;
 }
 
 type ClassGroup = { label: string; items: ClassHistoryView[] };
@@ -518,13 +530,19 @@ export default function ParentSwimmerDetail() {
                 </section>
 
                 <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    {/* Class selector */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                         <div className="min-w-0">
                             <h3 className="text-sm font-semibold text-gray-900">
-                                Class History
+                                Class activity
                             </h3>
+                            {selectedClassHistory?.isGeneral && (
+                                <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                    General history
+                                </span>
+                            )}
                         </div>
-                        <div className="w-full lg:max-w-sm">
+                        <div className="w-full sm:max-w-sm">
                             <label
                                 htmlFor="class-history-select"
                                 className="mb-1 block text-xs font-medium text-gray-700"
@@ -552,277 +570,178 @@ export default function ParentSwimmerDetail() {
 
                     {selectedClassHistory && (
                         <>
-                            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
-                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                        Window
-                                    </p>
-                                    <p className="mt-1 text-sm text-gray-900">
+                            {/* Inline stats — no boxes, just separated text */}
+                            <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs">
+                                <div>
+                                    <dt className="text-gray-500">Window</dt>
+                                    <dd className="mt-0.5 text-sm text-gray-900">
                                         {getClassWindowLabel(selectedClassHistory)}
-                                    </p>
+                                    </dd>
                                 </div>
-                                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
-                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                        Skills Acquired
-                                    </p>
-                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                <div>
+                                    <dt className="text-gray-500">Acquired</dt>
+                                    <dd className="mt-0.5 text-sm font-semibold text-gray-900">
                                         {classSummary.masteredCount}/{classSummary.totalSkills}
-                                    </p>
+                                    </dd>
                                 </div>
-                                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
-                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                        Progress
-                                    </p>
-                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                <div>
+                                    <dt className="text-gray-500">Progress</dt>
+                                    <dd className="mt-0.5 text-sm font-semibold text-gray-900">
                                         {classSummary.progressPct}%
-                                    </p>
+                                    </dd>
                                 </div>
-                                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
-                                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                        Notes
-                                    </p>
-                                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                                <div>
+                                    <dt className="text-gray-500">Notes</dt>
+                                    <dd className="mt-0.5 text-sm font-semibold text-gray-900">
                                         {classSummary.noteCount}
-                                    </p>
+                                    </dd>
                                 </div>
+                            </dl>
+
+                            {/* Skills — flat divide-y list, no per-skill boxes */}
+                            <div className="mt-6">
+                                <h4 className="text-base font-semibold text-gray-900">
+                                    Skills
+                                </h4>
+                                {classSkills.length === 0 ? (
+                                    <p className="mt-3 text-sm text-gray-500">
+                                        No skills are available for this class yet.
+                                    </p>
+                                ) : (
+                                    <ul className="mt-2 divide-y divide-gray-100">
+                                        {classSkills.map((skill) => {
+                                            const skillNotes = skill.notes ?? [];
+                                            const progressHistory = skill.progressHistory ?? [];
+                                            return (
+                                                <li key={skill.id} className="py-4">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <p
+                                                            className={`text-sm font-medium ${skill.mastered ? "text-gray-900" : "text-gray-700"}`}
+                                                        >
+                                                            {skill.name}
+                                                        </p>
+                                                        <span
+                                                            className={`rounded-full px-2 py-0.5 text-[11px] ${getProgressBadgeClass(skill.progress)}`}
+                                                        >
+                                                            {skill.progress} — {getProgressStageLabel(skill.progress)}
+                                                        </span>
+                                                        {skill.dateAcquired && (
+                                                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                                                                Obtained on {skill.dateAcquired}
+                                                            </span>
+                                                        )}
+                                                        {skill.obtainedInClass && (
+                                                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                                                                {selectedClassHistory?.isGeneral
+                                                                    ? "In general history"
+                                                                    : "In this class"}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Notes — most recent inline; older collapse */}
+                                                    {skillNotes.length > 0 && (
+                                                        <div className="mt-3 space-y-2">
+                                                            <NoteLine note={skillNotes[0]} />
+                                                            {skillNotes.length > 1 && (
+                                                                <details className="group">
+                                                                    <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                                                                        <span className="group-open:hidden">
+                                                                            Show {skillNotes.length - 1} older note
+                                                                            {skillNotes.length - 1 === 1 ? "" : "s"}
+                                                                        </span>
+                                                                        <span className="hidden group-open:inline">
+                                                                            Hide older notes
+                                                                        </span>
+                                                                        <ChevronIcon />
+                                                                    </summary>
+                                                                    <div className="mt-2 space-y-2">
+                                                                        {skillNotes.slice(1).map((entry) => (
+                                                                            <NoteLine key={entry.id} note={entry} />
+                                                                        ))}
+                                                                    </div>
+                                                                </details>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Progress history — collapsed by default, plain list when open */}
+                                                    {progressHistory.length > 0 && (
+                                                        <details className="group mt-3">
+                                                            <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-gray-600 hover:text-gray-800">
+                                                                <span>Progress history ({progressHistory.length})</span>
+                                                                <ChevronIcon />
+                                                            </summary>
+                                                            <ul className="mt-2 space-y-1 border-l-2 border-gray-200 pl-3 text-[11px] text-gray-600">
+                                                                {[...progressHistory].reverse().map((entry) => (
+                                                                    <li
+                                                                        key={entry.id}
+                                                                        className="flex flex-wrap items-center gap-2"
+                                                                    >
+                                                                        <span
+                                                                            className={`rounded-full px-1.5 py-0.5 ${getProgressBadgeClass(entry.progress)}`}
+                                                                        >
+                                                                            {entry.progress}
+                                                                        </span>
+                                                                        <span>{entry.date}</span>
+                                                                        {entry.dateAcquired && (
+                                                                            <span className="text-emerald-700">
+                                                                                · Obtained {entry.dateAcquired}
+                                                                            </span>
+                                                                        )}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </details>
+                                                    )}
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
                             </div>
 
-                            <div className="mt-5">
-                                <div className="flex items-center justify-between gap-3">
-                                    <h4 className="text-sm font-semibold text-gray-900">
-                                        Class details
-                                    </h4>
-                                    {selectedClassHistory.isGeneral && (
-                                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                                            General history
-                                        </span>
+                            {/* Class notes — folded into this same card, not its own section */}
+                            <div className="mt-6 border-t border-gray-100 pt-4">
+                                <h4 className="text-base font-semibold text-gray-900">
+                                    Class notes
+                                </h4>
+                                <p className="mt-1 text-[11px] text-gray-500">
+                                    General notes recorded for the selected class.
+                                </p>
+                                <div className="mt-3 space-y-3">
+                                    {classNotes.length === 0 ? (
+                                        <p className="text-sm text-gray-500">
+                                            No general notes recorded for this class.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <NoteLine note={classNotes[0]} />
+                                            {classNotes.length > 1 && (
+                                                <details className="group">
+                                                    <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
+                                                        <span className="group-open:hidden">
+                                                            Show {classNotes.length - 1} older note
+                                                            {classNotes.length - 1 === 1 ? "" : "s"}
+                                                        </span>
+                                                        <span className="hidden group-open:inline">
+                                                            Hide older notes
+                                                        </span>
+                                                        <ChevronIcon />
+                                                    </summary>
+                                                    <div className="mt-3 space-y-3">
+                                                        {classNotes.slice(1).map((entry) => (
+                                                            <NoteLine key={entry.id} note={entry} />
+                                                        ))}
+                                                    </div>
+                                                </details>
+                                            )}
+                                        </>
                                     )}
-                                </div>
-                                <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
-                                    <p className="text-xs font-medium text-gray-900">
-                                        {selectedClassHistory.name}
-                                    </p>
-                                    <p className="mt-1 text-[11px] text-gray-500">
-                                        {selectedClassHistory.schedule}
-                                    </p>
                                 </div>
                             </div>
                         </>
                     )}
-                </section>
-
-                <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                        <h3 className="text-sm font-semibold text-gray-900">Skills</h3>
-                        <div className="text-left sm:text-right">
-                            <p className="text-xs text-gray-500">Selected class</p>
-                            <p className="text-sm font-semibold text-gray-900">
-                                {selectedClassHistory?.name ?? "No class selected"}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="mt-5 space-y-4">
-                        {classSkills.map((skill) => {
-                            const skillNotes = skill.notes ?? [];
-                            const progressHistory = skill.progressHistory ?? [];
-                            return (
-                                <article
-                                    key={skill.id}
-                                    className="rounded-xl border border-gray-200 bg-gray-50 p-4"
-                                >
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                        <div className="min-w-0">
-                                            <p
-                                                className={`text-sm font-medium ${skill.mastered ? "text-gray-900" : "text-gray-700"}`}
-                                            >
-                                                {skill.name}
-                                            </p>
-                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                                <span
-                                                    className={`rounded-full px-2 py-0.5 ${getProgressBadgeClass(skill.progress)}`}
-                                                >
-                                                    {skill.progress} —{" "}
-                                                    {getProgressStageLabel(skill.progress)}
-                                                </span>
-                                                {skill.dateAcquired && (
-                                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                                                        Obtained on {skill.dateAcquired}
-                                                    </span>
-                                                )}
-                                                {skill.obtainedInClass && (
-                                                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">
-                                                        {selectedClassHistory?.isGeneral
-                                                            ? "Obtained in general history"
-                                                            : "Obtained in this class"}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <details className="group mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                                                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-gray-700">
-                                                    <span>
-                                                        Progress history ({progressHistory.length})
-                                                    </span>
-                                                    <svg
-                                                        className="h-4 w-4 flex-shrink-0 text-gray-500 transition-transform group-open:rotate-180"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            strokeWidth={2}
-                                                            d="M19 9l-7 7-7-7"
-                                                        />
-                                                    </svg>
-                                                </summary>
-
-                                                <div className="mt-3 space-y-2">
-                                                    {progressHistory.length > 0 ? (
-                                                        [...progressHistory].reverse().map((entry) => (
-                                                            <div
-                                                                key={entry.id}
-                                                                className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
-                                                            >
-                                                                <div className="flex flex-wrap items-center gap-2 text-xs">
-                                                                    <span
-                                                                        className={`rounded-full px-2 py-0.5 ${getProgressBadgeClass(entry.progress)}`}
-                                                                    >
-                                                                        {entry.progress} -{" "}
-                                                                        {getProgressStageLabel(entry.progress)}
-                                                                    </span>
-                                                                    <span className="text-gray-500">
-                                                                        {entry.date}
-                                                                    </span>
-                                                                    {entry.dateAcquired && (
-                                                                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                                                                            Obtained on {entry.dateAcquired}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ))
-                                                    ) : (
-                                                        <p className="text-xs text-gray-500">
-                                                            No progress changes recorded for this skill yet.
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </details>
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-4 rounded-lg border border-gray-100 bg-white px-4 py-3">
-                                        <p className="text-xs font-semibold text-gray-700">
-                                            Notes for this skill
-                                        </p>
-                                        <div className="mt-3 space-y-3">
-                                            {skillNotes.length === 0 ? (
-                                                <p className="text-sm text-gray-500">
-                                                    No notes for this skill in the selected class.
-                                                </p>
-                                            ) : (
-                                                <>
-                                                    <NoteCard note={skillNotes[0]} />
-                                                    {skillNotes.length > 1 && (
-                                                        <details className="group">
-                                                            <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
-                                                                <span className="group-open:hidden">
-                                                                    Show {skillNotes.length - 1} older note
-                                                                    {skillNotes.length - 1 === 1 ? "" : "s"}
-                                                                </span>
-                                                                <span className="hidden group-open:inline">
-                                                                    Hide older notes
-                                                                </span>
-                                                                <svg
-                                                                    className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    viewBox="0 0 24 24"
-                                                                >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        strokeWidth={2}
-                                                                        d="M19 9l-7 7-7-7"
-                                                                    />
-                                                                </svg>
-                                                            </summary>
-                                                            <div className="mt-3 space-y-3">
-                                                                {skillNotes.slice(1).map((entry) => (
-                                                                    <NoteCard key={entry.id} note={entry} />
-                                                                ))}
-                                                            </div>
-                                                        </details>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                </article>
-                            );
-                        })}
-
-                        {classSkills.length === 0 && (
-                            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
-                                No skills are available for this class yet.
-                            </div>
-                        )}
-                    </div>
-                </section>
-
-                <section className="rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-900">
-                            Class Notes
-                        </h4>
-                        <p className="mt-1 text-xs text-gray-500">
-                            General notes recorded for the selected class.
-                        </p>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                        {classNotes.length === 0 ? (
-                            <p className="text-sm text-gray-500">
-                                No general notes recorded for this class.
-                            </p>
-                        ) : (
-                            <>
-                                <ClassNoteCard note={classNotes[0]} />
-                                {classNotes.length > 1 && (
-                                    <details className="group">
-                                        <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
-                                            <span className="group-open:hidden">
-                                                Show {classNotes.length - 1} older note
-                                                {classNotes.length - 1 === 1 ? "" : "s"}
-                                            </span>
-                                            <span className="hidden group-open:inline">
-                                                Hide older notes
-                                            </span>
-                                            <svg
-                                                className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M19 9l-7 7-7-7"
-                                                />
-                                            </svg>
-                                        </summary>
-                                        <div className="mt-3 space-y-3">
-                                            {classNotes.slice(1).map((entry) => (
-                                                <ClassNoteCard key={entry.id} note={entry} />
-                                            ))}
-                                        </div>
-                                    </details>
-                                )}
-                            </>
-                        )}
-                    </div>
                 </section>
             </main>
         </div>
