@@ -138,17 +138,24 @@ interface DashboardPayload {
   >;
 }
 
-function SkillNoteCard({
+/**
+ * Unboxed note line — subtle left border, no card chrome. Keeps the
+ * swimmer card visually flat so long skill lists don't look like a
+ * stack of little rectangles.
+ */
+function NoteLine({
   note,
 }: {
   note: { id: string; author: string; content: string; date: string };
 }) {
   return (
-    <div className="rounded-md border border-gray-200 bg-gray-50 px-2 py-2">
+    <div className="border-l-2 border-gray-200 pl-3">
       <p className="text-[11px] text-gray-500">
-        {note.date} by {note.author}
+        <span className="font-medium text-gray-600">{note.author}</span>
+        <span aria-hidden> · </span>
+        <span>{note.date}</span>
       </p>
-      <p className="mt-1 text-xs text-gray-700">{note.content}</p>
+      <p className="mt-0.5 text-xs text-gray-700">{note.content}</p>
     </div>
   );
 }
@@ -645,97 +652,92 @@ export default function AccountDashboard() {
                       </div>
 
                       <div className="mt-4">
-                        <p className="mb-2 text-xs font-medium text-gray-500">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                           Skills
                         </p>
-                        <div className="space-y-2">
-                          {skills.length === 0 && (
-                            <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
-                              No skills are attached to this member record yet.
-                            </p>
-                          )}
-                          {skills.map((skill) => {
-                            const skillNotes = skill.notes ?? [];
-
-                            return (
-                              <div
-                                key={skill.id}
-                                className="rounded-lg border border-gray-100 px-3 py-3"
-                              >
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                  <span className="min-w-0 break-words text-xs text-gray-700 sm:max-w-[40%]">
-                                    {skill.name}
-                                  </span>
-                                  <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
-                                    {skill.dateAcquired && (
-                                      <span className="text-[11px] leading-tight text-gray-500">
-                                        Updated: {skill.dateAcquired}
-                                      </span>
-                                    )}
+                        {skills.length === 0 ? (
+                          <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                            No skills are attached to this member record yet.
+                          </p>
+                        ) : (
+                          <ul className="divide-y divide-gray-100">
+                            {skills.map((skill) => {
+                              const skillNotes = skill.notes ?? [];
+                              return (
+                                <li key={skill.id} className="py-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="min-w-0 break-words text-xs text-gray-800">
+                                      {skill.name}
+                                    </span>
                                     <span
-                                      className={`inline-flex max-w-full rounded-2xl px-2.5 py-1 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
+                                      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${getProgressBadgeClasses(skill.progress)}`}
                                       title={
                                         PROFICIENCY_LABELS[
                                           skill.progress as SkillProgress
                                         ]
                                       }
                                     >
-                                      {skill.progress} -{" "}
+                                      {skill.progress} —{" "}
                                       {
                                         PROFICIENCY_LABELS[
                                           skill.progress as SkillProgress
                                         ]
                                       }
                                     </span>
-                                  </div>
-                                </div>
-
-                                {skillNotes.length > 0 && (
-                                  <div className="mt-2 space-y-2">
-                                    <SkillNoteCard note={skillNotes[0]} />
-                                    {skillNotes.length > 1 && (
-                                      <details className="group">
-                                        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
-                                          <span className="group-open:hidden">
-                                            Show {skillNotes.length - 1} older
-                                            note
-                                            {skillNotes.length - 1 === 1
-                                              ? ""
-                                              : "s"}
-                                          </span>
-                                          <span className="hidden group-open:inline">
-                                            Hide older notes
-                                          </span>
-                                          <svg
-                                            className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
-                                          >
-                                            <path
-                                              strokeLinecap="round"
-                                              strokeLinejoin="round"
-                                              strokeWidth={2}
-                                              d="M19 9l-7 7-7-7"
-                                            />
-                                          </svg>
-                                        </summary>
-                                        <div className="mt-2 space-y-2">
-                                          {skillNotes.slice(1).map((note) => (
-                                            <SkillNoteCard
-                                              key={note.id}
-                                              note={note}
-                                            />
-                                          ))}
-                                        </div>
-                                      </details>
+                                    {skill.dateAcquired && (
+                                      <span className="text-[11px] text-gray-500">
+                                        Updated {skill.dateAcquired}
+                                      </span>
                                     )}
                                   </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+
+                                  {skillNotes.length > 0 && (
+                                    <div className="mt-2 space-y-2">
+                                      <NoteLine note={skillNotes[0]} />
+                                      {skillNotes.length > 1 && (
+                                        <details className="group">
+                                          <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                                            <span className="group-open:hidden">
+                                              Show {skillNotes.length - 1} older
+                                              note
+                                              {skillNotes.length - 1 === 1
+                                                ? ""
+                                                : "s"}
+                                            </span>
+                                            <span className="hidden group-open:inline">
+                                              Hide older notes
+                                            </span>
+                                            <svg
+                                              className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M19 9l-7 7-7-7"
+                                              />
+                                            </svg>
+                                          </summary>
+                                          <div className="mt-2 space-y-2">
+                                            {skillNotes.slice(1).map((note) => (
+                                              <NoteLine
+                                                key={note.id}
+                                                note={note}
+                                              />
+                                            ))}
+                                          </div>
+                                        </details>
+                                      )}
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
                       </div>
                     </div>
                   )}
@@ -751,52 +753,37 @@ export default function AccountDashboard() {
           )}
         </section>
 
-        {/* Proficiency Rating for Parents */}
+        {/* Proficiency rating — collapsed by default; open when parents want
+            to look up what a given level means. */}
         <section className="pt-2">
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 pt-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-900">
-                Proficiency Scale
-              </p>
-              <ul className="mt-3 space-y-2">
-                <li className="flex gap-3 text-sm text-gray-700">
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-800">
+              <span>Proficiency scale</span>
+              <svg
+                className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </summary>
+            <ul className="mt-3 space-y-2">
+              {SKILL_PROGRESS_STEPS.map((step) => (
+                <li key={step} className="flex gap-3 text-sm text-gray-700">
                   <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    0
+                    {step}
                   </span>
-                  <span>Unable to attempt the skill</span>
+                  <span>{PROFICIENCY_LABELS[step]}</span>
                 </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    1
-                  </span>
-                  <span>Unable to show skill without significant support</span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    2
-                  </span>
-                  <span>
-                    Inconsistently or with support is able to demonstrate the
-                    skill
-                  </span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    3
-                  </span>
-                  <span>
-                    Consistently demonstrates application of the skill
-                  </span>
-                </li>
-                <li className="flex gap-3 text-sm text-gray-700">
-                  <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                    4
-                  </span>
-                  <span>Demonstrates complete understanding of the skill</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+              ))}
+            </ul>
+          </details>
         </section>
       </main>
     </div>
