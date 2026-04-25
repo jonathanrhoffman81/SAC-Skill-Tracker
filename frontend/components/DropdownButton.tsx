@@ -103,6 +103,7 @@ export default function DropdownButton({
                 aria-label={ariaLabel}
                 onClick={() => setOpen((prev) => !prev)}
                 className={triggerClassName}
+                title={selectedLabel}
             >
                 <span className="block truncate">{selectedLabel}</span>
             </button>
@@ -144,9 +145,14 @@ export default function DropdownButton({
                                     onChange(option.value);
                                     setOpen(false);
                                 }}
-                                className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${optionClassName} disabled:cursor-not-allowed disabled:opacity-50`}
+                                className={`flex w-full items-start justify-between gap-2 px-2.5 py-1.5 text-left text-xs sm:text-sm ${optionClassName} disabled:cursor-not-allowed disabled:opacity-50`}
                             >
-                                <span className="truncate">{option.label}</span>
+                                <span
+                                    className="min-w-0 flex-1 whitespace-normal break-words leading-snug"
+                                    title={option.label}
+                                >
+                                    {option.label}
+                                </span>
                                 {isSelected && <span className="text-[11px]">✓</span>}
                             </button>
                         );

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       request.nextUrl.searchParams.get("email"),
     );
 
-    const cacheKey = `admin-dashboard-bootstrap:${adminContext.organizationId}`;
+    const cacheKey = `admin-dashboard-bootstrap:v2:${adminContext.organizationId}`;
 
     const { value, cacheStatus } = await getCachedOrRevalidate({
       key: cacheKey,

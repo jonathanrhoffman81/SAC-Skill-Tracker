@@ -136,7 +136,7 @@ const ALL_ADMIN_TABS: Tab[] = [
   "settings",
 ];
 
-const ADMIN_STATS_CACHE_KEY = "admin-dashboard-stats-cache";
+const ADMIN_STATS_CACHE_KEY = "admin-dashboard-stats-cache-v2";
 const ADMIN_STATS_CACHE_TTL_MS = 5 * 60 * 1000;
 const ENTITY_CACHE_KEY_PREFIX = "admin-dashboard-entity-cache:";
 const ENTITY_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -910,7 +910,7 @@ export default function AdminDashboard() {
   const statCards = useMemo(
     () => [
       {
-        label: "Total Members",
+        label: "Total Swimmers",
         value: stats?.totalMembers ?? 0,
         icon: (
           <svg
