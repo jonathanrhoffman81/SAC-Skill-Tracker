@@ -49,11 +49,30 @@ async function timedQuery<T>(label: string, query: () => Promise<T>): Promise<T>
   }
 }
 
+function isActiveClassByDateWindow(startDate?: string | null, endDate?: string | null) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const parseDate = (value?: string | null) => {
+    if (!value) return null;
+    const parsed = new Date(`${value}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const start = parseDate(startDate);
+  const end = parseDate(endDate);
+
+  if (start && end) return start <= today && today <= end;
+  if (start) return start <= today;
+  if (end) return end >= today;
+  return true;
+}
+
 export async function loadAdminDashboardBootstrap(
   supabase: any,
   organizationId: string,
 ): Promise<AdminDashboardBootstrapPayload> {
-  const [organization, memberCountResultRaw, memberListResultRaw, classesCountResultRaw, skillsResultRaw] =
+  const [organization, memberCountResultRaw, memberListResultRaw, classesResultRaw, skillsResultRaw] =
     await Promise.all([
       timedQuery("organization", () =>
         getOrganizationById(supabase, organizationId),
@@ -70,10 +89,10 @@ export async function loadAdminDashboardBootstrap(
           .select("member_id")
           .eq("organization_id", organizationId),
       ),
-      timedQuery("class-count", () =>
+      timedQuery("classes", () =>
         supabase
           .from("class_entity")
-          .select("class_id", { count: "exact", head: true })
+          .select("class_id, start_date, end_date")
           .eq("organization_id", organizationId),
       ),
       timedQuery("skills", () =>
@@ -87,7 +106,7 @@ export async function loadAdminDashboardBootstrap(
 
   const memberCountResult = memberCountResultRaw as any;
   const memberListResult = memberListResultRaw as any;
-  const classesCountResult = classesCountResultRaw as any;
+  const classesResult = classesResultRaw as any;
   const skillsResult = skillsResultRaw as any;
 
   if (!organization) {
@@ -102,8 +121,8 @@ export async function loadAdminDashboardBootstrap(
     throw new Error(`Failed to load member list: ${memberListResult.error.message}`);
   }
 
-  if (classesCountResult.error) {
-    throw new Error(`Failed to load classes: ${classesCountResult.error.message}`);
+  if (classesResult.error) {
+    throw new Error(`Failed to load classes: ${classesResult.error.message}`);
   }
 
   if (skillsResult.error) {
@@ -115,16 +134,49 @@ export async function loadAdminDashboardBootstrap(
       .map((row) => row.member_id)
       .filter(Boolean);
 
+  const organizationClassIds =
+    ((classesResult.data as Array<{ class_id: string }> | null) ?? [])
+      .map((row) => row.class_id)
+      .filter(Boolean);
+
+  const enrolledMemberIdSet = new Set<string>();
+  if (organizationClassIds.length > 0) {
+    const enrollmentResult = await timedQuery<any>("enrolled-members", () =>
+      supabase
+        .from("enrollment")
+        .select("member_id, class_id")
+        .in("class_id", organizationClassIds),
+    );
+
+    if (enrollmentResult.error) {
+      throw new Error(
+        `Failed to load enrolled members: ${enrollmentResult.error.message}`,
+      );
+    }
+
+    const enrollmentRows =
+      (enrollmentResult.data as Array<{ member_id: string }> | null) ?? [];
+    enrollmentRows.forEach((row) => {
+      if (row.member_id) {
+        enrolledMemberIdSet.add(row.member_id);
+      }
+    });
+  }
+
+  const eligibleMemberIds = organizationMemberIds.filter((memberId) =>
+    enrolledMemberIdSet.has(memberId),
+  );
+
   const evaluatedMemberIds = new Set<string>();
   let swimmersWithNoEval = 0;
 
-  if (organizationMemberIds.length > 0) {
+  if (eligibleMemberIds.length > 0) {
     try {
       await timedQuery("evaluated-member-ids", async () => {
         const CHUNK_SIZE = 100;
 
-        for (let index = 0; index < organizationMemberIds.length; index += CHUNK_SIZE) {
-          const chunk = organizationMemberIds.slice(index, index + CHUNK_SIZE);
+        for (let index = 0; index < eligibleMemberIds.length; index += CHUNK_SIZE) {
+          const chunk = eligibleMemberIds.slice(index, index + CHUNK_SIZE);
           const evaluationResult = await supabase
             .from("evaluation")
             .select("member_id")
@@ -147,7 +199,7 @@ export async function loadAdminDashboardBootstrap(
 
       swimmersWithNoEval = Math.max(
         0,
-        organizationMemberIds.length - evaluatedMemberIds.size,
+        eligibleMemberIds.length - evaluatedMemberIds.size,
       );
     } catch (error) {
       console.warn("[admin-dashboard-bootstrap] Failed to compute swimmersWithNoEval:", error);
@@ -216,7 +268,17 @@ export async function loadAdminDashboardBootstrap(
     }
   }
 
-  const classesResult = await timedQuery<any>("classes-for-filters", () =>
+  const activeClasses = (
+    (classesResult.data as Array<{
+      class_id: string;
+      start_date?: string | null;
+      end_date?: string | null;
+    }> | null) ?? []
+  ).filter((classItem) =>
+    isActiveClassByDateWindow(classItem.start_date, classItem.end_date),
+  ).length;
+
+  const classFiltersResult = await timedQuery<any>("classes-for-filters", () =>
     supabase
       .from("class_entity")
       .select("class_id, name")
@@ -224,12 +286,12 @@ export async function loadAdminDashboardBootstrap(
       .order("name", { ascending: true }),
   );
 
-  if (classesResult.error) {
-    throw new Error(`Failed to load class filters: ${classesResult.error.message}`);
+  if (classFiltersResult.error) {
+    throw new Error(`Failed to load class filters: ${classFiltersResult.error.message}`);
   }
 
   const classes =
-    (classesResult.data as Array<{ class_id: string; name?: string | null }> | null) ?? [];
+    (classFiltersResult.data as Array<{ class_id: string; name?: string | null }> | null) ?? [];
 
   const classLabelById = new Map<string, string>(
     classes.map((row) => [row.class_id, row.name || "Unnamed class"]),
@@ -318,7 +380,7 @@ export async function loadAdminDashboardBootstrap(
     stats: {
       totalMembers: memberCountResult.count ?? 0,
       totalInstructors,
-      activeClasses: classesCountResult.count ?? 0,
+      activeClasses,
       skillLevels: skills.length,
       swimmersWithNoEval,
       organizationName: organization.name,

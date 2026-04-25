@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       request.nextUrl.searchParams.get("email"),
     );
 
-    const cacheKey = `admin-dashboard-stats:${adminContext.organizationId}`;
+    const cacheKey = `admin-dashboard-stats:v2:${adminContext.organizationId}`;
     const { value, cacheStatus } = await getCachedOrRevalidate({
       key: cacheKey,
       maxAgeMs: CACHE_MAX_AGE_MS,
