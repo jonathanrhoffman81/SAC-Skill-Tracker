@@ -55,6 +55,7 @@ export interface SwimmerProfilePayload {
     enrollmentDate: string;
     organization: string;
     isActive: boolean;
+    headerAccentColor?: string | null;
   };
   classHistories: ClassHistoryPayload[];
   defaultClassHistoryId: string;
@@ -397,7 +398,7 @@ async function buildAuthorizedSwimmerProfiles(
     await Promise.all([
       supabaseAdmin
         .from("organization")
-        .select("organization_id, name")
+        .select("organization_id, name, header_color")
         .in("organization_id", organizationIds),
       supabaseAdmin
         .from("skill")
@@ -470,6 +471,13 @@ async function buildAuthorizedSwimmerProfiles(
     (organizationResult.data ?? []).map((row) => [
       row.organization_id,
       row.name,
+    ]),
+  );
+
+  const organizationHeaderColorById = new Map(
+    (organizationResult.data ?? []).map((row) => [
+      row.organization_id,
+      row.header_color,
     ]),
   );
 
@@ -786,6 +794,8 @@ async function buildAuthorizedSwimmerProfiles(
         enrollmentDate: formatDate(member.created_at) ?? "",
         organization: organizationNameById.get(member.organization_id) ?? "",
         isActive: member.is_active !== false,
+        headerAccentColor:
+          organizationHeaderColorById.get(member.organization_id) ?? null,
       },
       classHistories,
       defaultClassHistoryId,

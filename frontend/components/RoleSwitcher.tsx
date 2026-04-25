@@ -31,21 +31,25 @@ function getRoleLabel(role: string, dashboards: Dashboard[]) {
 
 function useRoleDashboards(currentRole: string) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
+  const [hasSuperAdmin, setHasSuperAdmin] = useState(false);
 
   useEffect(() => {
     const roles = getAvailableRoles();
+    setHasSuperAdmin(roles.includes("super-admin"));
     const all = getDashboardPathsForRoles(roles);
     if (all.length > 0) setDashboards(all);
   }, [currentRole]);
 
-  return dashboards;
+  return { dashboards, hasSuperAdmin };
 }
 
 // ─── Header Switcher (CLICK TO CYCLE) ───────────────────────────────────────
 
 export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
   const router = useRouter();
-  const dashboards = useRoleDashboards(currentRole);
+  const { dashboards, hasSuperAdmin } = useRoleDashboards(currentRole);
+
+  if (hasSuperAdmin) return null;
 
   const handleCycle = () => {
     if (dashboards.length <= 1) return;
@@ -129,7 +133,9 @@ export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
 
 export function RoleSwitcherFAB({ currentRole }: { currentRole: string }) {
   const router = useRouter();
-  const dashboards = useRoleDashboards(currentRole);
+  const { dashboards, hasSuperAdmin } = useRoleDashboards(currentRole);
+
+  if (hasSuperAdmin) return null;
 
   const handleCycle = () => {
     if (dashboards.length <= 1) return;

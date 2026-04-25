@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import {
+  getRoleSelectBypass,
   getDashboardPathsForRoles,
   getAllAppRoles,
   normalizeEmail,
@@ -150,6 +151,7 @@ export default function Login() {
       // ── Step 3: convert raw roles → unique app-level roles ─────────────────
       const appRoles = getAllAppRoles(allRawRoles);
       const availableDashboards = getDashboardPathsForRoles(appRoles);
+      const roleSelectBypass = getRoleSelectBypass(appRoles);
 
       if (availableDashboards.length === 0) {
         throw new Error(
@@ -171,7 +173,13 @@ export default function Login() {
         localStorage.removeItem("user");
       }
 
-      // ── Step 6: route — multi-role → picker, single role → dashboard ───────
+      // ── Step 6: route — bypass/multi-role/single-role ──────────────────────
+      if (roleSelectBypass) {
+        saveActiveRole(roleSelectBypass.role);
+        router.push(roleSelectBypass.path);
+        return;
+      }
+
       if (availableDashboards.length > 1) {
         router.push("/role-select");
       } else {

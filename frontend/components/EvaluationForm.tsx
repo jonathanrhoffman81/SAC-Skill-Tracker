@@ -45,6 +45,7 @@ interface EvaluationFormProps {
     }>;
   }) => void;
   closeDelayMs?: number;
+  viewOnly?: boolean;
 }
 
 type ToastMessage = {
@@ -74,6 +75,7 @@ export default function EvaluationForm({
   editingEvaluation,
   onSubmissionComplete,
   closeDelayMs = 1200,
+  viewOnly = false,
 }: EvaluationFormProps) {
   const [progressBySkillId, setProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
   const [initialProgressBySkillId, setInitialProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
@@ -184,6 +186,10 @@ export default function EvaluationForm({
         ? editingSkillNoteText.length > 0 || Boolean(editingEvaluation.feedback)
         : trimmedNote.length > 0 || Boolean(editingEvaluation.feedback)
       : false;
+
+    if (viewOnly) {
+      return;
+    }
 
     if (changedSkillUpdates.length === 0 && !trimmedNote && skillNoteEntries.length === 0 && !hasEditingFeedback) {
       const message = 'Update at least one skill or add notes before submitting.';
@@ -348,7 +354,9 @@ export default function EvaluationForm({
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Skill Evaluation</h3>
           <p className="text-xs text-gray-500">
-            {editingEvaluation
+            {viewOnly
+              ? 'Viewing this evaluation in read-only mode.'
+              : editingEvaluation
               ? 'Update this evaluation and any related skill progress changes.'
               : 'All organization skills are shown below. Save only the changes you made.'}
           </p>
@@ -362,6 +370,7 @@ export default function EvaluationForm({
             <select
               value={selectedClassId}
               onChange={(event) => setSelectedClassId(event.target.value)}
+              disabled={viewOnly}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {classes.map((classItem) => (
@@ -423,6 +432,7 @@ export default function EvaluationForm({
                             value={option.value}
                             checked={isActive}
                             onChange={() => handleProgressChange(skill.id, option.value)}
+                            disabled={viewOnly}
                             className="h-3.5 w-3.5 accent-blue-600"
                           />
                           <span>{option.value}</span>
@@ -450,6 +460,7 @@ export default function EvaluationForm({
                       }}
                       placeholder={`Optional note for ${skill.name}`}
                       rows={2}
+                      disabled={viewOnly}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </>
@@ -479,23 +490,26 @@ export default function EvaluationForm({
           }}
           placeholder="Optional note about this swimmer's session"
           rows={4}
+          disabled={viewOnly}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
       )}
 
-      <div className="flex items-center justify-end gap-3">
-        <p className="text-xs text-gray-500">
-          {changedSkillUpdates.length} skill {changedSkillUpdates.length === 1 ? 'change' : 'changes'} ready
-        </p>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-        >
-          {isSubmitting ? 'Saving...' : editingEvaluation ? 'Save Changes' : 'Save Evaluation'}
-        </button>
-      </div>
+      {!viewOnly && (
+        <div className="flex items-center justify-end gap-3">
+          <p className="text-xs text-gray-500">
+            {changedSkillUpdates.length} skill {changedSkillUpdates.length === 1 ? 'change' : 'changes'} ready
+          </p>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          >
+            {isSubmitting ? 'Saving...' : editingEvaluation ? 'Save Changes' : 'Save Evaluation'}
+          </button>
+        </div>
+      )}
 
       {successMessage && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">

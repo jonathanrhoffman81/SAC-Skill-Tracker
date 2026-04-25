@@ -16,6 +16,7 @@ interface SwimmerDetail {
   enrollmentDate: string;
   organization: string;
   isActive: boolean;
+  headerAccentColor?: string | null;
   guardianName: string;
   guardianEmail: string;
   guardianRelationship: string;
@@ -75,6 +76,7 @@ interface SwimmerPayload {
 }
 
 type ClassGroup = { label: string; items: ClassHistoryView[] };
+const DEFAULT_HEADER_ACCENT_COLOR = "#ffffff";
 
 function getInitials(name: string) {
   return name
@@ -317,6 +319,8 @@ export default function InstructorSwimmerDetailPage() {
     totalSkills: 0,
     noteCount: 0,
   };
+  const resolvedHeaderAccentColor =
+    swimmer?.headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
 
   if (isLoading) {
     return (
@@ -343,7 +347,10 @@ export default function InstructorSwimmerDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className="min-h-screen"
+      style={{ backgroundColor: resolvedHeaderAccentColor }}
+    >
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
         <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
           <div className="flex items-center gap-4">

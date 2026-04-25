@@ -258,8 +258,8 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                 ))}
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
-                <div className="sticky top-0 z-20 bg-white border-b border-gray-200 p-4 sm:p-6">
+            <div className="relative z-0 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+                <div className="relative z-0 bg-white border-b border-gray-200 p-4 sm:p-6">
                     <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                         Manage Accounts
                     </p>
@@ -324,7 +324,7 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                                                 sectionRefs.current[letter] = element;
                                             }}
                                         >
-                                            <div className="sticky top-0 z-5 bg-white/95 backdrop-blur text-xs font-semibold text-gray-600 py-1">
+                                            <div className="sticky top-2 z-0 bg-white/95 backdrop-blur text-xs font-semibold text-gray-600 py-1">
                                                 {letter}
                                             </div>
                                             <div className="space-y-2">
@@ -462,7 +462,7 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
                                     ))}
                             </div>
 
-                            <div className="flex sm:flex-col flex-wrap gap-1 max-sm:pt-1 sm:sticky sm:top-0 sm:self-start sm:bg-white sm:py-4 sm:pr-4">
+                            <div className="flex sm:flex-col flex-wrap gap-1 max-sm:pt-1 sm:sticky sm:top-2 sm:self-start sm:bg-white sm:py-4 sm:pr-4">
                                 {[...LETTERS, "#"].map((letter) => {
                                     const hasEntries = availableLetters.has(letter);
                                     return (
