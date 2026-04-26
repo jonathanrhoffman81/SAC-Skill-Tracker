@@ -349,31 +349,31 @@ export default function AccountDashboard() {
   }, [activeSwimmers]);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchLogo() {
       try {
-        // const identity = await getAuthenticatedSessionIdentity();
-        const identity = await getAuthenticatedSessionIdentity();
-        console.log("IDENTITY:", identity);
-        // const orgId = identity.organizationId;
-
-        // const res = await fetch(
-        //   `/api/public/get-logo?orgId=${encodeURIComponent("123")}`,
-        // );
-
-        // const data = await res.json();
-
-        // if (data.publicUrl) {
-        //   setLogoUrl(data.publicUrl);
-        // } else {
-        //   setLogoUrl(null);
-        // }
+        // /api/public/get-logo resolves the org from the authenticated
+        // session via getCurrentPersonFromRequest, so no orgId query param
+        // is needed.
+        const res = await authFetch("/api/public/get-logo");
+        if (!res.ok) {
+          if (isMounted) setLogoUrl(null);
+          return;
+        }
+        const data = (await res.json()) as { publicUrl?: string | null };
+        if (isMounted) setLogoUrl(data.publicUrl ?? null);
       } catch (err) {
-        console.error("Failed to fetch logo", err);
-        setLogoUrl(null);
+        if (err instanceof SessionExpiredError) return;
+        if (isMounted) setLogoUrl(null);
       }
     }
 
     fetchLogo();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   function getOverallPct(skills: SkillItem[]) {
