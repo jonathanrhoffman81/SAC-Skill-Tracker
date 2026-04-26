@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createAuthenticatedHeaders } from "@/lib/clientAuth";
+import { authFetch } from "@/lib/clientAuth";
 import DropdownButton from "@/components/DropdownButton";
 
 type RoleKey = "admin" | "instructor" | "parent" | "swimmer";
@@ -61,8 +61,7 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
     const fetchAccounts = async () => {
         setLoading(true);
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch("/api/admin/accounts", { headers });
+            const response = await authFetch("/api/admin/accounts");
             const payload = await response.json();
 
             if (!response.ok) {
@@ -216,9 +215,9 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
         );
 
         try {
-            const response = await fetch("/api/admin/accounts", {
+            const response = await authFetch("/api/admin/accounts", {
                 method: "PATCH",
-                headers: await createAuthenticatedHeaders({ "Content-Type": "application/json" }),
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ person_id: personId, role, enabled }),
             });
 

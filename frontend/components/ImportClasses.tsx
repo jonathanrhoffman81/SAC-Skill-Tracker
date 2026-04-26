@@ -6,6 +6,7 @@ import type {
   ParsedSwimRow,
 } from "@/app/api/admin/import-classes/route";
 import type { ClassSchedule } from "@/app/api/admin/import-classes/confirm/route";
+import { authFetch } from "@/lib/clientAuth";
 
 type Step = "upload" | "configure" | "importing" | "done";
 
@@ -88,7 +89,7 @@ export default function ImportClasses({
         form.append("file", file);
         form.append("organization_id", organizationId);
 
-        const res = await fetch("/api/admin/import-classes", {
+        const res = await authFetch("/api/admin/import-classes", {
           method: "POST",
           body: form,
         });
@@ -184,7 +185,7 @@ export default function ImportClasses({
     setStep("importing");
 
     try {
-      const res = await fetch("/api/admin/import-classes/confirm", {
+      const res = await authFetch("/api/admin/import-classes/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

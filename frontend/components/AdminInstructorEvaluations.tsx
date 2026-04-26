@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import EvaluationForm from "@/components/EvaluationForm";
 import DropdownButton from "@/components/DropdownButton";
-import { createAuthenticatedHeaders } from "@/lib/clientAuth";
+import { authFetch } from "@/lib/clientAuth";
 
 interface DashboardClass {
     id: string;
@@ -611,10 +611,7 @@ export default function AdminInstructorEvaluations({
             }
             params.set("all", "1");
 
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch(`/api/instructor/all-swimmers?${params.toString()}`, {
-                headers,
-            });
+            const response = await authFetch(`/api/instructor/all-swimmers?${params.toString()}`);
             const payload = (await response.json()) as DashboardPayload;
 
             if (!response.ok) {
@@ -663,7 +660,6 @@ export default function AdminInstructorEvaluations({
 
     async function loadFilterOptionsFromAssignments() {
         try {
-            const headers = await createAuthenticatedHeaders();
             const endpointCandidates = [
                 "/api/instructor/filters",
                 "/api/admin/instructor-member-assignments",
@@ -673,7 +669,7 @@ export default function AdminInstructorEvaluations({
             let lastErrorMessage = "Failed to load class/instructor filter options.";
 
             for (const endpoint of endpointCandidates) {
-                const response = await fetch(endpoint, { headers });
+                const response = await authFetch(endpoint);
                 const responsePayload = (await response.json()) as AssignmentFiltersPayload & { error?: string };
 
                 if (response.ok) {
@@ -1057,15 +1053,11 @@ export default function AdminInstructorEvaluations({
                 [args.swimmerId]: "",
             }));
 
-            const headers = await createAuthenticatedHeaders({
-                "Content-Type": "application/json",
-            });
-
-            const response = await fetch(
+            const response = await authFetch(
                 `/api/instructor/swimmers/${args.swimmerId}?evaluationId=${encodeURIComponent(args.evaluationId)}`,
                 {
-                method: "DELETE",
-                headers,
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
                 },
             );
 

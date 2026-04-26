@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Papa from "papaparse";
+import { authFetch } from "@/lib/clientAuth";
 
 type Step = "upload" | "importing" | "done";
 
@@ -169,7 +170,7 @@ export default function ImportRoster({
       formData.append("file", selectedFile);
       formData.append("organization_id", organizationId);
 
-      const res = await fetch("/api/admin/import-roster", {
+      const res = await authFetch("/api/admin/import-roster", {
         method: "POST",
         body: formData,
       });

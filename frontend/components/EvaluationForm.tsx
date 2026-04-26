@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
-import { createAuthenticatedHeaders } from '@/lib/clientAuth';
+import { authFetch } from "@/lib/clientAuth";
 
 interface SkillItem {
   id: string;
@@ -216,9 +216,7 @@ export default function EvaluationForm({
     setSuccessMessage('');
 
     try {
-      const headers = await createAuthenticatedHeaders({
-        'Content-Type': 'application/json',
-      });
+      const headers = { 'Content-Type': 'application/json' };
 
       let createdEvaluations: Array<{
         evaluation_id: string;
@@ -253,7 +251,7 @@ export default function EvaluationForm({
       if (editingEvaluation) {
         if (changedSkillUpdates.length > 0) {
           for (const update of changedSkillUpdates) {
-            const progressResponse = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+            const progressResponse = await authFetch(`/api/instructor/swimmers/${swimmerId}`, {
               method: 'PATCH',
               headers,
               body: JSON.stringify({
@@ -270,7 +268,7 @@ export default function EvaluationForm({
           ? editingSkillNoteText
           : trimmedNote;
 
-        const editResponse = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+        const editResponse = await authFetch(`/api/instructor/swimmers/${swimmerId}`, {
           method: 'PATCH',
           headers,
           body: JSON.stringify({
@@ -282,7 +280,7 @@ export default function EvaluationForm({
         await parseJsonPayload(editResponse);
 
         if (extraSkillNoteEntriesForEdit.length > 0) {
-          const addSkillNotesResponse = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+          const addSkillNotesResponse = await authFetch(`/api/instructor/swimmers/${swimmerId}`, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -298,7 +296,7 @@ export default function EvaluationForm({
           createdEvaluations = addSkillNotesPayload.createdEvaluations ?? [];
         }
       } else {
-        const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+        const response = await authFetch(`/api/instructor/swimmers/${swimmerId}`, {
           method: 'POST',
           headers,
           body: JSON.stringify({

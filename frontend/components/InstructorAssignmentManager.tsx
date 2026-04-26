@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { createAuthenticatedHeaders } from '@/lib/clientAuth';
+import { authFetch } from '@/lib/clientAuth';
 
 interface Instructor {
     person_id: string;
@@ -493,8 +493,7 @@ export default function InstructorAssignmentManager() {
         setErrorMessage(null);
 
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch('/api/admin/instructor-member-assignments', { headers });
+            const response = await authFetch('/api/admin/instructor-member-assignments');
             if (!response.ok) {
                 const errorPayload = await response.json().catch(() => ({}));
                 throw new Error(errorPayload?.error || 'Failed to load assignments');
@@ -716,9 +715,9 @@ export default function InstructorAssignmentManager() {
     };
 
     const patchEnrollmentGroup = async (row: EnrollmentRow, nextGroupId: string | null) => {
-        const response = await fetch('/api/admin/instructor-member-assignments', {
+        const response = await authFetch('/api/admin/instructor-member-assignments', {
             method: 'PUT',
-            headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 member_id: row.member_id,
                 class_id: row.class_id,
@@ -884,9 +883,9 @@ export default function InstructorAssignmentManager() {
 
         setCreateGroupPending(true);
         try {
-            const response = await fetch('/api/admin/instructor-member-assignments', {
+            const response = await authFetch('/api/admin/instructor-member-assignments', {
                 method: 'POST',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     class_id: classId,
                     member_ids: memberIds,
@@ -984,9 +983,9 @@ export default function InstructorAssignmentManager() {
         setBulkGroupId((prev) => (prev === group.group_id ? '' : prev));
 
         try {
-            const response = await fetch('/api/admin/instructor-member-assignments', {
+            const response = await authFetch('/api/admin/instructor-member-assignments', {
                 method: 'DELETE',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     group_id: group.group_id,
                     delete_group: true,
@@ -1066,9 +1065,9 @@ export default function InstructorAssignmentManager() {
         });
 
         try {
-            const response = await fetch('/api/admin/instructor-member-assignments', {
+            const response = await authFetch('/api/admin/instructor-member-assignments', {
                 method: action === 'assign' ? 'PUT' : 'DELETE',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     group_ids: [groupId],
                     instructor_person_id: instructorId,
@@ -1108,9 +1107,9 @@ export default function InstructorAssignmentManager() {
         );
 
         try {
-            const response = await fetch('/api/admin/instructor-member-assignments', {
+            const response = await authFetch('/api/admin/instructor-member-assignments', {
                 method: 'DELETE',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     member_id: memberId,
                     class_id: classId,
@@ -1189,9 +1188,9 @@ export default function InstructorAssignmentManager() {
         try {
             await Promise.all(
                 uniqueInstructorIds.map(async (instructorId) => {
-                    const response = await fetch('/api/admin/instructor-member-assignments', {
+                    const response = await authFetch('/api/admin/instructor-member-assignments', {
                         method: 'PUT',
-                        headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             group_ids: [groupId],
                             instructor_person_id: instructorId,

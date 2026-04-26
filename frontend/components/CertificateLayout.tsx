@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { generateCertificate } from "@/components/generateCertificate";
-import { createAuthenticatedHeaders } from "@/lib/clientAuth";
+import { authFetch } from "@/lib/clientAuth";
 
 /* ─── types ─────────────────────────────────────────────────────────────── */
 
@@ -230,10 +230,7 @@ export default function CertificatePage({
     if (swimmerName) return;
     async function loadData() {
       try {
-        const headers = await createAuthenticatedHeaders();
-        const res = await fetch(`/api/account/swimmers/${swimmerId}`, {
-          headers,
-        });
+        const res = await authFetch(`/api/account/swimmers/${swimmerId}`);
         const data = (await res.json()) as SwimmerPayload;
         if (!data?.swimmer) return;
         setSwimmer(data.swimmer);
@@ -274,8 +271,7 @@ export default function CertificatePage({
   useEffect(() => {
     async function fetchLogo() {
       try {
-        const headers = await createAuthenticatedHeaders();
-        const res = await fetch("/api/public/get-logo", { headers });
+        const res = await authFetch("/api/public/get-logo");
         const data = (await res.json()) as LogoResponse;
         if (data.publicUrl) setLogoUrl(data.publicUrl);
       } catch (err) {
