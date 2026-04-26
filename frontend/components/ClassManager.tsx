@@ -7,7 +7,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { createAuthenticatedHeaders } from '@/lib/clientAuth';
+import { authFetch } from '@/lib/clientAuth';
 
 interface Class {
     class_id: string;
@@ -45,8 +45,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
     const fetchClasses = async () => {
         setLoading(true);
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch('/api/admin/classes', { headers });
+            const response = await authFetch('/api/admin/classes');
             const data = await response.json();
             if (response.ok) {
                 setClasses(data.classes || []);
@@ -169,9 +168,9 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         }
 
         try {
-            const response = await fetch('/api/admin/classes', {
+            const response = await authFetch('/api/admin/classes', {
                 method: 'PUT',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     class_id,
                     name: editingName.trim(),
@@ -211,8 +210,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         setDeleteDialog({ show: false, classId: null, className: '' });
 
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch(`/api/admin/classes?class_id=${class_id}`, { method: 'DELETE', headers });
+            const response = await authFetch(`/api/admin/classes?class_id=${class_id}`, { method: 'DELETE' });
 
             const data = await response.json();
 

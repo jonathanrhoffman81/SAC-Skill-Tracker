@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { createAuthenticatedHeaders } from '@/lib/clientAuth';
+import { authFetch } from '@/lib/clientAuth';
 
 interface SessionRecord {
     session_id: string;
@@ -40,8 +40,7 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
     const fetchSessions = async () => {
         setLoading(true);
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch('/api/admin/sessions', { headers });
+            const response = await authFetch('/api/admin/sessions');
             const data = await response.json();
             if (response.ok) {
                 setSessions(data.sessions || []);
@@ -91,9 +90,9 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
         }
 
         try {
-            const response = await fetch('/api/admin/sessions', {
+            const response = await authFetch('/api/admin/sessions', {
                 method: 'POST',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: newName.trim(),
                     start_date: newStart || null,
@@ -141,9 +140,9 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
         }
 
         try {
-            const response = await fetch('/api/admin/sessions', {
+            const response = await authFetch('/api/admin/sessions', {
                 method: 'PUT',
-                headers: await createAuthenticatedHeaders({ 'Content-Type': 'application/json' }),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     session_id: sessionId,
                     name: editingName.trim(),
@@ -177,10 +176,8 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
         setDeleteDialog({ show: false, sessionId: null, sessionName: '' });
 
         try {
-            const headers = await createAuthenticatedHeaders();
-            const response = await fetch(`/api/admin/sessions?session_id=${sessionId}`, {
+            const response = await authFetch(`/api/admin/sessions?session_id=${sessionId}`, {
                 method: 'DELETE',
-                headers,
             });
 
             const data = await response.json();

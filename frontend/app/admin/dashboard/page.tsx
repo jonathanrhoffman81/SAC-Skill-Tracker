@@ -9,7 +9,6 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   authFetch,
-  createAuthenticatedHeaders,
   SessionExpiredError,
   getAuthenticatedSessionIdentity,
   logoutAndRedirect,
@@ -815,11 +814,11 @@ export default function AdminDashboard() {
     try {
       setSavingHeaderAccent(true);
       setHeaderAccentMigrationMissing(false);
-      const response = await fetch("/api/admin/settings/branding", {
+      const response = await authFetch("/api/admin/settings/branding", {
         method: "PATCH",
-        headers: await createAuthenticatedHeaders({
+        headers: {
           "Content-Type": "application/json",
-        }),
+        },
         body: JSON.stringify({ headerColor: normalizedColor }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -854,11 +853,11 @@ export default function AdminDashboard() {
     try {
       setSavingHeaderAccent(true);
       setHeaderAccentMigrationMissing(false);
-      const response = await fetch("/api/admin/settings/branding", {
+      const response = await authFetch("/api/admin/settings/branding", {
         method: "PATCH",
-        headers: await createAuthenticatedHeaders({
+        headers: {
           "Content-Type": "application/json",
-        }),
+        },
         body: JSON.stringify({ headerColor: null }),
       });
 
@@ -1011,8 +1010,7 @@ export default function AdminDashboard() {
     }));
     try {
       const config = ENTITY_CONFIG[type];
-      const headers = await createAuthenticatedHeaders();
-      const response = await fetch(`${config.apiPath}`, { headers });
+      const response = await authFetch(`${config.apiPath}`);
       if (!response.ok) throw new Error(`Failed to load ${type}`);
       const data = await response.json();
       const listData = data[config.dataKey] || [];
@@ -1105,11 +1103,11 @@ export default function AdminDashboard() {
     if (!state.newName.trim()) return;
     try {
       const config = ENTITY_CONFIG[type];
-      const response = await fetch(config.apiPath, {
+      const response = await authFetch(config.apiPath, {
         method: "POST",
-        headers: await createAuthenticatedHeaders({
+        headers: {
           "Content-Type": "application/json",
-        }),
+        },
         body: JSON.stringify({ name: state.newName.trim() }),
       });
       if (!response.ok) throw new Error(`Failed to create ${type}`);
@@ -1130,11 +1128,11 @@ export default function AdminDashboard() {
     if (!state.editingName.trim()) return;
     try {
       const config = ENTITY_CONFIG[type];
-      const response = await fetch(config.apiPath, {
+      const response = await authFetch(config.apiPath, {
         method: "PUT",
-        headers: await createAuthenticatedHeaders({
+        headers: {
           "Content-Type": "application/json",
-        }),
+        },
         body: JSON.stringify({
           [config.idField]: id,
           name: state.editingName.trim(),
@@ -1220,12 +1218,10 @@ export default function AdminDashboard() {
 
     try {
       const config = ENTITY_CONFIG[type];
-      const headers = await createAuthenticatedHeaders();
-      const response = await fetch(
+      const response = await authFetch(
         `${config.apiPath}?${config.idField}=${entityId}`,
         {
           method: "DELETE",
-          headers,
         },
       );
       if (!response.ok) throw new Error(`Failed to delete ${type}`);
