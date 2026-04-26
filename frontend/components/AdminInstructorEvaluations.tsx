@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import EvaluationForm from "@/components/EvaluationForm";
 import DropdownButton from "@/components/DropdownButton";
@@ -2390,8 +2391,9 @@ export default function AdminInstructorEvaluations({
                 )}
             </div>
 
-            {deleteDialog.show && (
-                <div className="fixed top-32 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white p-4 shadow-2xl sm:top-36">
+            {deleteDialog.show && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 px-4">
+                <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-4 shadow-2xl">
                     <p className="text-sm font-semibold text-gray-900">Delete Evaluation Entry</p>
                     <p className="mt-1 text-xs text-gray-600 sm:text-sm">
                         Delete this evaluation for{" "}
@@ -2467,6 +2469,8 @@ export default function AdminInstructorEvaluations({
                         </button>
                     </div>
                 </div>
+                </div>,
+                document.body
             )}
 
             {actionBanner && (
