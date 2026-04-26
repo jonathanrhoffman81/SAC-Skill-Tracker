@@ -40,6 +40,18 @@ const EXPIRED_PATH = '/login?reason=session_expired';
 const SWITCHED_PATH = '/login?reason=switched_account';
 const POLL_INTERVAL_MS = 30_000;
 
+/** Flag set in sessionStorage by the login page right before
+ *  signInWithPassword so AuthListener can tell "the tab I'm running in
+ *  *just* signed in" apart from "another tab signed in as a different
+ *  user, overwriting our shared localStorage session". Without this,
+ *  we'd incorrectly redirect the just-signed-in tab — supabase-js
+ *  fires SIGNED_IN as a microtask, which can land *after* the login
+ *  page has already called router.push, by which point
+ *  window.location.pathname is no longer "/login" and the
+ *  isOnPublicPath safety net no longer suppresses the redirect.
+ *  Exported as a constant so the login page can reuse it. */
+export const SELF_SIGNIN_FLAG = 'auth-self-signin-pending';
+
 /** Routes that don't require a session. Skipping the session-gone check on
  *  these prevents a user who legitimately isn't logged in (e.g. signing up,
  *  resetting password) from being bounced to login. */
@@ -100,13 +112,38 @@ export default function AuthListener() {
         if (event === 'SIGNED_IN') {
           const incomingUserId = session?.user?.id ?? null;
           const knownUserId = sessionUserIdRef.current;
-          if (knownUserId && incomingUserId && knownUserId !== incomingUserId) {
-            // Different human took over the shared session. Bail.
+
+          // Did the login page in *this tab* just initiate this signin?
+          // If so, never redirect — even if it overwrote a different
+          // user's session in shared localStorage, this is intentional.
+          // Other tabs receiving the cross-tab SIGNED_IN won't have the
+          // flag set and will fall through to the mismatch check.
+          let selfInitiated = false;
+          try {
+            selfInitiated =
+              sessionStorage.getItem(SELF_SIGNIN_FLAG) === '1';
+            if (selfInitiated) sessionStorage.removeItem(SELF_SIGNIN_FLAG);
+          } catch {
+            /* private-browsing storage error */
+          }
+
+          if (
+            !selfInitiated &&
+            knownUserId &&
+            incomingUserId &&
+            knownUserId !== incomingUserId
+          ) {
+            // A different human took over the shared session from another
+            // tab. Bail this tab out.
+            sessionUserIdRef.current = incomingUserId;
             redirectTo(SWITCHED_PATH);
             return;
           }
-          // First sign-in OR same user (token refresh, role switch, etc.) —
-          // just track the latest id.
+
+          // Always sync ref to the new user — including when the redirect
+          // was suppressed because we're on a public path or the signin
+          // was self-initiated. Otherwise the ref goes stale and
+          // subsequent legitimate switches won't trigger.
           sessionUserIdRef.current = incomingUserId ?? knownUserId;
         }
       },

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { SELF_SIGNIN_FLAG } from "@/components/AuthListener";
 import {
   getRoleSelectBypass,
   getDashboardPathsForRoles,
@@ -96,6 +97,16 @@ export default function Login() {
 
     try {
       const normalizedEmail = normalizeEmail(email);
+
+      // Tell AuthListener "the signIn that's about to fire was initiated
+      // by THIS tab" so it doesn't redirect us out as if some other tab
+      // had stolen the session. Cleared by AuthListener on the SIGNED_IN
+      // event; we also clear it in catch as a safety net.
+      try {
+        sessionStorage.setItem(SELF_SIGNIN_FLAG, "1");
+      } catch {
+        /* private browsing — proceed without the flag */
+      }
 
       const { data, error: signInError } =
         await supabase.auth.signInWithPassword({
@@ -191,6 +202,13 @@ export default function Login() {
         router.push(path);
       }
     } catch (err: any) {
+      // Failed signin → clear the self-signin flag so it doesn't leak
+      // into a later, unrelated SIGNED_IN event.
+      try {
+        sessionStorage.removeItem(SELF_SIGNIN_FLAG);
+      } catch {
+        /* private browsing */
+      }
       console.error("Login Error:", err);
       const message = String(err?.message || "Login failed.");
       const normalizedMessage = message.toLowerCase();
