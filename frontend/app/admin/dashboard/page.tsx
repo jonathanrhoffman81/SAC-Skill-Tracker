@@ -68,7 +68,6 @@ const MemoInstructorAssignmentManager = memo(InstructorAssignmentManager);
 const MemoAdminInstructorEvaluations = memo(AdminInstructorEvaluations);
 const MemoImportRoster = memo(ImportRoster);
 const MemoImportClasses = memo(ImportClasses);
-const MemoLogoManage = memo(LogoManage);
 
 // Dashboard statistics from admin API
 interface AdminStats {
@@ -666,7 +665,11 @@ export default function AdminDashboard() {
   }, [validTabIds]);
 
   useEffect(() => {
-    setLogoUrl(stats?.organizationLogoUrl ?? null);
+    setLogoUrl((prev) => {
+      // Only set if we don't have a value yet (initial seed only)
+      if (prev !== null) return prev;
+      return stats?.organizationLogoUrl ?? null;
+    });
   }, [stats?.organizationLogoUrl]);
 
   const getInitials = (name: string) =>
@@ -1541,8 +1544,9 @@ export default function AdminDashboard() {
                 <h2 className="mb-4 text-base font-semibold text-gray-900 sm:text-lg">
                   Organization Settings
                 </h2>
-                <MemoLogoManage
+                <LogoManage
                   organizationLogoUrl={stats.organizationLogoUrl}
+                  onLogoChange={(url) => setLogoUrl(url)}
                 />
 
                 <div className="mt-6 border-t border-gray-100 pt-5">

@@ -351,28 +351,14 @@ export default function AccountDashboard() {
   useEffect(() => {
     async function fetchLogo() {
       try {
-        // const identity = await getAuthenticatedSessionIdentity();
-        const identity = await getAuthenticatedSessionIdentity();
-        console.log("IDENTITY:", identity);
-        // const orgId = identity.organizationId;
-
-        // const res = await fetch(
-        //   `/api/public/get-logo?orgId=${encodeURIComponent("123")}`,
-        // );
-
-        // const data = await res.json();
-
-        // if (data.publicUrl) {
-        //   setLogoUrl(data.publicUrl);
-        // } else {
-        //   setLogoUrl(null);
-        // }
+        const res = await fetch("/api/public/get-logo");
+        const data = await res.json();
+        setLogoUrl(data.publicUrl ?? null);
       } catch (err) {
         console.error("Failed to fetch logo", err);
         setLogoUrl(null);
       }
     }
-
     fetchLogo();
   }, []);
 

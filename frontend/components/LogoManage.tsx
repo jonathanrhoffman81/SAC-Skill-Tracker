@@ -5,19 +5,29 @@ import { createAuthenticatedHeaders } from "@/lib/clientAuth";
 
 export default function LogoManage({
   organizationLogoUrl,
+  onLogoChange,
 }: {
   organizationLogoUrl?: string | null;
+  onLogoChange?: (url: string | null) => void;
 }) {
+  const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(
+    organizationLogoUrl || null,
+  );
   const [fileSelected, setFileSelected] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [logoExists, setLogoExists] = useState(Boolean(organizationLogoUrl));
-  const [status, setStatus] = useState<
-    { type: "success" | "error"; message: string } | null
-  >(null);
+  const [status, setStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const updateLogo = (url: string | null) => {
+    setCurrentLogoUrl(url);
+    onLogoChange?.(url); // ← notify parent
+  };
 
   const preview = fileSelected
     ? URL.createObjectURL(fileSelected)
-    : organizationLogoUrl || null;
+    : currentLogoUrl;
 
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete the logo?")) return;
@@ -37,10 +47,14 @@ export default function LogoManage({
 
       setFileSelected(null);
       setLogoExists(false);
+      updateLogo(null);
       setStatus({ type: "success", message: "Logo deleted successfully." });
     } catch (err) {
       console.error("Delete failed:", err);
-      setStatus({ type: "error", message: err instanceof Error ? err.message : "Failed to delete logo." });
+      setStatus({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to delete logo.",
+      });
     } finally {
       setLoading(false);
     }
@@ -68,11 +82,15 @@ export default function LogoManage({
       if (data.publicUrl) {
         setFileSelected(null);
         setLogoExists(true);
+        updateLogo(data.publicUrl); // ← was setStatus only
         setStatus({ type: "success", message: "Logo uploaded successfully." });
       }
     } catch (err) {
       console.error("Upload failed:", err);
-      setStatus({ type: "error", message: err instanceof Error ? err.message : "Failed to upload logo." });
+      setStatus({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to upload logo.",
+      });
     } finally {
       setLoading(false);
     }
@@ -129,11 +147,17 @@ export default function LogoManage({
             const file = e.target.files?.[0];
             if (file) {
               if (file.size > 2 * 1024 * 1024) {
-                setStatus({ type: "error", message: "File must be under 2MB." });
+                setStatus({
+                  type: "error",
+                  message: "File must be under 2MB.",
+                });
                 return;
               }
               setFileSelected(file);
-              setStatus({ type: "success", message: `Selected file: ${file.name}` });
+              setStatus({
+                type: "success",
+                message: `Selected file: ${file.name}`,
+              });
             }
           }}
         />
