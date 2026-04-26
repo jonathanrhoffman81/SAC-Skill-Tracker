@@ -1109,7 +1109,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const { data: evaluationRow, error: evaluationLookupError } = await supabaseAdmin
       .from('evaluation')
-      .select('evaluation_id, member_id')
+      .select('evaluation_id, member_id, class_id, evaluation_date, instructor_person_id')
       .eq('evaluation_id', evaluationId)
       .eq('member_id', memberId)
       .maybeSingle();
@@ -1128,10 +1128,48 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    let sessionRowsQuery = supabaseAdmin
+      .from('evaluation')
+      .select('evaluation_id')
+      .eq('member_id', memberId)
+      .eq('evaluation_date', evaluationRow.evaluation_date)
+      .eq('instructor_person_id', evaluationRow.instructor_person_id);
+
+    if (evaluationRow.class_id) {
+      sessionRowsQuery = sessionRowsQuery.eq('class_id', evaluationRow.class_id);
+    } else {
+      sessionRowsQuery = sessionRowsQuery.is('class_id', null);
+    }
+
+    const { data: sessionRows, error: sessionRowsError } = await sessionRowsQuery;
+
+    if (sessionRowsError) {
+      return NextResponse.json(
+        { error: `Failed to load related evaluation entries: ${sessionRowsError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const evaluationIdsToDelete = Array.from(
+      new Set(
+        (sessionRows ?? [])
+          .map((row) => row.evaluation_id)
+          .filter(Boolean)
+          .concat(evaluationId)
+      )
+    );
+
+    if (evaluationIdsToDelete.length === 0) {
+      return NextResponse.json(
+        { error: 'No evaluation entries were found to delete.' },
+        { status: 404 }
+      );
+    }
+
     const { error: unlinkMemberSkillError } = await supabaseAdmin
       .from('member_skill')
       .update({ evaluation_id: null })
-      .eq('evaluation_id', evaluationId);
+      .in('evaluation_id', evaluationIdsToDelete);
 
     if (unlinkMemberSkillError) {
       return NextResponse.json(
@@ -1143,7 +1181,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { error: deleteError } = await supabaseAdmin
       .from('evaluation')
       .delete()
-      .eq('evaluation_id', evaluationId);
+      .in('evaluation_id', evaluationIdsToDelete);
 
     if (deleteError) {
       return NextResponse.json(
@@ -1152,7 +1190,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, deletedEvaluationIds: evaluationIdsToDelete });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
     return NextResponse.json({ error: message }, { status: 500 });

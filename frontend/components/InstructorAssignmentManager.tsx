@@ -199,7 +199,7 @@ function StyledSelect({
                 disabled={disabled}
                 className={`w-full border border-slate-300 bg-white text-left text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${sizeClasses}`}
             >
-                <span className="block truncate">{selectedLabel}</span>
+                <span className="block line-clamp-2">{selectedLabel}</span>
             </button>
             <svg
                 className={`pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -232,12 +232,12 @@ function StyledSelect({
                                     onChange(option.value);
                                     setOpen(false);
                                 }}
-                                className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${isSelected
+                                className={`flex w-full items-start gap-2 justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${isSelected
                                     ? 'bg-sky-50 text-sky-700'
                                     : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}
                             >
-                                <span className="truncate">{option.label}</span>
-                                {isSelected && <span className="text-[11px]">✓</span>}
+                                <span className="line-clamp-2">{option.label}</span>
+                                {isSelected && <span className="shrink-0 text-[11px]">✓</span>}
                             </button>
                         );
                     })}
@@ -334,7 +334,7 @@ function StyledMultiSelect({
                 disabled={disabled}
                 className={`w-full border border-slate-300 bg-white text-left text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${sizeClasses}`}
             >
-                <span className="block truncate">{displayLabel}</span>
+                <span className="block line-clamp-2">{displayLabel}</span>
             </button>
             <svg
                 className={`pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -343,7 +343,6 @@ function StyledMultiSelect({
                 stroke="currentColor"
                 strokeWidth="1.8"
             >
-                maxHeight: menuPosition.maxHeight,
                 <path d="M5 7.5L10 12.5L15 7.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
 
@@ -366,12 +365,12 @@ function StyledMultiSelect({
                                 type="button"
                                 disabled={option.disabled}
                                 onClick={() => toggleValue(option.value)}
-                                className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${isSelected
+                                className={`flex w-full items-start gap-2 justify-between px-2.5 py-1.5 text-left text-xs sm:text-sm ${isSelected
                                     ? 'bg-sky-50 text-sky-700'
                                     : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-50`}
                             >
-                                <span className="truncate">{option.label}</span>
-                                <span className="text-[11px]">{isSelected ? '✓' : ''}</span>
+                                <span className="line-clamp-2">{option.label}</span>
+                                <span className="shrink-0 text-[11px]">{isSelected ? '✓' : ''}</span>
                             </button>
                         );
                     })}
@@ -700,7 +699,20 @@ export default function InstructorAssignmentManager() {
     }, [filteredEnrollments, assignmentFilter]);
 
     const buildGroupOptions = (row: EnrollmentRow) => {
-        return groupsByClassId.get(row.class_id) || [];
+        // Filter groups by both class_id and slot
+        const allGroups = groupsByClassId.get(row.class_id) || [];
+        // Only include groups where all swimmers in the group have the same slot as the row
+        if (row.slot == null) {
+            // For swimmers without a slot, show all groups for the class
+            return allGroups;
+        }
+        return allGroups.filter((group) => {
+            const swimmers = swimmersByGroupId.get(group.group_id) || [];
+            // If group has no swimmers, allow it to show for assignment
+            if (swimmers.length === 0) return true;
+            // All swimmers in group must have the same slot as the row
+            return swimmers.every((swimmer) => swimmer.slot === row.slot);
+        });
     };
 
     const patchEnrollmentGroup = async (row: EnrollmentRow, nextGroupId: string | null) => {
@@ -921,7 +933,9 @@ export default function InstructorAssignmentManager() {
                 setBulkGroupId(createdGroup.group_id);
             }
 
-            showToast(`Created new group with ${memberIds.length} swimmer${memberIds.length > 1 ? 's' : ''}`);
+            showToast(
+                `Created ${createdGroup?.group_name ?? 'new group'} with ${memberIds.length} swimmer${memberIds.length > 1 ? 's' : ''}`,
+            );
             setSelectedEnrollmentKeys(new Set());
         } catch (err) {
             console.error('Error creating group from selected swimmers:', err);

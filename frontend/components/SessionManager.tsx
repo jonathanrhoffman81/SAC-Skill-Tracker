@@ -343,7 +343,7 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
             )}
 
             {deleteDialog.show && (
-                <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
+                <div className="fixed top-32 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4 sm:top-36">
                     <p className="text-sm font-semibold text-gray-900">Delete session</p>
                     <p className="mt-1 text-xs sm:text-sm text-gray-600">
                         Delete <span className="font-medium">{deleteDialog.sessionName}</span>?
@@ -365,7 +365,7 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
                 </div>
             )}
 
-            <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
+            <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">
                 {toasts.map((toast) => (
                     <div
                         key={toast.id}

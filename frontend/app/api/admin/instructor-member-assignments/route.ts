@@ -496,14 +496,14 @@ export async function POST(request: NextRequest) {
       ),
     );
 
-    const { count: existingCount, error: countError } = await supabase
+    const { data: existingGroups, error: existingGroupsError } = await supabase
       .from("class_group")
-      .select("group_id", { count: "exact", head: true })
+      .select("group_id, name")
       .eq("class_id", body.class_id);
 
-    if (countError) {
+    if (existingGroupsError) {
       return NextResponse.json(
-        { error: `Failed to generate group name: ${countError.message}` },
+        { error: `Failed to generate group name: ${existingGroupsError.message}` },
         { status: 500 },
       );
     }
@@ -526,10 +526,32 @@ export async function POST(request: NextRequest) {
           : "No Slot";
 
     const classDescriptor = (classRow.name || "Class").trim();
+    const existingGroupNames = (existingGroups || [])
+      .map((group: any) => (group.name || "").trim())
+      .filter((name: string) => name.length > 0);
+    const existingGroupNamesNormalized = new Set(
+      existingGroupNames.map((name: string) => name.toLowerCase()),
+    );
+    const maxExistingGroupNumber = existingGroupNames.reduce((max: number, name: string) => {
+      const match = name.match(/group\s+(\d+)/i);
+      if (!match) return max;
+      const parsed = Number(match[1]);
+      return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
+    }, 0);
+
+    let nextGroupNumber =
+      maxExistingGroupNumber > 0
+        ? maxExistingGroupNumber + 1
+        : (existingGroups?.length ?? 0) + 1;
+    let fallbackGeneratedGroupName = `${classDescriptor} - ${slotDescriptor} - Group ${nextGroupNumber}`;
+    while (existingGroupNamesNormalized.has(fallbackGeneratedGroupName.toLowerCase())) {
+      nextGroupNumber += 1;
+      fallbackGeneratedGroupName = `${classDescriptor} - ${slotDescriptor} - Group ${nextGroupNumber}`;
+    }
 
     const generatedGroupName = body.group_name?.trim()
       ? body.group_name.trim()
-      : `${classDescriptor} - ${slotDescriptor} - Group ${(existingCount ?? 0) + 1}`;
+      : fallbackGeneratedGroupName;
 
     const { data: createdGroup, error: createGroupError } = await supabase
       .from("class_group")

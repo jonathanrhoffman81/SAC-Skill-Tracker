@@ -410,6 +410,25 @@ export default function AdminInstructorEvaluations({
     } | null>>({});
     const [historyActionErrorBySwimmer, setHistoryActionErrorBySwimmer] = useState<Record<string, string>>({});
     const [deletingEvaluationKey, setDeletingEvaluationKey] = useState<string | null>(null);
+    const [actionBanner, setActionBanner] = useState<{
+        type: "success" | "error";
+        message: string;
+    } | null>(null);
+    const [deleteDialog, setDeleteDialog] = useState<{
+        show: boolean;
+        swimmerId: string | null;
+        classId: string | null;
+        evaluationId: string | null;
+        swimmerName: string;
+        className: string;
+    }>({
+        show: false,
+        swimmerId: null,
+        classId: null,
+        evaluationId: null,
+        swimmerName: "",
+        className: "",
+    });
     const [pagination, setPagination] = useState<PaginationState>(
         {
             page: 1,
@@ -463,6 +482,15 @@ export default function AdminInstructorEvaluations({
     const virtualListContainerRef = useRef<HTMLDivElement | null>(null);
     const [virtualScrollTop, setVirtualScrollTop] = useState(0);
     const [virtualContainerHeight, setVirtualContainerHeight] = useState(720);
+
+    const showActionBanner = (type: "success" | "error", message: string) => {
+        setActionBanner({ type, message });
+        if (typeof window !== "undefined") {
+            window.setTimeout(() => {
+                setActionBanner((current) => (current?.message === message ? null : current));
+            }, 5000);
+        }
+    };
 
     const syncVirtualContainerHeight = () => {
         const element = virtualListContainerRef.current;
@@ -1007,7 +1035,7 @@ export default function AdminInstructorEvaluations({
         swimmerId: string;
         classId: string;
         evaluationId: string;
-    }) => {
+    }): Promise<boolean> => {
         if (!hasUsableEvaluationId(args.evaluationId)) {
             await loadData(currentPage, debouncedSearchQuery, {
                 forceRefresh: true,
@@ -1016,11 +1044,9 @@ export default function AdminInstructorEvaluations({
                 ...prev,
                 [args.swimmerId]: "This evaluation entry was out of sync. The list was refreshed; please try again.",
             }));
-            return;
+            showActionBanner("error", "This evaluation entry was out of sync. The list was refreshed; please try again.");
+            return false;
         }
-
-        const confirmed = window.confirm("Delete this evaluation entry?");
-        if (!confirmed) return;
 
         const deleteKey = `${args.swimmerId}:${args.classId}:${args.evaluationId}`;
 
@@ -1065,6 +1091,7 @@ export default function AdminInstructorEvaluations({
                 ...prev,
                 [args.swimmerId]: "",
             }));
+            showActionBanner("success", "Evaluation entry deleted.");
 
             setEditingEvaluationBySwimmer((prev) => ({
                 ...prev,
@@ -1073,11 +1100,10 @@ export default function AdminInstructorEvaluations({
                     : prev[args.swimmerId],
             }));
 
-            void loadData(currentPage, debouncedSearchQuery, {
+            await loadData(currentPage, debouncedSearchQuery, {
                 forceRefresh: true,
-            }).catch((refreshError) => {
-                console.warn("Failed to refresh evaluations after delete:", refreshError);
             });
+            return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to delete evaluation.";
 
@@ -1093,6 +1119,13 @@ export default function AdminInstructorEvaluations({
                     ? "This evaluation entry was out of sync. The list was refreshed; please try again."
                     : message,
             }));
+            showActionBanner(
+                "error",
+                message.includes("Evaluation not found")
+                    ? "This evaluation entry was out of sync. The list was refreshed; please try again."
+                    : message,
+            );
+            return false;
         } finally {
             setDeletingEvaluationKey(null);
         }
@@ -1884,10 +1917,10 @@ export default function AdminInstructorEvaluations({
                                     ref={(element) => {
                                         swimmerRowRefs.current[swimmer.id] = element;
                                     }}
-                                    className="w-full p-5 text-left transition hover:bg-gray-50 sm:p-6"
+                                    className="w-full p-4 text-left transition hover:bg-gray-50 sm:p-6"
                                     onClick={() => handleSwimmerClick(swimmer.id)}
                                 >
-                                    <div className="flex items-start justify-between gap-4">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700">
                                                 {getInitials(swimmer.name)}
@@ -1942,7 +1975,7 @@ export default function AdminInstructorEvaluations({
                                                     <span>
                                                         Last eval: {swimmer.evaluationSummary.lastEvaluationDate || "N/A"}
                                                     </span>
-                                                    <span>
+                                                    <span className="break-words">
                                                         Instructors: {swimmer.evaluationSummary.instructors.length > 0
                                                             ? swimmer.evaluationSummary.instructors.join(", ")
                                                             : "N/A"}
@@ -1952,7 +1985,7 @@ export default function AdminInstructorEvaluations({
                                         </div>
 
                                         <svg
-                                            className={`h-5 w-5 flex-shrink-0 transform text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                                            className={`h-5 w-5 flex-shrink-0 self-end transform text-gray-500 transition-transform sm:self-auto ${isOpen ? "rotate-180" : ""}`}
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -1980,19 +2013,8 @@ export default function AdminInstructorEvaluations({
                                                         {resolvedClasses.map((classItem) => {
                                                             const classSummary = classEvaluationSummaryById.get(classItem.id);
                                                             const isSelectedForEvaluation = selectedEvaluationClassId === classItem.id;
-                                                            const latestEvaluationEntry = classSummary?.recentEntries?.[0];
-                                                            const progressBySkillName = new Map(
-                                                                resolvedSkills.map((skill) => [skill.name, skill.progress]),
-                                                            );
-                                                            const skillPreview = Array.from(
-                                                                new Set(
-                                                                    (classSummary?.recentEntries ?? [])
-                                                                        .filter((entry) => entry.isSkillNote && entry.skillName)
-                                                                        .map((entry) => entry.skillName as string),
-                                                                ),
-                                                            );
-                                                            const masteredSkillPreview = skillPreview.filter(
-                                                                (skillName) => (progressBySkillName.get(skillName) ?? 0) === 4,
+                                                            const latestEvaluationEntry = (classSummary?.recentEntries ?? []).find((entry) =>
+                                                                hasUsableEvaluationId(entry.evaluationId),
                                                             );
                                                             const isEditingThisClass =
                                                                 Boolean(editingEvaluation) &&
@@ -2016,7 +2038,7 @@ export default function AdminInstructorEvaluations({
                                                                 >
                                                                     <div className="flex flex-col gap-4">
                                                                         <div className="min-w-0 flex-1">
-                                                                            <div className="flex items-start justify-between gap-3">
+                                                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                                                                 <div className="flex flex-wrap items-center gap-2">
                                                                                 <h4 className="text-sm font-semibold text-gray-900">
                                                                                     {classItem.name}
@@ -2040,7 +2062,7 @@ export default function AdminInstructorEvaluations({
                                                                                     </span>
                                                                                 )}
                                                                                 </div>
-                                                                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                                                                <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                                                                                     {latestEvaluationEntry && (
                                                                                         <>
                                                                                             <button
@@ -2070,7 +2092,7 @@ export default function AdminInstructorEvaluations({
                                                                                                                 },
                                                                                                     }));
                                                                                                 }}
-                                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100"
+                                                                                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 transition hover:bg-blue-100 sm:h-8 sm:w-8"
                                                                                                 aria-label="Show evaluation"
                                                                                                 title="Show evaluation"
                                                                                             >
@@ -2087,7 +2109,7 @@ export default function AdminInstructorEvaluations({
                                                                                                     entry: latestEvaluationEntry,
                                                                                                     skills: resolvedSkills,
                                                                                                 })}
-                                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100"
+                                                                                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100 sm:h-8 sm:w-8"
                                                                                                 aria-label="Edit evaluation"
                                                                                                 title="Edit evaluation"
                                                                                             >
@@ -2098,13 +2120,18 @@ export default function AdminInstructorEvaluations({
                                                                                             </button>
                                                                                             <button
                                                                                                 type="button"
-                                                                                                onClick={() => void deleteEvaluationEntry({
-                                                                                                    swimmerId: swimmer.id,
-                                                                                                    classId: classItem.id,
-                                                                                                    evaluationId: latestEvaluationEntry.evaluationId,
-                                                                                                })}
+                                                                                                onClick={() => {
+                                                                                                    setDeleteDialog({
+                                                                                                        show: true,
+                                                                                                        swimmerId: swimmer.id,
+                                                                                                        classId: classItem.id,
+                                                                                                        evaluationId: latestEvaluationEntry.evaluationId,
+                                                                                                        swimmerName: swimmer.name,
+                                                                                                        className: classItem.name,
+                                                                                                    });
+                                                                                                }}
                                                                                                 disabled={deletingEvaluationKey === `${swimmer.id}:${classItem.id}:${latestEvaluationEntry.evaluationId}`}
-                                                                                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
                                                                                                 aria-label="Delete evaluation"
                                                                                                 title="Delete evaluation"
                                                                                             >
@@ -2162,71 +2189,9 @@ export default function AdminInstructorEvaluations({
                                                                                 <span>{classItem.schedule || "Schedule TBD"}</span>
                                                                             </div>
 
-                                                                            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                                                                                <span>
-                                                                                    Last evaluation: {classSummary?.lastEvaluationDate || "None yet"}
-                                                                                </span>
-                                                                                <span>
-                                                                                    Instructors: {classSummary?.instructors?.length
-                                                                                        ? classSummary.instructors.join(", ")
-                                                                                        : "No instructor note recorded yet"}
-                                                                                </span>
-                                                                                <span>
-                                                                                    Entries: {classSummary?.evaluationCount ?? 0}
-                                                                                </span>
-                                                                            </div>
-
-                                                                            {classSummary?.recentEntries?.length ? (
-                                                                                <div className="mt-4 px-1 py-2">
-                                                                                    <div className="flex items-center justify-between gap-3">
-                                                                                        <p className="text-xs font-semibold text-gray-700">
-                                                                                            Evaluation History
-                                                                                        </p>
-                                                                                        <p className="text-[11px] text-gray-500">
-                                                                                            {classItem.name} · {getClassWindowLabel(classItem)}
-                                                                                        </p>
-                                                                                    </div>
-
-                                                                                    <div className="mt-2 space-y-2 text-xs text-gray-600">
-                                                                                        <p>
-                                                                                            Latest: {classSummary.lastEvaluationDate || "N/A"} by{" "}
-                                                                                            {(classSummary.instructors?.[0] || "Instructor")}
-                                                                                        </p>
-                                                                                        <div className="flex flex-wrap items-center gap-2">
-                                                                                            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                                                                                                Completed skills:
-                                                                                            </span>
-                                                                                            {masteredSkillPreview.length > 0 ? (
-                                                                                                <>
-                                                                                                    {masteredSkillPreview.slice(0, 5).map((skillName) => (
-                                                                                                        <span
-                                                                                                            key={`${classItem.id}:${skillName}`}
-                                                                                                            className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
-                                                                                                        >
-                                                                                                            {skillName}
-                                                                                                        </span>
-                                                                                                    ))}
-                                                                                                    {masteredSkillPreview.length > 5 && (
-                                                                                                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
-                                                                                                            +{masteredSkillPreview.length - 5} more
-                                                                                                        </span>
-                                                                                                    )}
-                                                                                                </>
-                                                                                            ) : (
-                                                                                                <span className="text-gray-500">No level-4 skills recorded yet.</span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="mt-4 px-1 py-2 text-sm text-gray-500">
-                                                                                    No recorded evaluation history for this class yet.
-                                                                                </div>
-                                                                            )}
-
                                                                             {(isEditingThisClass || isAddingThisClass) && (
                                                                                 <div className="mt-4 space-y-3 rounded-lg bg-blue-50/60 p-4">
-                                                                                    <div className="flex items-center justify-between gap-2">
+                                                                                    <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                                                                                         <div>
                                                                                             <p className="text-sm font-semibold text-blue-900">
                                                                                                 {isEditingThisClass
@@ -2370,7 +2335,7 @@ export default function AdminInstructorEvaluations({
                             {" of "}
                             {totalFiltered} swimmers
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                             <button
                                 type="button"
                                 disabled={safeCurrentPage <= 1 || isLoading}
@@ -2432,6 +2397,98 @@ export default function AdminInstructorEvaluations({
                     </div>
                 )}
             </div>
+
+            {deleteDialog.show && (
+                <div className="fixed top-32 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white p-4 shadow-2xl sm:top-36">
+                    <p className="text-sm font-semibold text-gray-900">Delete Evaluation Entry</p>
+                    <p className="mt-1 text-xs text-gray-600 sm:text-sm">
+                        Delete this evaluation for{" "}
+                        <span className="font-medium">{deleteDialog.swimmerName}</span>
+                        {deleteDialog.className ? (
+                            <>
+                                {" "}in <span className="font-medium">{deleteDialog.className}</span>
+                            </>
+                        ) : null}
+                        ?
+                    </p>
+                    <div className="mt-3 flex justify-end gap-2">
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setDeleteDialog({
+                                    show: false,
+                                    swimmerId: null,
+                                    classId: null,
+                                    evaluationId: null,
+                                    swimmerName: "",
+                                    className: "",
+                                })
+                            }
+                            disabled={
+                                deleteDialog.swimmerId !== null &&
+                                deleteDialog.classId !== null &&
+                                deleteDialog.evaluationId !== null &&
+                                deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
+                            }
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 sm:text-sm"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                if (!deleteDialog.swimmerId || !deleteDialog.classId || !deleteDialog.evaluationId) {
+                                    return;
+                                }
+
+                                const didDelete = await deleteEvaluationEntry({
+                                    swimmerId: deleteDialog.swimmerId,
+                                    classId: deleteDialog.classId,
+                                    evaluationId: deleteDialog.evaluationId,
+                                });
+
+                                if (didDelete) {
+                                    setDeleteDialog({
+                                        show: false,
+                                        swimmerId: null,
+                                        classId: null,
+                                        evaluationId: null,
+                                        swimmerName: "",
+                                        className: "",
+                                    });
+                                }
+                            }}
+                            disabled={
+                                deleteDialog.swimmerId === null ||
+                                deleteDialog.classId === null ||
+                                deleteDialog.evaluationId === null ||
+                                deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
+                            }
+                            className="rounded-md bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                        >
+                            {deleteDialog.swimmerId !== null &&
+                            deleteDialog.classId !== null &&
+                            deleteDialog.evaluationId !== null &&
+                            deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
+                                ? "Deleting..."
+                                : "Delete"}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {actionBanner && (
+                <div className="fixed top-24 right-4 z-[100] w-[92vw] max-w-sm pointer-events-none sm:top-28">
+                    <div
+                        className={`pointer-events-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${actionBanner.type === "success"
+                            ? "border-green-200 bg-green-50 text-green-800"
+                            : "border-red-200 bg-red-50 text-red-800"
+                            }`}
+                    >
+                        {actionBanner.message}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -244,7 +244,7 @@ export default function AccountsManager({ onRefresh }: { onRefresh?: () => void 
     return (
         <>
             {/* Fixed toast notifications */}
-            <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
+            <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">
                 {toasts.map((toast) => (
                     <div
                         key={toast.id}
