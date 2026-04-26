@@ -258,7 +258,7 @@ export async function loadAdminDashboardBootstrap(
               const fullName = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
               const label = fullName || row.email || "Instructor";
               return {
-                value: label,
+                value: row.person_id,
                 label,
               };
             })

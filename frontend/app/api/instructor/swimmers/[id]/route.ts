@@ -589,9 +589,9 @@ async function resolveEvaluationInstructorPersonId(args: {
     }
   }
 
-  return {
-    error: 'No instructor is assigned to this class yet, so this evaluation cannot be attached to the class.',
-  };
+  // No instructor found via group assignments — fall back to the acting user
+  // so the evaluation can still be saved (admin is making the evaluation themselves).
+  return { instructorPersonId: args.actingPersonId };
 }
 
 async function buildSwimmerProfileFallback(

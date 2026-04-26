@@ -661,8 +661,8 @@ export default function AdminInstructorEvaluations({
     async function loadFilterOptionsFromAssignments() {
         try {
             const endpointCandidates = [
-                "/api/instructor/filters",
                 "/api/admin/instructor-member-assignments",
+                "/api/instructor/filters",
             ];
 
             let payload: (AssignmentFiltersPayload & { error?: string }) | null = null;
@@ -1422,14 +1422,19 @@ export default function AdminInstructorEvaluations({
             if (instructorFilter !== "all") {
                 const memberIdsForInstructor = memberIdsByInstructorId[instructorFilter];
                 const hasInstructorAssignment = memberIdsForInstructor?.has(swimmer.id) ?? false;
+                // instructorFilter may be a person_id (UUID) or a name string.
+                // Resolve to a display name so we can match against evaluation summaries,
+                // which store names rather than IDs.
+                const resolvedInstructorName = (
+                    instructorFilterOptions.find((o) => o.value === instructorFilter)?.label
+                    ?? instructorFilter
+                ).trim();
+                const matchesName = (name: string) =>
+                    name.trim() === resolvedInstructorName || name.trim() === instructorFilter;
                 const hasInstructorEvaluation =
-                    swimmer.evaluationSummary.instructors.some(
-                        (instructorName) => instructorName.trim() === instructorFilter,
-                    ) ||
+                    swimmer.evaluationSummary.instructors.some(matchesName) ||
                     (swimmer.classEvaluations ?? []).some((classSummary) =>
-                        classSummary.instructors.some(
-                            (instructorName) => instructorName.trim() === instructorFilter,
-                        ),
+                        classSummary.instructors.some(matchesName),
                     );
 
                 if (!hasInstructorAssignment && !hasInstructorEvaluation) {

@@ -550,7 +550,7 @@ export async function GET(request: NextRequest) {
 
     const loadEnrollmentsPromise =
       memberIds.length > 0
-        ? batchQuery("enrollment", "member_id, class_id", memberIds, "member_id")
+        ? batchQuery("enrollment", "member_id, class_id, group_id", memberIds, "member_id")
         : Promise.resolve([] as any[]);
 
     const loadEvaluationRowsPromise =
@@ -730,6 +730,70 @@ export async function GET(request: NextRequest) {
           formatUnknownError(error),
         );
       }
+    }
+
+    // Build assigned-instructor map from group_instructor so swimmers show their
+    // instructor even before any evaluations have been saved.
+    const assignedInstructorNamesByMemberId = new Map<string, string[]>();
+    try {
+      const groupIds = Array.from(
+        new Set(
+          (enrollments ?? []).map((e: any) => e.group_id).filter(Boolean),
+        ),
+      ) as string[];
+
+      if (groupIds.length > 0) {
+        const groupInstructorRows = await batchQuery(
+          "group_instructor",
+          "group_id, instructor_person_id",
+          groupIds,
+          "group_id",
+        );
+
+        const assignedInstructorIds = Array.from(
+          new Set(
+            groupInstructorRows
+              .map((r: any) => r.instructor_person_id)
+              .filter(Boolean),
+          ),
+        ) as string[];
+
+        // Load names for any instructors not already in instructorNameById
+        const missingIds = assignedInstructorIds.filter((id) => !instructorNameById.has(id));
+        if (missingIds.length > 0) {
+          const missingPersonRows = await batchQuery("person", "person_id, first_name, last_name", missingIds, "person_id");
+          missingPersonRows.forEach((row: any) => {
+            instructorNameById.set(
+              row.person_id,
+              `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Instructor",
+            );
+          });
+        }
+
+        // Map group_id → instructor_person_ids
+        const instructorIdsByGroupId = new Map<string, string[]>();
+        groupInstructorRows.forEach((row: any) => {
+          if (!row.group_id || !row.instructor_person_id) return;
+          const existing = instructorIdsByGroupId.get(row.group_id) ?? [];
+          existing.push(row.instructor_person_id);
+          instructorIdsByGroupId.set(row.group_id, existing);
+        });
+
+        // Map member_id → assigned instructor names via enrollment group_id
+        (enrollments ?? []).forEach((row: any) => {
+          if (!row.group_id) return;
+          const instructorIds = instructorIdsByGroupId.get(row.group_id) ?? [];
+          instructorIds.forEach((instructorId) => {
+            const name = instructorNameById.get(instructorId);
+            if (!name) return;
+            const existing = assignedInstructorNamesByMemberId.get(row.member_id) ?? [];
+            if (!existing.includes(name)) existing.push(name);
+            assignedInstructorNamesByMemberId.set(row.member_id, existing);
+          });
+        });
+      }
+    } catch (err) {
+      console.warn("[all-swimmers] Failed to load group instructor assignments:", err);
     }
 
     const evaluationSummaryByMemberId = new Map<
@@ -1007,8 +1071,12 @@ export async function GET(request: NextRequest) {
           lastEvaluationDate: formatDate(
             evaluationSummaryByMemberId.get(member.member_id)?.lastEvaluationDate,
           ),
-          instructors:
-            evaluationSummaryByMemberId.get(member.member_id)?.instructors ?? [],
+          instructors: Array.from(
+            new Set([
+              ...(evaluationSummaryByMemberId.get(member.member_id)?.instructors ?? []),
+              ...(assignedInstructorNamesByMemberId.get(member.member_id) ?? []),
+            ]),
+          ),
         },
         hasCurrentInstructorEvaluation: currentInstructorEvaluatedMemberIds.has(member.member_id),
         isMySwimmer: mySwimmerIds.has(member.member_id),
