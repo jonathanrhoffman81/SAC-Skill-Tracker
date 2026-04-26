@@ -393,7 +393,6 @@ export default function AdminInstructorEvaluations({
     const [swimmers, setSwimmers] = useState<DashboardSwimmer[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [pageInput, setPageInput] = useState("1");
-    const [isProficiencyScaleOpen, setIsProficiencyScaleOpen] = useState(false);
     const [activeEvaluationClassIdBySwimmer, setActiveEvaluationClassIdBySwimmer] = useState<Record<string, string | null>>({});
     const [editingEvaluationBySwimmer, setEditingEvaluationBySwimmer] = useState<Record<string, {
         evaluationId: string;
@@ -1597,70 +1596,58 @@ export default function AdminInstructorEvaluations({
             )}
 
             {showProficiencyScaleSection && (
-                <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <button
-                        type="button"
-                        onClick={() => setIsProficiencyScaleOpen((current) => !current)}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
-                    >
-                        <div>
-                            <p className="text-sm font-semibold text-gray-900">Proficiency Scale</p>
-                            <p className="mt-1 text-xs text-gray-500">
-                                Reference guide for the 0 to 4 evaluation ratings.
-                            </p>
-                        </div>
-                        <svg
-                            className={`h-5 w-5 flex-shrink-0 text-gray-500 transition-transform ${isProficiencyScaleOpen ? "rotate-180" : ""}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 9l-7 7-7-7"
-                            />
-                        </svg>
-                    </button>
-
-                    {isProficiencyScaleOpen && (
-                        <div className="border-t border-gray-100 px-4 py-4 sm:px-5">
-                            <ul className="space-y-2">
-                                <li className="flex gap-3 text-sm text-gray-700">
-                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                                        0
-                                    </span>
-                                    <span>Unable to attempt the skill</span>
-                                </li>
-                                <li className="flex gap-3 text-sm text-gray-700">
-                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                                        1
-                                    </span>
-                                    <span>Unable to show skill without significant support</span>
-                                </li>
-                                <li className="flex gap-3 text-sm text-gray-700">
-                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                                        2
-                                    </span>
-                                    <span>Inconsistently or with support is able to demonstrate the skill</span>
-                                </li>
-                                <li className="flex gap-3 text-sm text-gray-700">
-                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                                        3
-                                    </span>
-                                    <span>Consistently demonstrates application of the skill</span>
-                                </li>
-                                <li className="flex gap-3 text-sm text-gray-700">
-                                    <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
-                                        4
-                                    </span>
-                                    <span>Demonstrates complete understanding of the skill</span>
-                                </li>
-                            </ul>
-                        </div>
-                    )}
-                </div>
+                <section className="pt-2">
+                    <details className="group">
+                        <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-800">
+                            <span>Proficiency scale</span>
+                            <svg
+                                className="h-3 w-3 flex-shrink-0 transform transition-transform group-open:rotate-180"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 9l-7 7-7-7"
+                                />
+                            </svg>
+                        </summary>
+                        <ul className="mt-3 space-y-2">
+                            <li className="flex gap-3 text-sm text-gray-700">
+                                <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                    0
+                                </span>
+                                <span>Unable to attempt the skill</span>
+                            </li>
+                            <li className="flex gap-3 text-sm text-gray-700">
+                                <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                    1
+                                </span>
+                                <span>Unable to show skill without significant support</span>
+                            </li>
+                            <li className="flex gap-3 text-sm text-gray-700">
+                                <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                    2
+                                </span>
+                                <span>Inconsistently or with support is able to demonstrate the skill</span>
+                            </li>
+                            <li className="flex gap-3 text-sm text-gray-700">
+                                <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                    3
+                                </span>
+                                <span>Consistently demonstrates application of the skill</span>
+                            </li>
+                            <li className="flex gap-3 text-sm text-gray-700">
+                                <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                                    4
+                                </span>
+                                <span>Demonstrates complete understanding of the skill</span>
+                            </li>
+                        </ul>
+                    </details>
+                </section>
             )}
 
             <div className="relative overflow-visible rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
