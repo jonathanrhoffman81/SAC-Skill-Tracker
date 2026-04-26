@@ -3,31 +3,41 @@
 /**
  * Global auth-state listener.
  *
- * Catches every realistic way a session can die while a page is mounted:
+ * Catches every realistic way a session can change underneath a mounted
+ * page:
  *   1. SIGNED_OUT event — explicit sign-out, cross-tab sign-out, or a
  *      failed auto-refresh that supabase-js clears internally.
- *   2. Periodic poll (every 30s) — same-tab localStorage deletion (e.g.
+ *   2. SIGNED_IN with a different user — another tab on the same browser
+ *      logged in as a *different human*, overwriting the shared
+ *      localStorage session. Without this guard, the current tab keeps
+ *      rendering its old user's UI but every subsequent API call goes
+ *      out under the new user's token. We bounce to /login with a
+ *      switched_account reason so they can sign back in for this tab.
+ *      (A SAME human switching active role does NOT fire SIGNED_IN —
+ *      role switching only updates the activeRole localStorage key —
+ *      so this works correctly for users who hold multiple roles.)
+ *   3. Periodic poll (every 30s) — same-tab localStorage deletion (e.g.
  *      a dev nuking the token in DevTools, or the user using a browser
  *      extension) is NOT surfaced by any Supabase event because the
  *      in-memory session still looks valid. A cheap interval check on
  *      the sb-*-auth-token key closes that gap.
- *   3. visibilitychange — when a backgrounded tab becomes visible again,
+ *   4. visibilitychange — when a backgrounded tab becomes visible again,
  *      re-check immediately so the user doesn't have to wait for the
  *      next poll tick after re-focusing (browsers throttle hidden-tab
  *      intervals heavily).
- *   4. storage event — other-tab sign-outs (user clicks Logout in tab A,
- *      tab B should redirect too). onAuthStateChange already fires for
- *      this in most cases but storage is a cheap safety net.
+ *   5. storage event — other-tab token swaps. onAuthStateChange already
+ *      fires for these in most cases but storage is a cheap safety net.
  *
  * Mounted once at the root layout so it runs on every page, including
  * ones that never call the API.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hasLocalSupabaseAuthToken } from '@/lib/clientAuth';
 
 const EXPIRED_PATH = '/login?reason=session_expired';
+const SWITCHED_PATH = '/login?reason=switched_account';
 const POLL_INTERVAL_MS = 30_000;
 
 /** Routes that don't require a session. Skipping the session-gone check on
@@ -43,7 +53,7 @@ function isOnPublicPath(): boolean {
   );
 }
 
-function redirectIfNotOnPublicPath() {
+function redirectTo(target: string) {
   if (typeof window === 'undefined') return;
   if (isOnPublicPath()) return;
   try {
@@ -53,34 +63,60 @@ function redirectIfNotOnPublicPath() {
     // storage may throw in private browsing — continue to the redirect anyway.
   }
   // replace (not assign) so the dead page doesn't sit in history.
-  window.location.replace(EXPIRED_PATH);
+  window.location.replace(target);
 }
 
 function checkSessionFreshness() {
   if (isOnPublicPath()) return;
   if (!hasLocalSupabaseAuthToken()) {
-    redirectIfNotOnPublicPath();
+    redirectTo(EXPIRED_PATH);
   }
 }
 
 export default function AuthListener() {
+  // The auth.users.id this tab booted as. We compare against this on every
+  // SIGNED_IN to detect "another human signed in on a different tab and
+  // overwrote our shared localStorage session".
+  const sessionUserIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!supabase) return;
     if (typeof window === 'undefined') return;
 
-    // 1. Supabase's own events (SIGNED_OUT, failed refresh, etc.)
-    const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        redirectIfNotOnPublicPath();
-      }
+    // Capture the initial user_id so we have a baseline to compare against.
+    void supabase.auth.getSession().then(({ data }) => {
+      sessionUserIdRef.current = data.session?.user?.id ?? null;
     });
 
-    // 2. Periodic idle-session poll — catches same-tab localStorage
+    // 1 + 2: Supabase's own events.
+    const { data: subscription } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          sessionUserIdRef.current = null;
+          redirectTo(EXPIRED_PATH);
+          return;
+        }
+
+        if (event === 'SIGNED_IN') {
+          const incomingUserId = session?.user?.id ?? null;
+          const knownUserId = sessionUserIdRef.current;
+          if (knownUserId && incomingUserId && knownUserId !== incomingUserId) {
+            // Different human took over the shared session. Bail.
+            redirectTo(SWITCHED_PATH);
+            return;
+          }
+          // First sign-in OR same user (token refresh, role switch, etc.) —
+          // just track the latest id.
+          sessionUserIdRef.current = incomingUserId ?? knownUserId;
+        }
+      },
+    );
+
+    // 3. Periodic idle-session poll — catches same-tab localStorage
     //    deletion that no Supabase event fires for.
     const intervalId = window.setInterval(checkSessionFreshness, POLL_INTERVAL_MS);
 
-    // 3. Re-check on visibility change — hidden-tab intervals are throttled,
-    //    so the first check after re-focus should be eager, not lazy.
+    // 4. Re-check on visibility change.
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         checkSessionFreshness();
@@ -88,20 +124,22 @@ export default function AuthListener() {
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
-    // 4. Other-tab localStorage changes (sign-out in tab A → tab B redirects).
+    // 5. Cross-tab storage events on the auth-token key.
     const onStorage = (event: StorageEvent) => {
       if (!event.key) return;
       if (!/^sb-.*-auth-token$/.test(event.key)) return;
-      // New value null means the key was removed.
       if (event.newValue === null) {
-        redirectIfNotOnPublicPath();
+        // Removed → sign-out elsewhere.
+        sessionUserIdRef.current = null;
+        redirectTo(EXPIRED_PATH);
       }
+      // Value-changed (different user logging in) is handled by the
+      // SIGNED_IN branch above — supabase-js fires SIGNED_IN when its
+      // storage adapter sees the value swap.
     };
     window.addEventListener('storage', onStorage);
 
-    // Initial check on mount — handles the case where the tab was loaded
-    // after the session had already been nuked (e.g. user opens a
-    // bookmark in a new window after clearing site data).
+    // Initial check on mount.
     checkSessionFreshness();
 
     return () => {
