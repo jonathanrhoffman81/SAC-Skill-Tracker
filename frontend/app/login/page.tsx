@@ -28,17 +28,20 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
-  const [expiredNotice, setExpiredNotice] = useState(false);
+  // null when there's no reason; otherwise either "expired" or "switched".
+  const [signOutReason, setSignOutReason] = useState<
+    "expired" | "switched" | null
+  >(null);
 
-  // Read ?reason=session_expired directly from window.location. Avoids
-  // useSearchParams(), which requires the page to be wrapped in <Suspense>
-  // during static pre-rendering and was failing the Vercel build.
+  // Read ?reason=... directly from window.location. Avoids useSearchParams(),
+  // which requires the page to be wrapped in <Suspense> during static
+  // pre-rendering and was failing the Vercel build.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("reason") === "session_expired") {
-      setExpiredNotice(true);
-    }
+    const reason = params.get("reason");
+    if (reason === "session_expired") setSignOutReason("expired");
+    else if (reason === "switched_account") setSignOutReason("switched");
   }, []);
 
   const handleForgotPassword = async () => {
@@ -264,13 +267,25 @@ export default function Login() {
           Swimming Progress Dashboard
         </p>
 
-        {expiredNotice && (
+        {signOutReason === "expired" && (
           <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
             <p className="text-sm font-medium text-amber-800">
               Your session expired
             </p>
             <p className="mt-1 text-xs text-amber-700">
               Please sign in again to continue.
+            </p>
+          </div>
+        )}
+
+        {signOutReason === "switched" && (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              You were signed out
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              A different account signed in on another tab. Please sign in
+              again to continue working in this tab.
             </p>
           </div>
         )}
