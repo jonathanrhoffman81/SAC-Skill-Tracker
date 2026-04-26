@@ -92,7 +92,7 @@ export default function EvaluationForm({
     setToasts((prev) => [...prev, { id, message, type }]);
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 3500);
+    }, 6000);
   };
 
   useEffect(() => {
@@ -173,6 +173,19 @@ export default function EvaluationForm({
         .filter((entry) => entry.note.length > 0),
     [skillNotesBySkillId, skills]
   );
+
+  const extraSkillNoteEntriesForEdit = useMemo(() => {
+    if (!editingEvaluation) {
+      return [];
+    }
+
+    return skillNoteEntries.filter((entry) => {
+      if (!editingEvaluation.isSkillNote || !editingEvaluation.skillId) {
+        return true;
+      }
+      return entry.skillId !== editingEvaluation.skillId;
+    });
+  }, [editingEvaluation, skillNoteEntries]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -267,6 +280,23 @@ export default function EvaluationForm({
         });
 
         await parseJsonPayload(editResponse);
+
+        if (extraSkillNoteEntriesForEdit.length > 0) {
+          const addSkillNotesResponse = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              classId: selectedClassId || editingEvaluation.classId || undefined,
+              skillNotes: extraSkillNoteEntriesForEdit.map((entry) => ({
+                skillId: entry.skillId,
+                note: entry.note,
+              })),
+            }),
+          });
+
+          const addSkillNotesPayload = await parseJsonPayload(addSkillNotesResponse);
+          createdEvaluations = addSkillNotesPayload.createdEvaluations ?? [];
+        }
       } else {
         const response = await fetch(`/api/instructor/swimmers/${swimmerId}`, {
           method: 'POST',
@@ -306,16 +336,15 @@ export default function EvaluationForm({
             classId: selectedClassId || undefined,
             note: editingEvaluation?.isSkillNote ? undefined : trimmedNote || undefined,
             skillNotes: editingEvaluation
-              ? (editingEvaluation.isSkillNote && editingEvaluation.skillId
-                ? skills
-                  .filter((skill) => skill.id === editingEvaluation.skillId)
-                  .map((skill) => ({
-                    skillId: skill.id,
-                    skillName: skill.name,
-                    note: editingSkillNoteText,
-                  }))
-                  .filter((entry) => entry.note.length > 0)
-                : [])
+              ? skills
+                .map((skill) => ({
+                  skillId: skill.id,
+                  skillName: skill.name,
+                  note: editingEvaluation.isSkillNote && editingEvaluation.skillId === skill.id
+                    ? editingSkillNoteText
+                    : (skillNotesBySkillId[skill.id]?.trim() ?? ''),
+                }))
+                .filter((entry) => entry.note.length > 0)
               : skillNoteEntries,
             skillUpdates: changedSkillUpdates,
             savedAt,
@@ -335,11 +364,11 @@ export default function EvaluationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
-      <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
+      <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
+            className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${
               toast.type === 'success'
                 ? 'border-green-200 bg-green-50 text-green-800'
                 : 'border-red-200 bg-red-50 text-red-800'
@@ -361,26 +390,6 @@ export default function EvaluationForm({
               : 'All organization skills are shown below. Save only the changes you made.'}
           </p>
         </div>
-
-        {classes.length > 0 && (
-          <div className="w-full sm:w-72">
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Class context for note
-            </label>
-            <select
-              value={selectedClassId}
-              onChange={(event) => setSelectedClassId(event.target.value)}
-              disabled={viewOnly}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {classes.map((classItem) => (
-                <option key={classItem.id} value={classItem.id}>
-                  {classItem.name} - {classItem.schedule}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       <div className="space-y-3">
@@ -444,27 +453,25 @@ export default function EvaluationForm({
               </div>
 
               <div className="mt-3">
-                {(!editingEvaluation || (editingEvaluation.isSkillNote && editingEvaluation.skillId === skill.id)) && (
-                  <>
-                    <label className="mb-1 block text-xs font-medium text-gray-700">
-                      Skill note
-                    </label>
-                    <textarea
-                      value={skillNotesBySkillId[skill.id] ?? ''}
-                      onChange={(event) => {
-                        setSkillNotesBySkillId((prev) => ({
-                          ...prev,
-                          [skill.id]: event.target.value,
-                        }));
-                        setSuccessMessage('');
-                      }}
-                      placeholder={`Optional note for ${skill.name}`}
-                      rows={2}
-                      disabled={viewOnly}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </>
-                )}
+                <>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">
+                    Skill note
+                  </label>
+                  <textarea
+                    value={skillNotesBySkillId[skill.id] ?? ''}
+                    onChange={(event) => {
+                      setSkillNotesBySkillId((prev) => ({
+                        ...prev,
+                        [skill.id]: event.target.value,
+                      }));
+                      setSuccessMessage('');
+                    }}
+                    placeholder={`Optional note for ${skill.name}`}
+                    rows={2}
+                    disabled={viewOnly}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </>
               </div>
             </div>
           );

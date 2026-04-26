@@ -612,7 +612,7 @@ export default function AdminDashboard() {
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 3500);
+    }, 6000);
   };
 
   const validTabIds = useMemo(
@@ -1712,11 +1712,11 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          <div className="fixed top-4 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none">
+          <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto rounded-lg border px-3 py-2 shadow-lg text-xs sm:text-sm ${
+                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${
                   toast.type === "success"
                     ? "bg-green-50 border-green-200 text-green-800"
                     : "bg-red-50 border-red-200 text-red-800"
@@ -1728,7 +1728,7 @@ export default function AdminDashboard() {
           </div>
 
           {entityDeleteDialog.show && (
-            <div className="fixed top-20 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
+            <div className="fixed top-32 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4 sm:top-36">
               <p className="text-sm font-semibold text-gray-900">
                 Confirm Delete
               </p>
