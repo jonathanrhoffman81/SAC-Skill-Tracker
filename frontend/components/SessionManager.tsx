@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { authFetch } from '@/lib/clientAuth';
 
 interface SessionRecord {
@@ -339,27 +340,30 @@ export default function SessionManager({ onRefresh }: SessionManagerProps) {
                 </div>
             )}
 
-            {deleteDialog.show && (
-                <div className="fixed top-32 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4 sm:top-36">
-                    <p className="text-sm font-semibold text-gray-900">Delete session</p>
-                    <p className="mt-1 text-xs sm:text-sm text-gray-600">
-                        Delete <span className="font-medium">{deleteDialog.sessionName}</span>?
-                    </p>
-                    <div className="mt-3 flex justify-end gap-2">
-                        <button
-                            onClick={() => setDeleteDialog({ show: false, sessionId: null, sessionName: '' })}
-                            className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleDelete}
-                            className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
-                        >
-                            Delete
-                        </button>
+            {deleteDialog.show && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 px-4">
+                    <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4">
+                        <p className="text-sm font-semibold text-gray-900">Delete session</p>
+                        <p className="mt-1 text-xs sm:text-sm text-gray-600">
+                            Delete <span className="font-medium">{deleteDialog.sessionName}</span>?
+                        </p>
+                        <div className="mt-3 flex justify-end gap-2">
+                            <button
+                                onClick={() => setDeleteDialog({ show: false, sessionId: null, sessionName: '' })}
+                                className="px-3 py-1.5 text-xs sm:text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleDelete}
+                                className="px-3 py-1.5 text-xs sm:text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
+                            >
+                                Delete
+                            </button>
+                        </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">

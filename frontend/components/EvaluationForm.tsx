@@ -80,6 +80,7 @@ export default function EvaluationForm({
   const [progressBySkillId, setProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
   const [initialProgressBySkillId, setInitialProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
   const [skillNotesBySkillId, setSkillNotesBySkillId] = useState<Record<string, string>>({});
+  const [expandedNoteSkillIds, setExpandedNoteSkillIds] = useState<Set<string>>(new Set());
   const [selectedClassId, setSelectedClassId] = useState('');
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -117,6 +118,7 @@ export default function EvaluationForm({
       setSkillNotesBySkillId({
         [editingEvaluation.skillId]: editingEvaluation.feedback ?? '',
       });
+      setExpandedNoteSkillIds(new Set([editingEvaluation.skillId]));
       return;
     }
 
@@ -361,7 +363,7 @@ export default function EvaluationForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">
         {toasts.map((toast) => (
           <div
@@ -377,18 +379,9 @@ export default function EvaluationForm({
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900">Skill Evaluation</h3>
-          <p className="text-xs text-gray-500">
-            {viewOnly
-              ? 'Viewing this evaluation in read-only mode.'
-              : editingEvaluation
-              ? 'Update this evaluation and any related skill progress changes.'
-              : 'All organization skills are shown below. Save only the changes you made.'}
-          </p>
-        </div>
-      </div>
+      {viewOnly && (
+        <p className="text-xs text-gray-500">Viewing this evaluation in read-only mode.</p>
+      )}
 
       <div className="space-y-3">
         {skills.map((skill) => {
@@ -399,36 +392,25 @@ export default function EvaluationForm({
               key={skill.id}
               className="rounded-lg border border-gray-200 bg-white px-3 py-3 shadow-sm sm:px-4"
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{skill.name}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                    <span
-                      className={`rounded-full px-2 py-0.5 ${progress === 4
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-gray-100 text-gray-600'
-                        }`}
-                    >
-                      Proficiency: {proficiencyToPercentage(progress)}%
-                    </span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 leading-snug">{skill.name}</p>
                     {skill.dateAcquired && (
-                      <span>Acquired on {skill.dateAcquired}</span>
+                      <p className="mt-0.5 text-xs text-gray-400">Acquired {skill.dateAcquired}</p>
                     )}
                   </div>
                 </div>
 
-                <div className="w-full sm:w-auto">
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Progress
-                  </label>
-                  <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-1 sm:overflow-visible">
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-gray-700">Progress</p>
+                  <div className="flex flex-wrap gap-1.5">
                     {PROGRESS_OPTIONS.map((option) => {
                       const isActive = progress === option.value;
-
                       return (
                         <label
                           key={option.value}
-                          className={`inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${isActive
+                          className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${isActive
                             ? 'border-blue-600 bg-blue-50 text-blue-700'
                             : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
                             }`}
@@ -440,7 +422,7 @@ export default function EvaluationForm({
                             checked={isActive}
                             onChange={() => handleProgressChange(skill.id, option.value)}
                             disabled={viewOnly}
-                            className="h-3.5 w-3.5 accent-blue-600"
+                            className="h-3 w-3 accent-blue-600"
                           />
                           <span>{option.value}</span>
                         </label>
@@ -448,28 +430,51 @@ export default function EvaluationForm({
                     })}
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-3">
-                <>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Skill note
-                  </label>
-                  <textarea
-                    value={skillNotesBySkillId[skill.id] ?? ''}
-                    onChange={(event) => {
-                      setSkillNotesBySkillId((prev) => ({
-                        ...prev,
-                        [skill.id]: event.target.value,
-                      }));
-                      setSuccessMessage('');
-                    }}
-                    placeholder={`Optional note for ${skill.name}`}
-                    rows={2}
-                    disabled={viewOnly}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </>
+                {!viewOnly && (
+                  <div>
+                    {expandedNoteSkillIds.has(skill.id) || skillNotesBySkillId[skill.id] ? (
+                      <>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Skill note</label>
+                        <textarea
+                          value={skillNotesBySkillId[skill.id] ?? ''}
+                          onChange={(event) => {
+                            setSkillNotesBySkillId((prev) => ({
+                              ...prev,
+                              [skill.id]: event.target.value,
+                            }));
+                            setSuccessMessage('');
+                          }}
+                          placeholder={`Optional note for ${skill.name}`}
+                          rows={2}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedNoteSkillIds((prev) => new Set([...prev, skill.id]))}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        + Add note
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {viewOnly && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">Skill note</label>
+                    <textarea
+                      value={skillNotesBySkillId[skill.id] ?? ''}
+                      onChange={() => {}}
+                      placeholder={`Optional note for ${skill.name}`}
+                      rows={2}
+                      disabled
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           );
