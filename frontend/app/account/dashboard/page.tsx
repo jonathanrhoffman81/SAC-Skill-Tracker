@@ -60,6 +60,10 @@ function hexToRgba(hexColor: string, alpha: number) {
 
 const DASHBOARD_CACHE_PREFIX = "account-dashboard-cache:v5:";
 const SWIMMER_PROFILE_CACHE_PREFIX = "account-swimmer-profile-cache:v5:";
+/** Org logo URL stays in sessionStorage so re-mounting the dashboard
+ *  (e.g. returning from a swimmer profile) doesn't flicker through a
+ *  null state while we wait on the network fetch. */
+const LOGO_CACHE_KEY = "account-org-logo-url";
 
 interface SwimmerCard {
   id: string;
@@ -191,7 +195,14 @@ export default function AccountDashboard() {
   const [openSwimmerIds, setOpenSwimmerIds] = useState<string[]>([]);
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
   const [showInactive, setShowInactive] = useState(false);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return sessionStorage.getItem(LOGO_CACHE_KEY);
+    } catch {
+      return null;
+    }
+  });
   const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(
     null,
   );
@@ -349,17 +360,25 @@ export default function AccountDashboard() {
   }, [activeSwimmers]);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchLogo() {
       try {
         const res = await fetch("/api/public/get-logo");
         const data = await res.json();
         setLogoUrl(data.publicUrl ?? null);
       } catch (err) {
-        console.error("Failed to fetch logo", err);
-        setLogoUrl(null);
+        if (err instanceof SessionExpiredError) return;
+        // Network failure — leave the cached URL as-is so the next
+        // mount still renders something. Only clear on an explicit
+        // null response.
       }
     }
     fetchLogo();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   function getOverallPct(skills: SkillItem[]) {
