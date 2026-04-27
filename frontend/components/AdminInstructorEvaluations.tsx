@@ -384,7 +384,7 @@ export default function AdminInstructorEvaluations({
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-    const [isFiltersOpen, setIsFiltersOpen] = useState(true);
+    const [isFiltersOpen, setIsFiltersOpen] = useState(false);
     const [classFilter, setClassFilter] = useState("all");
     const [instructorFilter, setInstructorFilter] = useState(initialInstructorFilter ?? "all");
     const [groupFilter, setGroupFilter] = useState("all");
