@@ -13,7 +13,9 @@ import {
   getAvailableRoles,
   getDashboardPathsForRoles,
   saveActiveRole,
+  saveAvailableRoles,
 } from "@/lib/authRoles";
+import { authFetch } from "@/lib/clientAuth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -34,10 +36,29 @@ function useRoleDashboards(currentRole: string) {
   const [hasSuperAdmin, setHasSuperAdmin] = useState(false);
 
   useEffect(() => {
-    const roles = getAvailableRoles();
-    setHasSuperAdmin(roles.includes("super-admin"));
-    const all = getDashboardPathsForRoles(roles);
-    if (all.length > 0) setDashboards(all);
+    // Seed from sessionStorage immediately so the UI isn't blank on first render.
+    const cached = getAvailableRoles();
+    if (cached.length > 0) {
+      setHasSuperAdmin(cached.includes("super-admin"));
+      setDashboards(getDashboardPathsForRoles(cached));
+    }
+
+    // Then re-fetch from the server so newly-granted roles are picked up
+    // without requiring the user to log out and back in.
+    authFetch("/api/auth/resolve-role")
+      .then((res) => res.json())
+      .then((payload: { roles?: string[] }) => {
+        const fresh: string[] = Array.isArray(payload?.roles)
+          ? payload.roles
+          : [];
+        if (fresh.length === 0) return;
+        saveAvailableRoles(fresh);
+        setHasSuperAdmin(fresh.includes("super-admin"));
+        setDashboards(getDashboardPathsForRoles(fresh));
+      })
+      .catch(() => {
+        // Network / auth errors — silently fall back to cached roles.
+      });
   }, [currentRole]);
 
   return { dashboards, hasSuperAdmin };

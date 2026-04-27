@@ -125,7 +125,7 @@ export default function DropdownButton({
                     style={{ maxHeight: panelMaxHeight }}
                 >
                     {options.map((option) => {
-                        const isSelected = option.value === value;
+                        const isSelected = option.value === value && !option.disabled;
 
                         const optionClassName =
                             ui === "app"

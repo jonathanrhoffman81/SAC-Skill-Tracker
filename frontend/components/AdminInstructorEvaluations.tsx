@@ -384,7 +384,7 @@ export default function AdminInstructorEvaluations({
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-    const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+    const [isFiltersOpen, setIsFiltersOpen] = useState(true);
     const [classFilter, setClassFilter] = useState("all");
     const [instructorFilter, setInstructorFilter] = useState(initialInstructorFilter ?? "all");
     const [groupFilter, setGroupFilter] = useState("all");
@@ -479,6 +479,7 @@ export default function AdminInstructorEvaluations({
     const skipInitialPersistRef = useRef(true);
     const pendingRestoredScrollYRef = useRef<number | null>(null);
     const suppressAutoFocusRef = useRef(false);
+    const pendingScrollToSwimmerRef = useRef<string | null>(null);
     const virtualListContainerRef = useRef<HTMLDivElement | null>(null);
     const [virtualScrollTop, setVirtualScrollTop] = useState(0);
     const [virtualContainerHeight, setVirtualContainerHeight] = useState(720);
@@ -895,6 +896,21 @@ export default function AdminInstructorEvaluations({
         });
     }, [openSwimmerId, swimmers, listView]);
 
+    // After a needs-eval click expands a swimmer card + opens the eval form,
+    // scroll smoothly to the card so the form is visible.
+    useEffect(() => {
+        const swimmerId = pendingScrollToSwimmerRef.current;
+        if (!swimmerId) return;
+
+        const targetRow = swimmerRowRefs.current[swimmerId];
+        if (!targetRow) return;
+
+        pendingScrollToSwimmerRef.current = null;
+        setTimeout(() => {
+            targetRow.scrollIntoView({ block: "start", behavior: "smooth" });
+        }, 50);
+    }, [activeEvaluationClassIdBySwimmer]);
+
     useEffect(() => {
         const restoredScrollY = pendingRestoredScrollYRef.current;
         if (restoredScrollY === null) return;
@@ -1296,22 +1312,29 @@ export default function AdminInstructorEvaluations({
     const instructorFilterOptions = useMemo(() => {
         const optionMap = new Map<string, string>();
 
+        // Track labels already covered by fallback (person_id-keyed) options
+        // so we don't add a duplicate name-keyed entry for the same instructor.
+        const knownLabels = new Set<string>();
+
         fallbackInstructorOptions.forEach((option) => {
             optionMap.set(option.value, option.label);
+            knownLabels.add(option.label.trim().toLowerCase());
         });
 
         swimmers.forEach((swimmer) => {
             swimmer.evaluationSummary.instructors.forEach((instructorName) => {
                 const normalized = instructorName.trim();
-                if (!normalized || optionMap.has(normalized)) return;
+                if (!normalized || optionMap.has(normalized) || knownLabels.has(normalized.toLowerCase())) return;
                 optionMap.set(normalized, normalized);
+                knownLabels.add(normalized.toLowerCase());
             });
 
             (swimmer.classEvaluations ?? []).forEach((classSummary) => {
                 classSummary.instructors.forEach((instructorName) => {
                     const normalized = instructorName.trim();
-                    if (!normalized || optionMap.has(normalized)) return;
+                    if (!normalized || optionMap.has(normalized) || knownLabels.has(normalized.toLowerCase())) return;
                     optionMap.set(normalized, normalized);
+                    knownLabels.add(normalized.toLowerCase());
                 });
             });
         });
@@ -1583,7 +1606,26 @@ export default function AdminInstructorEvaluations({
                                     <button
                                         key={`needs-eval:${swimmer.id}`}
                                         type="button"
-                                        onClick={() => handleSwimmerClick(swimmer.id)}
+                                        onClick={() => {
+                                            // Open the swimmer card
+                                            handleSwimmerClick(swimmer.id);
+                                            // Auto-open the eval form for the closest class and scroll to it
+                                            if (closestClass?.id) {
+                                                pendingScrollToSwimmerRef.current = swimmer.id;
+                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                    ...prev,
+                                                    [swimmer.id]: closestClass.id,
+                                                }));
+                                                setViewingEvaluationBySwimmer((prev) => ({
+                                                    ...prev,
+                                                    [swimmer.id]: null,
+                                                }));
+                                                setEditingEvaluationBySwimmer((prev) => ({
+                                                    ...prev,
+                                                    [swimmer.id]: null,
+                                                }));
+                                            }
+                                        }}
                                         className="rounded-lg border border-blue-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
                                     >
                                         <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
@@ -1655,212 +1697,201 @@ export default function AdminInstructorEvaluations({
                 </section>
             )}
 
-            <div className="relative overflow-visible rounded-xl border border-gray-200 bg-white p-4 sm:p-6 shadow-sm">
-                <div className="mb-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
+                    {/* Row 1: search + filter toggle button */}
                     <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900">{listViewTitle}</p>
-                        {isLoading && (
-                            <span className="inline-flex h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600" aria-label="Loading" />
-                        )}
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                        <div className="space-y-1 lg:col-span-2">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Search</p>
-                            <input
-                                type="text"
-                                placeholder="Search swimmers..."
-                                value={searchQuery}
-                                onChange={(event) => {
-                                    setSearchQuery(event.target.value);
-                                    setCurrentPage(1);
-                                }}
-                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Filters</p>
-                            <button
-                                type="button"
-                                onClick={() => setIsFiltersOpen((current) => !current)}
-                                className="flex w-full items-center justify-between rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm hover:bg-gray-50 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                aria-expanded={isFiltersOpen}
-                                aria-controls="evaluation-filters-panel"
-                            >
-                                <span>{isFiltersOpen ? "Hide filters" : "Show filters"}</span>
-                                <svg
-                                    className={`h-4 w-4 text-gray-500 transition-transform ${isFiltersOpen ? "rotate-180" : ""}`}
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 9l-7 7-7-7"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search swimmers..."
+                            value={searchQuery}
+                            onChange={(event) => {
+                                setSearchQuery(event.target.value);
+                                setCurrentPage(1);
+                            }}
+                            className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setIsFiltersOpen((current) => !current)}
+                            aria-expanded={isFiltersOpen}
+                            aria-controls="evaluation-filters-panel"
+                            aria-label={isFiltersOpen ? "Hide filters" : "Show filters"}
+                            className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                isFiltersOpen
+                                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                                    : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                            }`}
+                        >
+                            <svg className={`h-3.5 w-3.5 transition-transform ${isFiltersOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            Filters
+                        </button>
                     </div>
 
+                    {/* Row 2: filter dropdowns */}
                     {isFiltersOpen && (
-                        <div id="evaluation-filters-panel" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                            <div className="space-y-1">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">View</p>
-                            <DropdownButton
-                                value={listView}
-                                onChange={(value) => {
-                                    setListView(value as "overview" | "active-classes" | "past-classes" | "recent-evals" | "my-swimmers" | "needs-evaluation");
-                                    setCurrentPage(1);
-                                }}
-                                ui="app"
-                                options={[
-                                    { value: "overview", label: "All swimmers" },
-                                    { value: "needs-evaluation", label: "Needs evaluation" },
-                                    { value: "my-swimmers", label: "My swimmers" },
-                                    { value: "active-classes", label: "Active classes" },
-                                    { value: "past-classes", label: "Past classes" },
-                                    { value: "recent-evals", label: "Recent evaluations" },
-                                ]}
-                                ariaLabel="Select swimmer list view"
-                            />
+                        <div id="evaluation-filters-panel" className="mt-3 flex flex-wrap gap-3 border-t border-gray-200 pt-3">
+                            <div className="min-w-[130px] flex-1 space-y-1">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">View</p>
+                                <DropdownButton
+                                    value={listView}
+                                    onChange={(value) => {
+                                        setListView(value as typeof listView);
+                                        setCurrentPage(1);
+                                    }}
+                                    ui="app"
+                                    options={[
+                                        { value: "active-classes", label: "Active Classes" },
+                                        { value: "past-classes", label: "Past Classes" },
+                                        { value: "my-swimmers", label: "My Swimmers" },
+                                        { value: "needs-evaluation", label: "Needs Evaluation" },
+                                        { value: "recent-evals", label: "Recent Evals" },
+                                        { value: "overview", label: "All Swimmers" },
+                                    ]}
+                                    ariaLabel="Select view"
+                                />
                             </div>
-
-                            <div className="space-y-1">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Class</p>
-                            <DropdownButton
-                                value={classFilter}
-                                onChange={(value) => {
-                                    setClassFilter(value);
-                                    setCurrentPage(1);
-                                }}
-                                ui="app"
-                                options={classFilterOptions}
-                                ariaLabel="Filter swimmers by class"
-                            />
+                            <div className="min-w-[130px] flex-1 space-y-1">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Class</p>
+                                <DropdownButton
+                                    value={classFilter}
+                                    onChange={(value) => {
+                                        setClassFilter(value);
+                                        setCurrentPage(1);
+                                    }}
+                                    ui="app"
+                                    options={classFilterOptions}
+                                    ariaLabel="Filter swimmers by class"
+                                />
                             </div>
-
-                            <div className="space-y-1">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Instructor</p>
-                            <DropdownButton
-                                value={instructorFilter}
-                                onChange={(value) => {
-                                    setInstructorFilter(value);
-                                    setCurrentPage(1);
-                                }}
-                                ui="app"
-                                options={instructorFilterOptions}
-                                ariaLabel="Filter swimmers by instructor"
-                            />
+                            <div className="min-w-[130px] flex-1 space-y-1">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Instructor</p>
+                                <DropdownButton
+                                    value={instructorFilter}
+                                    onChange={(value) => {
+                                        setInstructorFilter(value);
+                                        setCurrentPage(1);
+                                    }}
+                                    ui="app"
+                                    options={instructorFilterOptions}
+                                    ariaLabel="Filter swimmers by instructor"
+                                />
                             </div>
-
-                            <div className="space-y-1">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Group</p>
-                            <DropdownButton
-                                value={groupFilter}
-                                onChange={(value) => {
-                                    setGroupFilter(value);
-                                    setCurrentPage(1);
-                                }}
-                                ui="app"
-                                options={groupFilterOptions}
-                                ariaLabel="Filter swimmers by group"
-                            />
+                            <div className="min-w-[120px] flex-1 space-y-1">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Group</p>
+                                <DropdownButton
+                                    value={groupFilter}
+                                    onChange={(value) => {
+                                        setGroupFilter(value);
+                                        setCurrentPage(1);
+                                    }}
+                                    ui="app"
+                                    options={groupFilterOptions}
+                                    ariaLabel="Filter swimmers by group"
+                                />
                             </div>
-
-                            <div className="space-y-1">
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Status</p>
-                            <DropdownButton
-                                value={statusFilter}
-                                onChange={(value) => {
-                                    setStatusFilter(value as "all" | "active" | "inactive");
-                                    setCurrentPage(1);
-                                }}
-                                ui="app"
-                                options={[
-                                    { value: "all", label: "All statuses" },
-                                    { value: "active", label: "Active" },
-                                    { value: "inactive", label: "Inactive" },
-                                ]}
-                                ariaLabel="Filter swimmers by status"
-                            />
-                        </div>
+                            <div className="min-w-[120px] flex-1 space-y-1">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Status</p>
+                                <DropdownButton
+                                    value={statusFilter}
+                                    onChange={(value) => {
+                                        setStatusFilter(value as "all" | "active" | "inactive");
+                                        setCurrentPage(1);
+                                    }}
+                                    ui="app"
+                                    options={[
+                                        { value: "all", label: "All statuses" },
+                                        { value: "active", label: "Active" },
+                                        { value: "inactive", label: "Inactive" },
+                                    ]}
+                                    ariaLabel="Filter swimmers by status"
+                                />
+                            </div>
                         </div>
                     )}
                 </div>
 
-                {!isLoading && error && (
-                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 sm:p-4">
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-3">
-                                <svg
-                                    className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600 sm:h-5 sm:w-5"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                    />
-                                </svg>
-                                <div className="min-w-0">
-                                    <p className="text-xs font-medium text-red-800 sm:text-sm">
-                                        Failed to load evaluations
-                                    </p>
-                                    <p className="mt-0.5 break-words text-[10px] text-red-700 sm:mt-1 sm:text-xs">
-                                        {error}
-                                    </p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() =>
-                                    loadData(undefined, undefined, {
-                                        forceRefresh: true,
-                                    })
-                                }
-                                className="whitespace-nowrap rounded-md bg-red-100 px-2 py-1 text-[10px] text-red-800 transition-colors hover:bg-red-200 sm:px-3 sm:py-1.5 sm:text-xs"
+                {/* Divider + list title */}
+                <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-4 pb-2">
+                    <p className="text-sm font-semibold text-gray-900">{listViewTitle}</p>
+                    {isLoading && (
+                        <span className="inline-flex h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600" aria-label="Loading" />
+                    )}
+                </div>
+
+            {!isLoading && error && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 sm:p-4">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-3">
+                            <svg
+                                className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600 sm:h-5 sm:w-5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
                             >
-                                Retry
-                            </button>
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                            </svg>
+                            <div className="min-w-0">
+                                <p className="text-xs font-medium text-red-800 sm:text-sm">
+                                    Failed to load evaluations
+                                </p>
+                                <p className="mt-0.5 break-words text-[10px] text-red-700 sm:mt-1 sm:text-xs">
+                                    {error}
+                                </p>
+                            </div>
                         </div>
+                        <button
+                            onClick={() =>
+                                loadData(undefined, undefined, {
+                                    forceRefresh: true,
+                                })
+                            }
+                            className="whitespace-nowrap rounded-md bg-red-100 px-2 py-1 text-[10px] text-red-800 transition-colors hover:bg-red-200 sm:px-3 sm:py-1.5 sm:text-xs"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <div
+                ref={virtualListContainerRef}
+                onScroll={shouldVirtualize
+                    ? (event) => setVirtualScrollTop(event.currentTarget.scrollTop)
+                    : undefined}
+                className={shouldVirtualize ? "max-h-[70vh] overflow-y-auto" : ""}
+            >
+                {isLoading && swimmersForRender.length === 0 && (
+                    <div className="space-y-3 animate-pulse">
+                        <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
+                        <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
+                        <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
                     </div>
                 )}
 
+                {shouldVirtualize && (
+                    <p className="mb-3 text-xs text-gray-500">
+                        Virtualized view enabled for {displayedSwimmers.length} swimmers.
+                    </p>
+                )}
+
                 <div
-                    ref={virtualListContainerRef}
-                    onScroll={shouldVirtualize
-                        ? (event) => setVirtualScrollTop(event.currentTarget.scrollTop)
+                    className="space-y-4"
+                    style={shouldVirtualize
+                        ? {
+                            position: "relative",
+                            height: `${virtualWindow.totalHeight}px`,
+                            minHeight: "100%",
+                        }
                         : undefined}
-                    className={shouldVirtualize ? "max-h-[70vh] overflow-y-auto" : ""}
                 >
-                    {isLoading && swimmersForRender.length === 0 && (
-                        <div className="space-y-3 animate-pulse">
-                            <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
-                            <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
-                            <div className="h-24 rounded-xl border border-gray-200 bg-gray-100"></div>
-                        </div>
-                    )}
-
-                    {shouldVirtualize && (
-                        <p className="mb-3 text-xs text-gray-500">
-                            Virtualized view enabled for {displayedSwimmers.length} swimmers.
-                        </p>
-                    )}
-
-                    <div
-                        className="space-y-4"
-                        style={shouldVirtualize
-                            ? {
-                                position: "relative",
-                                height: `${virtualWindow.totalHeight}px`,
-                                minHeight: "100%",
-                            }
-                            : undefined}
-                    >
                     {swimmersToRender.map((swimmer, renderedIndex) => {
                         const mastered = swimmer.skillSummary?.masteredSkills ?? swimmer.skills.filter((skill) => skill.mastered).length;
                         const totalSkills = swimmer.skillSummary?.totalSkills ?? swimmer.skills.length;
@@ -1921,13 +1952,13 @@ export default function AdminInstructorEvaluations({
                                                         onClick={(event) => {
                                                             event.stopPropagation();
                                                             persistState(window.scrollY);
-                                                        const returnTo =
-                                                            typeof window !== "undefined"
-                                                                ? `${window.location.pathname}${window.location.search}`
-                                                                : "/instructor/dashboard";
-                                                        router.push(`/instructor/swimmers/${swimmer.id}?returnTo=${encodeURIComponent(returnTo)}`);
-                                                    }}
-                                                >
+                                                            const returnTo =
+                                                                typeof window !== "undefined"
+                                                                    ? `${window.location.pathname}${window.location.search}`
+                                                                    : "/instructor/dashboard";
+                                                            router.push(`/instructor/swimmers/${swimmer.id}?returnTo=${encodeURIComponent(returnTo)}`);
+                                                        }}
+                                                    >
                                                         View full profile
                                                     </button>
                                                 </div>
@@ -2025,27 +2056,27 @@ export default function AdminInstructorEvaluations({
                                                                         <div className="min-w-0 flex-1">
                                                                             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                                                                 <div className="flex flex-wrap items-center gap-2">
-                                                                                <h4 className="text-sm font-semibold text-gray-900">
-                                                                                    {classItem.name}
-                                                                                </h4>
-                                                                                {isPastClass(classItem) ? (
-                                                                                    <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700">
-                                                                                        Past class
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                                                                                        Current class
-                                                                                    </span>
-                                                                                )}
-                                                                                {classSummary ? (
-                                                                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                                                                                        Evaluation recorded
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                                                                                        No evaluation yet
-                                                                                    </span>
-                                                                                )}
+                                                                                    <h4 className="text-sm font-semibold text-gray-900">
+                                                                                        {classItem.name}
+                                                                                    </h4>
+                                                                                    {isPastClass(classItem) ? (
+                                                                                        <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                                                                                            Past class
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                                                                            Current class
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {classSummary ? (
+                                                                                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                                            Evaluation recorded
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                                                                            No evaluation yet
+                                                                                        </span>
+                                                                                    )}
                                                                                 </div>
                                                                                 <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                                                                                     {latestEvaluationEntry && (
@@ -2131,22 +2162,22 @@ export default function AdminInstructorEvaluations({
                                                                                         </>
                                                                                     )}
                                                                                     {!latestEvaluationEntry && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => {
-                                                                                            setViewingEvaluationBySwimmer((prev) => ({
-                                                                                                ...prev,
-                                                                                                [swimmer.id]: null,
-                                                                                            }));
-                                                                                            setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                                                ...prev,
-                                                                                                [swimmer.id]: classItem.id,
-                                                                                            }));
-                                                                                        }}
-                                                                                        className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
-                                                                                    >
-                                                                                        {classSummary ? "Add Eval" : "Add Evaluation"}
-                                                                                    </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                setViewingEvaluationBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: null,
+                                                                                                }));
+                                                                                                setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                    ...prev,
+                                                                                                    [swimmer.id]: classItem.id,
+                                                                                                }));
+                                                                                            }}
+                                                                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+                                                                                        >
+                                                                                            {classSummary ? "Add Eval" : "Add Evaluation"}
+                                                                                        </button>
                                                                                     )}
                                                                                     {isSelectedForEvaluation && (
                                                                                         <button
@@ -2308,132 +2339,99 @@ export default function AdminInstructorEvaluations({
                             </div>
                         );
                     })}
+                </div>
+            </div>
+
+            {!isLoading && !error && !shouldVirtualize && totalFiltered > PAGE_SIZE && (
+                <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-gray-600 sm:text-sm">
+                        Showing {(safeCurrentPage - 1) * PAGE_SIZE + 1}
+                        {" - "}
+                        {Math.min(safeCurrentPage * PAGE_SIZE, totalFiltered)}
+                        {" of "}
+                        {totalFiltered} swimmers
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        <button
+                            type="button"
+                            disabled={safeCurrentPage <= 1 || isLoading}
+                            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Previous
+                        </button>
+                        <span className="text-xs text-gray-600 sm:text-sm">
+                            Page {safeCurrentPage} of {localTotalPages}
+                        </span>
+                        <input
+                            type="number"
+                            min={1}
+                            max={localTotalPages}
+                            value={pageInput}
+                            onChange={(event) => setPageInput(event.target.value)}
+                            onBlur={() => {
+                                const parsed = Number(pageInput);
+                                if (!Number.isFinite(parsed)) {
+                                    setPageInput(String(safeCurrentPage));
+                                    return;
+                                }
+
+                                const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
+                                setCurrentPage(nextPage);
+                            }}
+                            onKeyDown={(event) => {
+                                if (event.key !== "Enter") return;
+                                event.preventDefault();
+
+                                const parsed = Number(pageInput);
+                                if (!Number.isFinite(parsed)) {
+                                    setPageInput(String(safeCurrentPage));
+                                    return;
+                                }
+
+                                const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
+                                setCurrentPage(nextPage);
+                            }}
+                            className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                            aria-label="Go to page"
+                        />
+                        <button
+                            type="button"
+                            disabled={safeCurrentPage >= localTotalPages || isLoading}
+                            onClick={() => setCurrentPage((prev) => prev + 1)}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Next
+                        </button>
                     </div>
                 </div>
+            )}
 
-                {!isLoading && !error && !shouldVirtualize && totalFiltered > PAGE_SIZE && (
-                    <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs text-gray-600 sm:text-sm">
-                            Showing {(safeCurrentPage - 1) * PAGE_SIZE + 1}
-                            {" - "}
-                            {Math.min(safeCurrentPage * PAGE_SIZE, totalFiltered)}
-                            {" of "}
-                            {totalFiltered} swimmers
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                            <button
-                                type="button"
-                                disabled={safeCurrentPage <= 1 || isLoading}
-                                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                Previous
-                            </button>
-                            <span className="text-xs text-gray-600 sm:text-sm">
-                                Page {safeCurrentPage} of {localTotalPages}
-                            </span>
-                            <input
-                                type="number"
-                                min={1}
-                                max={localTotalPages}
-                                value={pageInput}
-                                onChange={(event) => setPageInput(event.target.value)}
-                                onBlur={() => {
-                                    const parsed = Number(pageInput);
-                                    if (!Number.isFinite(parsed)) {
-                                        setPageInput(String(safeCurrentPage));
-                                        return;
-                                    }
-
-                                    const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
-                                    setCurrentPage(nextPage);
-                                }}
-                                onKeyDown={(event) => {
-                                    if (event.key !== "Enter") return;
-                                    event.preventDefault();
-
-                                    const parsed = Number(pageInput);
-                                    if (!Number.isFinite(parsed)) {
-                                        setPageInput(String(safeCurrentPage));
-                                        return;
-                                    }
-
-                                    const nextPage = Math.min(localTotalPages, Math.max(1, Math.floor(parsed)));
-                                    setCurrentPage(nextPage);
-                                }}
-                                className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-                                aria-label="Go to page"
-                            />
-                            <button
-                                type="button"
-                                disabled={safeCurrentPage >= localTotalPages || isLoading}
-                                onClick={() => setCurrentPage((prev) => prev + 1)}
-                                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                Next
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {!isLoading && !error && swimmersForRender.length === 0 && (
-                    <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-6 text-sm text-gray-600">
-                        {emptyStateText}
-                    </div>
-                )}
+            {!isLoading && !error && swimmersForRender.length === 0 && (
+                <div className="mt-4 py-6 text-sm text-gray-600">
+                    {emptyStateText}
+                </div>
+            )}
             </div>
 
             {deleteDialog.show && createPortal(
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 px-4">
-                <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-4 shadow-2xl">
-                    <p className="text-sm font-semibold text-gray-900">Delete Evaluation Entry</p>
-                    <p className="mt-1 text-xs text-gray-600 sm:text-sm">
-                        Delete this evaluation for{" "}
-                        <span className="font-medium">{deleteDialog.swimmerName}</span>
-                        {deleteDialog.className ? (
-                            <>
-                                {" "}in <span className="font-medium">{deleteDialog.className}</span>
-                            </>
-                        ) : null}
-                        ?
-                    </p>
-                    <div className="mt-3 flex justify-end gap-2">
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setDeleteDialog({
-                                    show: false,
-                                    swimmerId: null,
-                                    classId: null,
-                                    evaluationId: null,
-                                    swimmerName: "",
-                                    className: "",
-                                })
-                            }
-                            disabled={
-                                deleteDialog.swimmerId !== null &&
-                                deleteDialog.classId !== null &&
-                                deleteDialog.evaluationId !== null &&
-                                deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
-                            }
-                            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 sm:text-sm"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            onClick={async () => {
-                                if (!deleteDialog.swimmerId || !deleteDialog.classId || !deleteDialog.evaluationId) {
-                                    return;
-                                }
-
-                                const didDelete = await deleteEvaluationEntry({
-                                    swimmerId: deleteDialog.swimmerId,
-                                    classId: deleteDialog.classId,
-                                    evaluationId: deleteDialog.evaluationId,
-                                });
-
-                                if (didDelete) {
+                    <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-4 shadow-2xl">
+                        <p className="text-sm font-semibold text-gray-900">Delete Evaluation Entry</p>
+                        <p className="mt-1 text-xs text-gray-600 sm:text-sm">
+                            Delete this evaluation for{" "}
+                            <span className="font-medium">{deleteDialog.swimmerName}</span>
+                            {deleteDialog.className ? (
+                                <>
+                                    {" "}in <span className="font-medium">{deleteDialog.className}</span>
+                                </>
+                            ) : null}
+                            ?
+                        </p>
+                        <div className="mt-3 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() =>
                                     setDeleteDialog({
                                         show: false,
                                         swimmerId: null,
@@ -2441,42 +2439,62 @@ export default function AdminInstructorEvaluations({
                                         evaluationId: null,
                                         swimmerName: "",
                                         className: "",
-                                    });
+                                    })
                                 }
-                            }}
-                            disabled={
-                                deleteDialog.swimmerId === null ||
-                                deleteDialog.classId === null ||
-                                deleteDialog.evaluationId === null ||
-                                deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
-                            }
-                            className="rounded-md bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
-                        >
-                            {deleteDialog.swimmerId !== null &&
-                            deleteDialog.classId !== null &&
-                            deleteDialog.evaluationId !== null &&
-                            deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
-                                ? "Deleting..."
-                                : "Delete"}
-                        </button>
+                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 sm:text-sm"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    if (
+                                        deleteDialog.swimmerId === null ||
+                                        deleteDialog.classId === null ||
+                                        deleteDialog.evaluationId === null
+                                    )
+                                        return;
+
+                                    setDeletingEvaluationKey(`${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`);
+
+                                    const didDelete = await deleteEvaluationEntry({
+                                        swimmerId: deleteDialog.swimmerId,
+                                        classId: deleteDialog.classId,
+                                        evaluationId: deleteDialog.evaluationId,
+                                    });
+
+                                    if (didDelete) {
+                                        setDeleteDialog({
+                                            show: false,
+                                            swimmerId: null,
+                                            classId: null,
+                                            evaluationId: null,
+                                            swimmerName: "",
+                                            className: "",
+                                        });
+                                    }
+                                }}
+                                disabled={
+                                    deleteDialog.swimmerId === null ||
+                                    deleteDialog.classId === null ||
+                                    deleteDialog.evaluationId === null ||
+                                    deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
+                                }
+                                className="rounded-md bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                            >
+                                {deleteDialog.swimmerId !== null &&
+                                    deleteDialog.classId !== null &&
+                                    deleteDialog.evaluationId !== null &&
+                                    deletingEvaluationKey === `${deleteDialog.swimmerId}:${deleteDialog.classId}:${deleteDialog.evaluationId}`
+                                    ? "Deleting..."
+                                    : "Delete"}
+                            </button>
+                        </div>
                     </div>
-                </div>
                 </div>,
                 document.body
             )}
-
-            {actionBanner && (
-                <div className="fixed top-24 right-4 z-[100] w-[92vw] max-w-sm pointer-events-none sm:top-28">
-                    <div
-                        className={`pointer-events-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${actionBanner.type === "success"
-                            ? "border-green-200 bg-green-50 text-green-800"
-                            : "border-red-200 bg-red-50 text-red-800"
-                            }`}
-                    >
-                        {actionBanner.message}
-                    </div>
-                </div>
-            )}
         </div>
-    );
+    )
 }
+

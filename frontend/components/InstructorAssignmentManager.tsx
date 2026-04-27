@@ -222,7 +222,7 @@ function StyledSelect({
                     }}
                 >
                     {options.map((option) => {
-                        const isSelected = option.value === value;
+                        const isSelected = option.value === value && !option.disabled;
                         return (
                             <button
                                 key={option.value}
@@ -358,7 +358,7 @@ function StyledMultiSelect({
                     }}
                 >
                     {options.map((option) => {
-                        const isSelected = values.includes(option.value);
+                        const isSelected = values.includes(option.value) && !option.disabled;
                         return (
                             <button
                                 key={option.value}
@@ -400,7 +400,6 @@ export default function InstructorAssignmentManager() {
     const [groupPage, setGroupPage] = useState(1);
     const [pendingEnrollmentKeys, setPendingEnrollmentKeys] = useState<Set<string>>(new Set());
     const [pendingInstructorKeys, setPendingInstructorKeys] = useState<Set<string>>(new Set());
-    const [groupInstructorSelection, setGroupInstructorSelection] = useState<Record<string, string[]>>({});
     const [selectedEnrollmentKeys, setSelectedEnrollmentKeys] = useState<Set<string>>(new Set());
     const [bulkGroupId, setBulkGroupId] = useState('');
     const [bulkPending, setBulkPending] = useState(false);
@@ -974,12 +973,6 @@ export default function InstructorAssignmentManager() {
                     : row,
             ),
         );
-        setGroupInstructorSelection((prev) => {
-            if (!(group.group_id in prev)) return prev;
-            const next = { ...prev };
-            delete next[group.group_id];
-            return next;
-        });
         setBulkGroupId((prev) => (prev === group.group_id ? '' : prev));
 
         try {
@@ -1135,98 +1128,6 @@ export default function InstructorAssignmentManager() {
         }
     };
 
-    useEffect(() => {
-        setGroupInstructorSelection((prev) => {
-            let changed = false;
-            const next: Record<string, string[]> = {};
-
-            Object.entries(prev).forEach(([groupId, selectedIds]) => {
-                const assignedIds = new Set(
-                    (instructorInfoByGroupId.get(groupId) || []).map((item) => item.id),
-                );
-                const filtered = selectedIds.filter((id) => !assignedIds.has(id));
-                if (filtered.length !== selectedIds.length) {
-                    changed = true;
-                }
-                if (filtered.length > 0) {
-                    next[groupId] = filtered;
-                }
-            });
-
-            return changed ? next : prev;
-        });
-    }, [instructorInfoByGroupId]);
-
-    const assignMultipleInstructorsToGroup = async (groupId: string, instructorIds: string[]) => {
-        const uniqueInstructorIds = Array.from(new Set(instructorIds)).filter((instructorId) => {
-            return !assignments.some(
-                (item) => item.group_id === groupId && item.instructor_person_id === instructorId,
-            );
-        });
-
-        if (uniqueInstructorIds.length === 0) {
-            showToast('Selected instructors are already assigned');
-            return;
-        }
-
-        const keys = uniqueInstructorIds.map((instructorId) => `${groupId}:${instructorId}:assign`);
-        setPendingInstructorKeys((prev) => {
-            const next = new Set(prev);
-            keys.forEach((key) => next.add(key));
-            return next;
-        });
-
-        const previous = assignments;
-        setAssignments((prev) => [
-            ...prev,
-            ...uniqueInstructorIds.map((instructorId) => ({
-                group_id: groupId,
-                instructor_person_id: instructorId,
-            })),
-        ]);
-
-        try {
-            await Promise.all(
-                uniqueInstructorIds.map(async (instructorId) => {
-                    const response = await authFetch('/api/admin/instructor-member-assignments', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            group_ids: [groupId],
-                            instructor_person_id: instructorId,
-                        }),
-                    });
-
-                    if (!response.ok) {
-                        const errorPayload = await response.json().catch(() => ({}));
-                        throw new Error(errorPayload?.error || 'Failed to update instructor assignments');
-                    }
-                }),
-            );
-
-            showToast(`${uniqueInstructorIds.length} instructor${uniqueInstructorIds.length > 1 ? 's' : ''} assigned`);
-            setGroupInstructorSelection((prev) => {
-                const current = prev[groupId] || [];
-                const remaining = current.filter((id) => !uniqueInstructorIds.includes(id));
-                if (remaining.length === current.length) return prev;
-                const next = { ...prev };
-                if (remaining.length > 0) next[groupId] = remaining;
-                else delete next[groupId];
-                return next;
-            });
-        } catch (err) {
-            console.error('Error updating instructor assignments:', err);
-            setAssignments(previous);
-            setErrorMessage(err instanceof Error ? err.message : 'Failed to update instructor assignments');
-        } finally {
-            setPendingInstructorKeys((prev) => {
-                const next = new Set(prev);
-                keys.forEach((key) => next.delete(key));
-                return next;
-            });
-        }
-    };
-
     return (
         <div className="space-y-4 relative">
             {deleteGroupPrompt && (
@@ -1372,7 +1273,7 @@ export default function InstructorAssignmentManager() {
                                                 <th className="px-3 py-2 text-left font-semibold">Class</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Swimmers (Age)</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Instructors</th>
-                                                <th className="px-3 py-2 text-left font-semibold">Add</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Add / Delete</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1393,10 +1294,6 @@ export default function InstructorAssignmentManager() {
                                                         : slotSummary.length === 1
                                                             ? `Slot ${slotSummary[0]}`
                                                             : 'Mixed slots';
-                                                const selectedInstructorIds = groupInstructorSelection[group.group_id] || [];
-                                                const addPending = selectedInstructorIds.some((instructorId) =>
-                                                    pendingInstructorKeys.has(`${group.group_id}:${instructorId}:assign`),
-                                                );
                                                 const deletePending = pendingGroupDeleteIds.has(group.group_id);
                                                 return (
                                                     <tr key={group.group_id} className="border-t border-slate-100 align-top">
@@ -1453,44 +1350,38 @@ export default function InstructorAssignmentManager() {
                                                         </td>
                                                         <td className="px-3 py-2">
                                                             <div className="flex items-center gap-2">
-                                                                <StyledMultiSelect
-                                                                    values={selectedInstructorIds}
-                                                                    onChange={(selectedValues) =>
-                                                                        setGroupInstructorSelection((prev) => ({
-                                                                            ...prev,
-                                                                            [group.group_id]: selectedValues,
-                                                                        }))
-                                                                    }
+                                                                <StyledSelect
+                                                                    value=""
+                                                                    onChange={(instructorId) => {
+                                                                        if (instructorId) {
+                                                                            updateGroupInstructor(group.group_id, instructorId, 'assign');
+                                                                        }
+                                                                    }}
                                                                     options={[
-                                                                        ...sortedInstructors.map((instructor) => ({
-                                                                            value: instructor.person_id,
-                                                                            label: formatName(instructor.first_name, instructor.last_name),
-                                                                            disabled: groupInstructors.some((item) => item.id === instructor.person_id),
-                                                                        })),
+                                                                        { value: '', label: 'Add instructor…', disabled: true },
+                                                                        ...sortedInstructors
+                                                                            .filter((instructor) => !groupInstructors.some((item) => item.id === instructor.person_id))
+                                                                            .map((instructor) => ({
+                                                                                value: instructor.person_id,
+                                                                                label: formatName(instructor.first_name, instructor.last_name),
+                                                                            })),
                                                                     ]}
-                                                                    placeholder="Select instructor(s)"
+                                                                    placeholder="Add instructor…"
                                                                     className="w-44"
                                                                     sizeMode="compact"
-                                                                    ariaLabel={`Select instructor for ${group.group_name}`}
+                                                                    disabled={deletePending}
+                                                                    ariaLabel={`Add instructor to ${group.group_name}`}
                                                                 />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        selectedInstructorIds.length > 0 &&
-                                                                        assignMultipleInstructorsToGroup(group.group_id, selectedInstructorIds)
-                                                                    }
-                                                                    disabled={selectedInstructorIds.length === 0 || addPending || deletePending}
-                                                                    className="rounded-md bg-sky-600 px-2 py-1 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                                                                >
-                                                                    Add selected
-                                                                </button>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => requestDeleteGroup(group)}
                                                                     disabled={deletePending}
-                                                                    className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                    title="Delete group"
+                                                                    className="flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                                                                 >
-                                                                    {deletePending ? 'Deleting…' : 'Delete group'}
+                                                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
+                                                                    </svg>
                                                                 </button>
                                                             </div>
                                                         </td>
