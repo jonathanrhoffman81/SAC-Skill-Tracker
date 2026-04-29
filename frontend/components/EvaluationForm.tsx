@@ -206,13 +206,6 @@ export default function EvaluationForm({
       return;
     }
 
-    if (changedSkillUpdates.length === 0 && !trimmedNote && skillNoteEntries.length === 0 && !hasEditingFeedback) {
-      const message = 'Update at least one skill or add notes before submitting.';
-      setError(message);
-      showToast(message, 'error');
-      return;
-    }
-
     setIsSubmitting(true);
     setError('');
     setSuccessMessage('');

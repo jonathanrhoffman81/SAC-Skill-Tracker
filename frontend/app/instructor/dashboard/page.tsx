@@ -235,6 +235,7 @@ export default function InstructorDashboard() {
           showNeedsEvaluationSection
           showProficiencyScaleSection
           restoreOpenSwimmerId={false}
+          scrollToTopAfterNeedsEvalSave
         />
       </main>
     </div>
