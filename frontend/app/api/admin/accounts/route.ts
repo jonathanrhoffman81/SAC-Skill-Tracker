@@ -261,6 +261,155 @@ export async function GET(request: NextRequest) {
     }
 }
 
+export async function POST(request: NextRequest) {
+    try {
+        const body = (await request.json()) as {
+            first_name?: string;
+            last_name?: string;
+            email?: string;
+            roles?: string[];
+        };
+
+        const firstName = (body.first_name || "").trim();
+        const lastName = (body.last_name || "").trim();
+        const email = (body.email || "").trim().toLowerCase();
+
+        if (!firstName || !lastName || !email) {
+            return NextResponse.json(
+                { error: "first_name, last_name, and email are required" },
+                { status: 400 },
+            );
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return NextResponse.json(
+                { error: "Invalid email address" },
+                { status: 400 },
+            );
+        }
+
+        const supabase = getSupabaseAdminClient();
+        const adminContext = await resolveAdminRequestContext(request, supabase);
+        const organizationId = adminContext.organizationId;
+
+        // Check if auth user with this email already exists
+        const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers();
+        if (listError) {
+            return NextResponse.json({ error: `Failed to check existing users: ${listError.message}` }, { status: 500 });
+        }
+        const emailTaken = (existingUsers?.users || []).some((u: any) => u.email?.toLowerCase() === email);
+        if (emailTaken) {
+            return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 });
+        }
+
+        // Always normalize email before DB operations
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // Try upsert on email to avoid race conditions and unique constraint errors
+        let personId: string;
+        let upsertedPerson;
+        try {
+            const { data: upserted, error: upsertError } = await supabase
+                .from("person")
+                .upsert(
+                    { email: normalizedEmail, first_name: firstName, last_name: lastName, is_active: true },
+                    { onConflict: "email" }
+                )
+                .select("person_id")
+                .single();
+            if (upsertError) {
+                return NextResponse.json(
+                    { error: `Failed to create or update person record: ${upsertError.message}` },
+                    { status: 500 },
+                );
+            }
+            upsertedPerson = upserted;
+        } catch (err: any) {
+            return NextResponse.json(
+                { error: `Failed to upsert person: ${err.message}` },
+                { status: 500 },
+            );
+        }
+        personId = upsertedPerson.person_id;
+
+        // Now create the auth user, pinning to the person_id
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+            email: normalizedEmail,
+            email_confirm: true,
+            user_metadata: {
+                person_id: personId,
+                first_name: firstName,
+                last_name: lastName,
+                full_name: `${firstName} ${lastName}`.trim(),
+                email: normalizedEmail,
+            },
+        });
+        if (authError || !authData?.user) {
+            return NextResponse.json(
+                { error: `Failed to create auth user: ${authError?.message || "Unknown error"}` },
+                { status: 500 },
+            );
+        }
+
+        // Link person to organization — reuse existing row if already present
+        let personOrgId: string;
+        const { data: existingPersonOrg } = await supabase
+            .from("person_organization")
+            .select("person_organization_id")
+            .eq("person_id", personId)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+
+        if (existingPersonOrg) {
+            personOrgId = existingPersonOrg.person_organization_id;
+        } else {
+            const { data: personOrgRow, error: personOrgError } = await supabase
+                .from("person_organization")
+                .insert({ person_id: personId, organization_id: organizationId, status: "active" })
+                .select("person_organization_id")
+                .single();
+
+            if (personOrgError || !personOrgRow) {
+                return NextResponse.json(
+                    { error: `Failed to link person to organization: ${personOrgError?.message || "Unknown error"}` },
+                    { status: 500 },
+                );
+            }
+            personOrgId = personOrgRow.person_organization_id;
+        }
+
+        // Assign requested roles
+        const requestedRoles = (body.roles || []).filter((r) => r in ROLE_IDS) as (keyof typeof ROLE_IDS)[];
+        if (requestedRoles.length > 0) {
+            const roleIdsToInsert = Array.from(new Set(
+                requestedRoles.flatMap((r) =>
+                    r === "admin" ? [ROLE_IDS.admin, ROLE_IDS.instructor] : [ROLE_IDS[r]],
+                ),
+            )).map((role_id) => ({ person_organization_id: personOrgId, role_id }));
+
+            const { error: roleError } = await supabase.from("person_org_role").upsert(roleIdsToInsert, { onConflict: "person_organization_id,role_id" });
+            if (roleError) {
+                return NextResponse.json(
+                    { error: `Account created but failed to assign roles: ${roleError.message}` },
+                    { status: 500 },
+                );
+            }
+        }
+
+        return NextResponse.json({ success: true, person_id: personId });
+    } catch (error) {
+        console.error("Accounts POST error:", error);
+        const message = error instanceof Error ? error.message : "Internal server error";
+        if (message.startsWith("FORBIDDEN:")) {
+            return NextResponse.json({ error: message.replace("FORBIDDEN:", "") }, { status: 403 });
+        }
+        if (message.startsWith("UNAUTHORIZED:")) {
+            return NextResponse.json({ error: message.replace("UNAUTHORIZED:", "") }, { status: 401 });
+        }
+        return NextResponse.json({ error: message }, { status: 500 });
+    }
+}
+
 export async function PATCH(request: NextRequest) {
     try {
         const body = (await request.json()) as {
