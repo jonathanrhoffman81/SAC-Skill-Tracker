@@ -531,7 +531,7 @@ export async function GET(request: NextRequest) {
     const loadMemberSkillRowsPromise =
       !lightweight && memberIds.length > 0
         ? batchQuery(
-          "member_skill",
+          "member_skill_current",
           "member_id, skill_id, progress, date_acquired",
           memberIds,
           "member_id",
@@ -631,7 +631,7 @@ export async function GET(request: NextRequest) {
       if (lightweight && memberIds.length > 0 && memberSkillSummaryRows === null) {
         memberSkillRows = await timed("fallback-member-skill-rows", () =>
           batchQuery(
-            "member_skill",
+            "member_skill_current",
             "member_id, skill_id, progress, date_acquired",
             memberIds,
             "member_id",

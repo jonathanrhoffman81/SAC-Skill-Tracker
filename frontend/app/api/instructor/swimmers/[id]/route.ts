@@ -338,58 +338,38 @@ async function loadPrimaryGuardianContact(memberId: string) {
   };
 }
 
-async function instructorCanAccessMember(
-  instructorPersonId: string,
-  memberId: string
-): Promise<{ ok: boolean; error?: string }> {
-  const supabaseAdmin = getSupabaseAdminClient();
-
-  const { data: instructorGroups, error: instructorGroupsError } = await supabaseAdmin
-    .from('group_instructor')
-    .select('group_id')
-    .eq('instructor_person_id', instructorPersonId);
-
-  if (instructorGroupsError) {
-    return {
-      ok: false,
-      error: `Failed to load instructor groups: ${instructorGroupsError.message}`,
-    };
-  }
-
-  const groupIds = Array.from(new Set((instructorGroups ?? []).map((row) => row.group_id)));
-  if (groupIds.length === 0) {
-    return { ok: false, error: 'You do not have access to this swimmer.' };
-  }
-
-  const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
-    .from('enrollment')
-    .select('group_id')
-    .eq('member_id', memberId)
-    .in('group_id', groupIds);
-
-  if (memberEnrollmentsError) {
-    return {
-      ok: false,
-      error: `Failed to load member enrollments: ${memberEnrollmentsError.message}`,
-    };
-  }
-
-  const canAccessViaGroup = (memberEnrollments ?? []).some((row) => Boolean(row.group_id));
-
-  return canAccessViaGroup
-    ? { ok: true }
-    : { ok: false, error: 'You do not have access to this swimmer.' };
-}
-
 async function saveMemberSkillProgress(args: {
   memberId: string;
   skillId: string;
   progress: SkillUpdatePayload['progress'];
   updatedByPersonId: string;
+  evaluationId?: string;
 }) {
   const supabaseAdmin = getSupabaseAdminClient();
   const dateAcquired = args.progress === 4 ? new Date().toISOString().slice(0, 10) : null;
 
+  if (args.evaluationId) {
+    // Evaluation-linked saves always insert a new history row so deleting the
+    // evaluation can cleanly revert the skill to its previous value.
+    const { error: insertError } = await supabaseAdmin
+      .from('member_skill')
+      .insert({
+        member_id: args.memberId,
+        skill_id: args.skillId,
+        progress: args.progress,
+        date_acquired: dateAcquired,
+        updated_by_person_id: args.updatedByPersonId,
+        evaluation_id: args.evaluationId,
+      });
+
+    if (insertError) {
+      return { error: insertError.message };
+    }
+
+    return { error: null };
+  }
+
+  // Manual updates (PATCH without an evaluation) update the existing row in-place.
   const { data: existingRow, error: existingRowError } = await supabaseAdmin
     .from('member_skill')
     .select('member_skill_id')
@@ -438,423 +418,6 @@ async function saveMemberSkillProgress(args: {
   return { error: null };
 }
 
-async function getSharedClassIdsForInstructorAndMember(
-  instructorPersonId: string,
-  memberId: string
-): Promise<{ sharedClassIds: string[]; error?: string }> {
-  const supabaseAdmin = getSupabaseAdminClient();
-
-  const { data: instructorGroups, error: instructorGroupsError } = await supabaseAdmin
-    .from('group_instructor')
-    .select('group_id')
-    .eq('instructor_person_id', instructorPersonId);
-
-  if (instructorGroupsError) {
-    return { sharedClassIds: [], error: `Failed to load instructor groups: ${instructorGroupsError.message}` };
-  }
-
-  const groupIds = Array.from(new Set((instructorGroups ?? []).map((row) => row.group_id)));
-  if (groupIds.length === 0) {
-    return { sharedClassIds: [] };
-  }
-
-  const { data: groupRows, error: groupRowsError } = await supabaseAdmin
-    .from('class_group')
-    .select('group_id, class_id')
-    .in('group_id', groupIds);
-
-  if (groupRowsError) {
-    return { sharedClassIds: [], error: `Failed to load class groups: ${groupRowsError.message}` };
-  }
-
-  const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
-    .from('enrollment')
-    .select('class_id, group_id')
-    .eq('member_id', memberId)
-    .in('group_id', groupIds);
-
-  if (memberEnrollmentsError) {
-    return { sharedClassIds: [], error: `Failed to load member enrollments: ${memberEnrollmentsError.message}` };
-  }
-
-  const allowedGroupIds = new Set((groupRows ?? []).map((row) => row.group_id).filter(Boolean));
-  const sharedClassIds = (memberEnrollments ?? [])
-    .filter((row) => row.class_id && row.group_id && allowedGroupIds.has(row.group_id))
-    .map((row) => row.class_id);
-
-  return { sharedClassIds: Array.from(new Set(sharedClassIds)) };
-}
-
-async function resolveEvaluationInstructorPersonId(args: {
-  actingPersonId: string;
-  memberId: string;
-  classId?: string | null;
-  hasAdminAccess: boolean;
-}): Promise<{ instructorPersonId?: string; error?: string }> {
-  if (!args.classId || !args.hasAdminAccess) {
-    return { instructorPersonId: args.actingPersonId };
-  }
-
-  const supabaseAdmin = getSupabaseAdminClient();
-
-  const { data: directAssignmentRows, error: directAssignmentError } = await supabaseAdmin
-    .from('group_instructor')
-    .select('instructor_person_id, class_group!inner(class_id)')
-    .eq('instructor_person_id', args.actingPersonId)
-    .eq('class_group.class_id', args.classId)
-    .limit(1);
-
-  if (directAssignmentError) {
-    return {
-      error: `Failed to verify class instructor assignments: ${directAssignmentError.message}`,
-    };
-  }
-
-  if ((directAssignmentRows ?? []).length > 0) {
-    return { instructorPersonId: args.actingPersonId };
-  }
-
-  const { data: memberEnrollmentRows, error: memberEnrollmentError } = await supabaseAdmin
-    .from('enrollment')
-    .select('group_id')
-    .eq('member_id', args.memberId)
-    .eq('class_id', args.classId);
-
-  if (memberEnrollmentError) {
-    return {
-      error: `Failed to load swimmer group assignments: ${memberEnrollmentError.message}`,
-    };
-  }
-
-  const memberGroupIds = Array.from(
-    new Set((memberEnrollmentRows ?? []).map((row) => row.group_id).filter(Boolean)),
-  );
-
-  if (memberGroupIds.length > 0) {
-    const { data: memberGroupInstructorRows, error: memberGroupInstructorError } = await supabaseAdmin
-      .from('group_instructor')
-      .select('instructor_person_id')
-      .in('group_id', memberGroupIds)
-      .limit(1);
-
-    if (memberGroupInstructorError) {
-      return {
-        error: `Failed to load swimmer group instructors: ${memberGroupInstructorError.message}`,
-      };
-    }
-
-    const assignedInstructorId = (memberGroupInstructorRows ?? [])
-      .map((row) => row.instructor_person_id)
-      .find(Boolean);
-
-    if (assignedInstructorId) {
-      return { instructorPersonId: assignedInstructorId };
-    }
-  }
-
-  const { data: classGroupRows, error: classGroupError } = await supabaseAdmin
-    .from('class_group')
-    .select('group_id')
-    .eq('class_id', args.classId);
-
-  if (classGroupError) {
-    return {
-      error: `Failed to load class groups: ${classGroupError.message}`,
-    };
-  }
-
-  const classGroupIds = Array.from(
-    new Set((classGroupRows ?? []).map((row) => row.group_id).filter(Boolean)),
-  );
-
-  if (classGroupIds.length > 0) {
-    const { data: classInstructorRows, error: classInstructorError } = await supabaseAdmin
-      .from('group_instructor')
-      .select('instructor_person_id')
-      .in('group_id', classGroupIds)
-      .limit(1);
-
-    if (classInstructorError) {
-      return {
-        error: `Failed to load class instructors: ${classInstructorError.message}`,
-      };
-    }
-
-    const assignedInstructorId = (classInstructorRows ?? [])
-      .map((row) => row.instructor_person_id)
-      .find(Boolean);
-
-    if (assignedInstructorId) {
-      return { instructorPersonId: assignedInstructorId };
-    }
-  }
-
-  // No instructor found via group assignments — fall back to the acting user
-  // so the evaluation can still be saved (admin is making the evaluation themselves).
-  return { instructorPersonId: args.actingPersonId };
-}
-
-async function buildSwimmerProfileFallback(
-  email: string,
-  memberId: string,
-  options?: { hasAdminAccess?: boolean }
-): Promise<SwimmerProfilePayload> {
-  const supabaseAdmin = getSupabaseAdminClient();
-  const hasAdminAccess = Boolean(options?.hasAdminAccess);
-
-  const instructorResolution = await resolveInstructorPersonId(email);
-  if ('error' in instructorResolution) {
-    throw new Error(instructorResolution.error);
-  }
-  const instructor = instructorResolution.person;
-
-  if (!hasAdminAccess) {
-    const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-    if (!accessCheck.ok) {
-      const error = accessCheck.error ?? 'You do not have access to this swimmer.';
-      const prefixedError = error.startsWith('Failed') ? error : `FORBIDDEN:${error}`;
-      throw new Error(prefixedError);
-    }
-  }
-
-  const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
-    .from('enrollment')
-    .select('class_id')
-    .eq('member_id', memberId);
-
-  if (memberEnrollmentsError) {
-    throw new Error(`Failed to load member enrollments: ${memberEnrollmentsError.message}`);
-  }
-
-  const enrolledClassIds = Array.from(
-    new Set((memberEnrollments ?? []).map((row) => row.class_id).filter(Boolean))
-  );
-
-  const { sharedClassIds, error: sharedClassError } = hasAdminAccess
-    ? { sharedClassIds: enrolledClassIds, error: undefined }
-    : await getSharedClassIdsForInstructorAndMember(instructor.person_id, memberId);
-  if (sharedClassError) {
-    throw new Error(sharedClassError);
-  }
-
-  const { data: member, error: memberError } = await supabaseAdmin
-    .from('member')
-    .select('member_id, organization_id, first_name, last_name, date_of_birth, created_at')
-    .eq('member_id', memberId)
-    .maybeSingle();
-
-  if (memberError) {
-    throw new Error(`Failed to load swimmer: ${memberError.message}`);
-  }
-
-  if (!member) {
-    throw new Error('NOT_FOUND:Swimmer not found.');
-  }
-
-  const { data: classRows, error: classRowsError } = sharedClassIds.length
-    ? await supabaseAdmin
-      .from('class_entity')
-      .select('class_id, name, schedule')
-      .in('class_id', sharedClassIds)
-    : { data: [], error: null };
-
-  if (classRowsError) {
-    throw new Error(`Failed to load classes: ${classRowsError.message}`);
-  }
-
-  const { data: skills, error: skillsError } = await supabaseAdmin
-    .from('member_skill')
-    .select('member_skill_id, skill_id, progress, date_acquired, updated_at, evaluation_id')
-    .eq('member_id', memberId);
-
-  if (skillsError) {
-    throw new Error(`Failed to load swimmer skills: ${skillsError.message}`);
-  }
-
-  const { data: orgSkills, error: orgSkillsError } = await supabaseAdmin
-    .from('skill')
-    .select('skill_id, name')
-    .eq('organization_id', member.organization_id)
-    .order('name', { ascending: true });
-
-  if (orgSkillsError) {
-    throw new Error(`Failed to load organization skills: ${orgSkillsError.message}`);
-  }
-
-  const memberSkillById = new Map(
-    (skills ?? []).map((row) => [
-      row.skill_id,
-      {
-        memberSkillId: row.member_skill_id,
-        progress: normalizeStoredProgress(row.progress),
-        dateAcquired: row.date_acquired,
-        updatedAt: row.updated_at,
-        evaluationId: row.evaluation_id,
-      },
-    ])
-  );
-
-  const { data: evaluations, error: evaluationsError } = await supabaseAdmin
-    .from('evaluation')
-    .select('evaluation_id, feedback, evaluation_date, instructor_person_id, class_id, skill_id')
-    .eq('member_id', memberId)
-    .order('evaluation_date', { ascending: false })
-    .limit(100);
-
-  if (evaluationsError) {
-    throw new Error(`Failed to load swimmer notes: ${evaluationsError.message}`);
-  }
-
-  const authorIds = Array.from(
-    new Set((evaluations ?? []).map((row) => row.instructor_person_id))
-  );
-  const authorNameById = new Map<string, string>();
-
-  if (authorIds.length > 0) {
-    const { data: authorRows, error: authorRowsError } = await supabaseAdmin
-      .from('person')
-      .select('person_id, first_name, last_name')
-      .in('person_id', authorIds);
-
-    if (authorRowsError) {
-      throw new Error(`Failed to load note authors: ${authorRowsError.message}`);
-    }
-
-    (authorRows ?? []).forEach((row) => {
-      authorNameById.set(
-        row.person_id,
-        `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || 'Instructor'
-      );
-    });
-  }
-
-  const { data: guardianLinks, error: guardianLinksError } = await supabaseAdmin
-    .from('guardian_member')
-    .select('guardian_person_id, relationship')
-    .eq('member_id', memberId);
-
-  if (guardianLinksError) {
-    throw new Error(`Failed to load guardians: ${guardianLinksError.message}`);
-  }
-
-  const guardianIds = Array.from(
-    new Set((guardianLinks ?? []).map((link) => link.guardian_person_id))
-  );
-  const guardianById = new Map<string, { name: string; email: string }>();
-
-  if (guardianIds.length > 0) {
-    const { data: guardianRows, error: guardianRowsError } = await supabaseAdmin
-      .from('person')
-      .select('person_id, first_name, last_name, email')
-      .in('person_id', guardianIds);
-
-    if (guardianRowsError) {
-      throw new Error(`Failed to load guardian contacts: ${guardianRowsError.message}`);
-    }
-
-    (guardianRows ?? []).forEach((guardian) => {
-      guardianById.set(guardian.person_id, {
-        name:
-          `${guardian.first_name ?? ''} ${guardian.last_name ?? ''}`.trim() || 'Guardian',
-        email: guardian.email ?? '',
-      });
-    });
-  }
-
-  const firstGuardianLink = guardianLinks?.[0];
-  const firstGuardian = firstGuardianLink
-    ? guardianById.get(firstGuardianLink.guardian_person_id)
-    : null;
-
-  const skillNotesBySkillId = new Map<string, SwimmerProfileNote[]>();
-  const evaluationById = new Map(
-    (evaluations ?? []).map((row) => [row.evaluation_id, row]),
-  );
-
-  const sessionNotes = (evaluations ?? [])
-    .filter((row) => !row.skill_id)
-    .map((row) => ({
-      id: row.evaluation_id,
-      date: formatDate(row.evaluation_date) ?? '',
-      content: row.feedback ?? '',
-      author: authorNameById.get(row.instructor_person_id) ?? 'Instructor',
-    }));
-
-  (evaluations ?? [])
-    .filter((row) => Boolean(row.skill_id))
-    .forEach((row) => {
-      const key = row.skill_id as string;
-      const existing = skillNotesBySkillId.get(key) ?? [];
-      existing.push({
-        id: row.evaluation_id,
-        date: formatDate(row.evaluation_date) ?? '',
-        content: row.feedback ?? '',
-        author: authorNameById.get(row.instructor_person_id) ?? 'Instructor',
-      });
-      skillNotesBySkillId.set(key, existing);
-    });
-
-  return {
-    swimmer: {
-      id: member.member_id,
-      name: `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim(),
-      age: calculateAge(member.date_of_birth),
-      enrollmentDate: formatDate(member.created_at) ?? '',
-      guardianName: firstGuardian?.name ?? 'No guardian on file',
-      guardianEmail: firstGuardian?.email ?? '',
-      guardianRelationship: firstGuardianLink?.relationship ?? '',
-    },
-    classes: (classRows ?? []).map((row) => ({
-      id: row.class_id,
-      name: row.name,
-      schedule: row.schedule ?? 'Schedule TBD',
-    })),
-    skills: (orgSkills ?? [])
-      .map((row) => {
-        const memberSkill = memberSkillById.get(row.skill_id);
-        const progress = memberSkill?.progress ?? 0;
-        return {
-          id: row.skill_id,
-          name: row.name,
-          mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
-          progress,
-          dateAcquired: formatDate(memberSkill?.dateAcquired),
-          obtainedInClass: false,
-          progressHistory: (skills ?? [])
-            .filter((historyRow) => historyRow.skill_id === row.skill_id)
-            .sort((a, b) => {
-              const aSource = a.evaluation_id ? evaluationById.get(a.evaluation_id)?.evaluation_date : null;
-              const bSource = b.evaluation_id ? evaluationById.get(b.evaluation_id)?.evaluation_date : null;
-              const aDate = new Date(aSource ?? a.updated_at ?? '').getTime();
-              const bDate = new Date(bSource ?? b.updated_at ?? '').getTime();
-              if (Number.isNaN(aDate) && Number.isNaN(bDate)) return 0;
-              if (Number.isNaN(aDate)) return -1;
-              if (Number.isNaN(bDate)) return 1;
-              return aDate - bDate;
-            })
-            .map((historyRow) => {
-              const sourceEvaluation = historyRow.evaluation_id
-                ? evaluationById.get(historyRow.evaluation_id)
-                : null;
-
-              return {
-                id: historyRow.member_skill_id,
-                date: formatDate(sourceEvaluation?.evaluation_date ?? historyRow.updated_at) ?? 'Date unknown',
-                progress: normalizeStoredProgress(historyRow.progress),
-                dateAcquired: formatDate(historyRow.date_acquired),
-              };
-            }),
-          notes: skillNotesBySkillId.get(row.skill_id) ?? [],
-        };
-      })
-      .sort((a, b) => {
-        if (a.mastered !== b.mastered) return a.mastered ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      }),
-    sessionNotes,
-  };
-}
-
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const memberId = params.id;
@@ -881,20 +444,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         { status }
       );
     }
-    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
-    const actingPersonId = instructorResolution.person.person_id;
-
-    if (!hasAdminAccess) {
-      const accessCheck = await instructorCanAccessMember(actingPersonId, memberId);
-      if (!accessCheck.ok) {
-        const errorMessage = accessCheck.error ?? 'You do not have access to this swimmer.';
-        return NextResponse.json(
-          { error: errorMessage },
-          { status: errorMessage.startsWith('Failed') ? 500 : 403 },
-        );
-      }
-    }
-
     const [profilePayload, guardianContact] = await Promise.all([
       buildAuthorizedSwimmerProfile(memberId),
       loadPrimaryGuardianContact(memberId),
@@ -966,20 +515,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
     const instructor = instructorResolution.person;
-    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
 
     if (body.evaluationId) {
       const trimmedFeedback = body.feedback?.trim() ?? '';
-
-      if (!hasAdminAccess) {
-        const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-        if (!accessCheck.ok) {
-          return NextResponse.json(
-            { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
-            { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
-          );
-        }
-      }
 
       const { data: evaluationRow, error: evaluationLookupError } = await supabaseAdmin
         .from('evaluation')
@@ -1021,21 +559,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const skillUpdates = normalizeSkillUpdates(body);
 
-    if (skillUpdates.length !== 1) {
+    if (skillUpdates.length === 0) {
       return NextResponse.json(
         { error: 'Missing required fields: skillId and valid progress value' },
         { status: 400 }
       );
-    }
-
-    if (!hasAdminAccess) {
-      const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-      if (!accessCheck.ok) {
-        return NextResponse.json(
-          { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
-          { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
-        );
-      }
     }
 
     const skillUpdate = skillUpdates[0];
@@ -1092,19 +620,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
               : 400,
         }
       );
-    }
-
-    const instructor = instructorResolution.person;
-    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
-
-    if (!hasAdminAccess) {
-      const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-      if (!accessCheck.ok) {
-        return NextResponse.json(
-          { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
-          { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
-        );
-      }
     }
 
     const { data: evaluationRow, error: evaluationLookupError } = await supabaseAdmin
@@ -1166,14 +681,33 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const { error: unlinkMemberSkillError } = await supabaseAdmin
+    // Delete member_skill rows explicitly linked to this evaluation session.
+    const { error: deleteSkillHistoryError } = await supabaseAdmin
       .from('member_skill')
-      .update({ evaluation_id: null })
+      .delete()
       .in('evaluation_id', evaluationIdsToDelete);
 
-    if (unlinkMemberSkillError) {
+    if (deleteSkillHistoryError) {
       return NextResponse.json(
-        { error: `Failed to detach evaluation from skill history: ${unlinkMemberSkillError.message}` },
+        { error: `Failed to revert skill progress: ${deleteSkillHistoryError.message}` },
+        { status: 500 }
+      );
+    }
+
+    // Fallback: also delete rows created on the same date with no evaluation_id
+    // (covers evaluations saved before evaluation_id tracking was added).
+    const evalDate = evaluationRow.evaluation_date; // YYYY-MM-DD
+    const { error: deleteLegacySkillsError } = await supabaseAdmin
+      .from('member_skill')
+      .delete()
+      .eq('member_id', memberId)
+      .is('evaluation_id', null)
+      .gte('updated_at', `${evalDate}T00:00:00.000Z`)
+      .lt('updated_at', `${evalDate}T23:59:59.999Z`);
+
+    if (deleteLegacySkillsError) {
+      return NextResponse.json(
+        { error: `Failed to revert skill progress: ${deleteLegacySkillsError.message}` },
         { status: 500 }
       );
     }
@@ -1188,6 +722,20 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         { error: `Failed to delete evaluation: ${deleteError.message}` },
         { status: 500 }
       );
+    }
+
+    // If the member has no evaluations left, wipe all remaining skill rows so
+    // skills fully reset rather than showing stale manual-update values.
+    const { count: remainingEvalCount, error: remainingEvalError } = await supabaseAdmin
+      .from('evaluation')
+      .select('evaluation_id', { count: 'exact', head: true })
+      .eq('member_id', memberId);
+
+    if (!remainingEvalError && remainingEvalCount === 0) {
+      await supabaseAdmin
+        .from('member_skill')
+        .delete()
+        .eq('member_id', memberId);
     }
 
     return NextResponse.json({ success: true, deletedEvaluationIds: evaluationIdsToDelete });
@@ -1231,7 +779,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
     const instructor = instructorResolution.person;
-    const hasAdminAccess = Boolean(instructorResolution.hasAdminAccess);
 
     const trimmedNote = body.note?.trim() ?? '';
     const skillUpdates = normalizeSkillUpdates(body);
@@ -1267,24 +814,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const hasSkillUpdate = skillUpdates.length > 0;
     const hasSkillNote = skillNotes.length > 0;
-    const hasNote = Boolean(trimmedNote) || hasSkillNote;
-
-    if (!hasSkillUpdate && !hasNote) {
-      return NextResponse.json(
-        { error: 'Note content or skill update is required.' },
-        { status: 400 }
-      );
-    }
-
-    if (!hasAdminAccess) {
-      const accessCheck = await instructorCanAccessMember(instructor.person_id, memberId);
-      if (!accessCheck.ok) {
-        return NextResponse.json(
-          { error: accessCheck.error ?? 'You do not have access to this swimmer.' },
-          { status: accessCheck.error?.startsWith('Failed') ? 500 : 403 }
-        );
-      }
-    }
 
     const { data: memberEnrollments, error: memberEnrollmentsError } = await supabaseAdmin
       .from('enrollment')
@@ -1302,13 +831,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       new Set((memberEnrollments ?? []).map((row) => row.class_id).filter(Boolean))
     );
 
-    const { sharedClassIds, error: sharedClassError } = hasAdminAccess
-      ? { sharedClassIds: enrolledClassIds, error: undefined }
-      : await getSharedClassIdsForInstructorAndMember(instructor.person_id, memberId);
-    if (sharedClassError) {
-      return NextResponse.json({ error: sharedClassError }, { status: 500 });
-    }
-
     let classId = body.classId;
     if (classId && !enrolledClassIds.includes(classId)) {
       return NextResponse.json(
@@ -1317,13 +839,59 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (hasSkillUpdate) {
+    if (!classId && enrolledClassIds.length > 0) {
+      classId = enrolledClassIds[0];
+    }
+
+    const evaluationInstructorPersonId = instructor.person_id;
+    const evaluationDate = new Date().toISOString().slice(0, 10);
+
+    // Always create a session-level anchor row so skill progress can be linked
+    // to this evaluation (enabling clean revert on delete).
+    const anchorRow = {
+      instructor_person_id: evaluationInstructorPersonId,
+      member_id: memberId,
+      class_id: classId ?? null,
+      skill_id: null as string | null,
+      feedback: trimmedNote || null,
+      evaluation_date: evaluationDate,
+    };
+
+    const skillNoteRows = skillNotes.map((entry) => ({
+      instructor_person_id: evaluationInstructorPersonId,
+      member_id: memberId,
+      class_id: classId ?? null,
+      skill_id: entry.skillId as string | null,
+      feedback: entry.note,
+      evaluation_date: evaluationDate,
+    }));
+
+    const evaluationRows = [anchorRow, ...skillNoteRows];
+
+    const { data: insertedEvaluations, error: insertError } = await supabaseAdmin
+      .from('evaluation')
+      .insert(evaluationRows)
+      .select('evaluation_id, class_id, skill_id, feedback, evaluation_date');
+
+    if (insertError) {
+      return NextResponse.json(
+        { error: `Failed to save evaluation: ${insertError.message}` },
+        { status: 500 }
+      );
+    }
+
+    // The anchor row is always first — link all skill progress to its ID so
+    // deleting this evaluation reverts the skills to their previous values.
+    const anchorEvaluationId = insertedEvaluations?.[0]?.evaluation_id ?? null;
+
+    if (hasSkillUpdate && anchorEvaluationId) {
       for (const update of skillUpdates) {
         const { error: skillUpsertError } = await saveMemberSkillProgress({
           memberId,
           skillId: update.skillId,
           progress: update.progress,
           updatedByPersonId: instructor.person_id,
+          evaluationId: anchorEvaluationId,
         });
 
         if (skillUpsertError) {
@@ -1333,79 +901,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           );
         }
       }
-    }
-
-    if (!classId && sharedClassIds.length > 0) {
-      classId = sharedClassIds[0];
-    }
-
-    const evaluationInstructorResolution = await resolveEvaluationInstructorPersonId({
-      actingPersonId: instructor.person_id,
-      memberId,
-      classId: classId ?? null,
-      hasAdminAccess,
-    });
-
-    if (evaluationInstructorResolution.error) {
-      return NextResponse.json(
-        { error: evaluationInstructorResolution.error },
-        { status: evaluationInstructorResolution.error.startsWith('Failed') ? 500 : 400 }
-      );
-    }
-
-    const evaluationInstructorPersonId =
-      evaluationInstructorResolution.instructorPersonId ?? instructor.person_id;
-
-    const evaluationDate = new Date().toISOString().slice(0, 10);
-    const evaluationRows = [
-      ...skillNotes.map((entry) => ({
-        instructor_person_id: evaluationInstructorPersonId,
-        member_id: memberId,
-        class_id: classId ?? null,
-        skill_id: entry.skillId,
-        feedback: entry.note,
-        evaluation_date: evaluationDate,
-      })),
-      ...(trimmedNote
-        ? [
-          {
-            instructor_person_id: evaluationInstructorPersonId,
-            member_id: memberId,
-            class_id: classId ?? null,
-            skill_id: null,
-            feedback: trimmedNote,
-            evaluation_date: evaluationDate,
-          },
-        ]
-        : []),
-      ...(!trimmedNote && !hasSkillNote && hasSkillUpdate
-        ? [
-          {
-            instructor_person_id: evaluationInstructorPersonId,
-            member_id: memberId,
-            class_id: classId ?? null,
-            skill_id: null,
-            feedback: null,
-            evaluation_date: evaluationDate,
-          },
-        ]
-        : []),
-    ];
-
-    if (evaluationRows.length === 0) {
-      return NextResponse.json({ success: true });
-    }
-
-    const { data: insertedEvaluations, error: insertError } = await supabaseAdmin
-      .from('evaluation')
-      .insert(evaluationRows)
-      .select('evaluation_id, class_id, skill_id, feedback, evaluation_date');
-
-    if (insertError) {
-      return NextResponse.json(
-        { error: `Failed to save note: ${insertError.message}` },
-        { status: 500 }
-      );
     }
 
     return NextResponse.json({

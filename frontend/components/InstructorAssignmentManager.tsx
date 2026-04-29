@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { authFetch } from '@/lib/clientAuth';
+import { getClassTagColors } from '@/lib/classColors';
 
 interface Instructor {
     person_id: string;
@@ -48,11 +49,6 @@ type ClassFilterOption = {
     class_end_date?: string | null;
 };
 
-interface TagColor {
-    bg: string;
-    text: string;
-}
-
 type GroupDeletePrompt = {
     group: Group;
     swimmerCount: number;
@@ -85,6 +81,11 @@ type StyledMultiSelectProps = {
     disabled?: boolean;
     ariaLabel?: string;
 };
+
+function stripClassFromGroupName(groupName: string, className: string): string {
+    const prefix = `${className} - `;
+    return groupName.startsWith(prefix) ? groupName.slice(prefix.length) : groupName;
+}
 
 function getViewportClampedMenuPosition(rect: DOMRect, desiredMenuHeight: number) {
     const viewportPadding = 8;
@@ -408,29 +409,6 @@ export default function InstructorAssignmentManager() {
     const [deleteGroupPrompt, setDeleteGroupPrompt] = useState<GroupDeletePrompt>(null);
     const hasCompletedInitialLoadRef = useRef(false);
 
-    const classTagPalette: TagColor[] = [
-        { bg: 'bg-blue-100', text: 'text-blue-800' },
-        { bg: 'bg-emerald-100', text: 'text-emerald-800' },
-        { bg: 'bg-amber-100', text: 'text-amber-800' },
-        { bg: 'bg-fuchsia-100', text: 'text-fuchsia-800' },
-        { bg: 'bg-cyan-100', text: 'text-cyan-800' },
-        { bg: 'bg-lime-100', text: 'text-lime-800' },
-        { bg: 'bg-rose-100', text: 'text-rose-800' },
-        { bg: 'bg-violet-100', text: 'text-violet-800' },
-        { bg: 'bg-orange-100', text: 'text-orange-800' },
-        { bg: 'bg-teal-100', text: 'text-teal-800' },
-        { bg: 'bg-indigo-100', text: 'text-indigo-800' },
-        { bg: 'bg-pink-100', text: 'text-pink-800' },
-    ];
-
-    const getClassTagColors = (className: string): TagColor => {
-        const hash = className
-            .toLowerCase()
-            .split('')
-            .reduce((total, char) => total + char.charCodeAt(0), 0);
-        return classTagPalette[hash % classTagPalette.length];
-    };
-
     const showToast = useCallback((message: string) => {
         setToastMessage(message);
         setTimeout(() => setToastMessage(null), 2200);
@@ -450,6 +428,13 @@ export default function InstructorAssignmentManager() {
             age -= 1;
         }
         return age;
+    };
+
+    const formatBirthday = (dob?: string | null) => {
+        if (!dob) return '—';
+        const date = new Date(`${dob}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
     };
 
     const formatSlotLabel = (slot: number | null) =>
@@ -932,7 +917,7 @@ export default function InstructorAssignmentManager() {
             }
 
             showToast(
-                `Created ${createdGroup?.group_name ?? 'new group'} with ${memberIds.length} swimmer${memberIds.length > 1 ? 's' : ''}`,
+                `Created ${createdGroup ? stripClassFromGroupName(createdGroup.group_name, createdGroup.class_name) : 'new group'} with ${memberIds.length} swimmer${memberIds.length > 1 ? 's' : ''}`,
             );
             setSelectedEnrollmentKeys(new Set());
         } catch (err) {
@@ -990,7 +975,7 @@ export default function InstructorAssignmentManager() {
                 throw new Error(errorPayload?.error || 'Failed to delete group');
             }
 
-            showToast(`Deleted ${group.group_name}`);
+            showToast(`Deleted ${stripClassFromGroupName(group.group_name, group.class_name)}`);
         } catch (err) {
             console.error('Error deleting group:', err);
             setGroups(previousGroups);
@@ -1142,7 +1127,7 @@ export default function InstructorAssignmentManager() {
                             <div className="min-w-0 flex-1">
                                 <h3 className="text-base font-semibold text-slate-900">Delete group?</h3>
                                 <p className="mt-1 text-sm text-slate-600">
-                                    This will delete <span className="font-semibold text-slate-900">{deleteGroupPrompt.group.group_name}</span> and unassign {deleteGroupPrompt.swimmerCount} swimmer{deleteGroupPrompt.swimmerCount === 1 ? '' : 's'}.
+                                    This will delete <span className="font-semibold text-slate-900">{stripClassFromGroupName(deleteGroupPrompt.group.group_name, deleteGroupPrompt.group.class_name)}</span> and unassign {deleteGroupPrompt.swimmerCount} swimmer{deleteGroupPrompt.swimmerCount === 1 ? '' : 's'}.
                                 </p>
                             </div>
                         </div>
@@ -1301,7 +1286,7 @@ export default function InstructorAssignmentManager() {
                                                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${classTag.bg} ${classTag.text}`}>
                                                                 {group.class_name}
                                                             </span>
-                                                            <p className="mt-1 text-xs font-semibold text-slate-800">{group.group_name}</p>
+                                                            <p className="mt-1 text-xs font-semibold text-slate-800">{stripClassFromGroupName(group.group_name, group.class_name)}</p>
                                                             <p className="text-[11px] text-slate-500">{slotLabel}</p>
                                                         </td>
                                                         <td className="px-3 py-2">
@@ -1438,7 +1423,7 @@ export default function InstructorAssignmentManager() {
                                         disabled={bulkPending || !canRunGroupingActions}
                                         options={[
                                             { value: '', label: 'Select group' },
-                                            ...bulkAssignableGroups.map((group) => ({ value: group.group_id, label: group.group_name })),
+                                            ...bulkAssignableGroups.map((group) => ({ value: group.group_id, label: stripClassFromGroupName(group.group_name, group.class_name) })),
                                         ]}
                                         className="w-52"
                                         sizeMode="compact"
@@ -1502,6 +1487,7 @@ export default function InstructorAssignmentManager() {
                                                     />
                                                 </th>
                                                 <th className="px-3 py-2 text-left font-semibold">Swimmer</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Birthday</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Age</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Slot</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Class</th>
@@ -1531,7 +1517,7 @@ export default function InstructorAssignmentManager() {
                                                 if (shouldShowSectionRow) {
                                                     rows.push(
                                                         <tr key={`section-${key}`} className="border-t border-slate-200 bg-slate-50/70">
-                                                            <td colSpan={7} className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                                                            <td colSpan={8} className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
                                                                 {isAssigned ? 'Assigned Swimmers' : 'Unassigned Swimmers'}
                                                             </td>
                                                         </tr>,
@@ -1562,6 +1548,7 @@ export default function InstructorAssignmentManager() {
                                                         <td className="px-3 py-2 font-medium text-slate-900">
                                                             {formatName(row.member_first_name, row.member_last_name)}
                                                         </td>
+                                                        <td className="px-3 py-2 text-slate-600">{formatBirthday(row.date_of_birth)}</td>
                                                         <td className="px-3 py-2 text-slate-600">{age ?? '—'}</td>
                                                         <td className="px-3 py-2 text-slate-600">{formatSlotLabel(row.slot)}</td>
                                                         <td className="px-3 py-2">
@@ -1576,7 +1563,7 @@ export default function InstructorAssignmentManager() {
                                                                 disabled={isPending}
                                                                 options={[
                                                                     { value: '', label: 'Unassigned' },
-                                                                    ...groupOptions.map((group) => ({ value: group.group_id, label: group.group_name })),
+                                                                    ...groupOptions.map((group) => ({ value: group.group_id, label: stripClassFromGroupName(group.group_name, group.class_name) })),
                                                                 ]}
                                                                 className="w-56"
                                                                 sizeMode="compact"
@@ -1593,7 +1580,7 @@ export default function InstructorAssignmentManager() {
                                             })}
                                             {swimmerPageRows.length === 0 && (
                                                 <tr>
-                                                    <td colSpan={7} className="px-3 py-4 text-center text-xs text-slate-500">
+                                                    <td colSpan={8} className="px-3 py-4 text-center text-xs text-slate-500">
                                                         No swimmers match the current filters.
                                                     </td>
                                                 </tr>
