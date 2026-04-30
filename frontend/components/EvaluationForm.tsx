@@ -49,12 +49,6 @@ interface EvaluationFormProps {
   onDirtyChange?: (isDirty: boolean) => void;
 }
 
-type ToastMessage = {
-  id: number;
-  message: string;
-  type: 'success' | 'error';
-};
-
 const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
   { value: 0, label: '0 - Not started' },
   { value: 1, label: '1 - Beginning' },
@@ -92,15 +86,6 @@ export default function EvaluationForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  const showToast = (message: string, type: 'success' | 'error' = 'error') => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 6000);
-  };
 
   useEffect(() => {
     // For new evaluations, leave skills with no progress history unselected
@@ -394,7 +379,6 @@ export default function EvaluationForm({
       const message =
         submitError instanceof Error ? submitError.message : 'Failed to submit evaluation.';
       setError(message);
-      showToast(message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -402,21 +386,6 @@ export default function EvaluationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="fixed top-24 right-4 z-[100] space-y-2 w-[92vw] max-w-sm pointer-events-none sm:top-28">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${
-              toast.type === 'success'
-                ? 'border-green-200 bg-green-50 text-green-800'
-                : 'border-red-200 bg-red-50 text-red-800'
-            }`}
-          >
-            {toast.message}
-          </div>
-        ))}
-      </div>
-
       {viewOnly && (
         <p className="text-xs text-gray-500">Viewing this evaluation in read-only mode.</p>
       )}
@@ -572,6 +541,12 @@ export default function EvaluationForm({
               </>
             )}
           </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
         </div>
       )}
 
