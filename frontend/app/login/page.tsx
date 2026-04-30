@@ -15,10 +15,13 @@ import {
   getRoleSelectBypass,
   getDashboardPathsForRoles,
   getAllAppRoles,
+  getLastRoleForEmail,
   normalizeEmail,
   normalizeRole,
   saveAvailableRoles,
   saveActiveRole,
+  saveAuthEmail,
+  saveLastRoleForEmail,
 } from "@/lib/authRoles";
 
 const LEGACY_LOCALSTORAGE_ROLE_SET = new Set(["admin", "super-admin"]);
@@ -199,6 +202,7 @@ export default function Login() {
 
       // ── Step 4: persist roles for use by the role switcher widget ──────────
       saveAvailableRoles(appRoles);
+      saveAuthEmail(authenticatedEmail);
 
       // ── Step 5: legacy localStorage cleanup ───────────────────────────────
       const highestRole = appRoles[0];
@@ -211,18 +215,43 @@ export default function Login() {
         localStorage.removeItem("user");
       }
 
-      // ── Step 6: route — bypass/multi-role/single-role ──────────────────────
+      // ── Step 6: route — last-role / bypass / multi-role / single-role ─────
+      // A remembered last-role for this email wins over the super-admin bypass:
+      // if the user explicitly cycled into Instructor on their last session,
+      // log them back in there.
+      const lastRole = getLastRoleForEmail(authenticatedEmail);
+      const lastMatch = lastRole
+        ? availableDashboards.find((d) => d.role === lastRole)
+        : null;
+
+      if (lastMatch) {
+        saveActiveRole(lastMatch.role);
+        saveLastRoleForEmail(authenticatedEmail, lastMatch.role);
+        router.push(lastMatch.path);
+        return;
+      }
+
       if (roleSelectBypass) {
         saveActiveRole(roleSelectBypass.role);
+        saveLastRoleForEmail(authenticatedEmail, roleSelectBypass.role);
         router.push(roleSelectBypass.path);
         return;
       }
 
       if (availableDashboards.length > 1) {
-        router.push("/role-select");
+        // No remembered choice — default to admin if available, else picker.
+        const adminMatch = availableDashboards.find((d) => d.role === "admin");
+        if (adminMatch) {
+          saveActiveRole(adminMatch.role);
+          saveLastRoleForEmail(authenticatedEmail, adminMatch.role);
+          router.push(adminMatch.path);
+        } else {
+          router.push("/role-select");
+        }
       } else {
         const { role, path } = availableDashboards[0];
         saveActiveRole(role);
+        saveLastRoleForEmail(authenticatedEmail, role);
         router.push(path);
       }
     } catch (err: any) {

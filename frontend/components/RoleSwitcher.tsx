@@ -10,10 +10,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  getAuthEmail,
   getAvailableRoles,
   getDashboardPathsForRoles,
   saveActiveRole,
   saveAvailableRoles,
+  saveLastRoleForEmail,
 } from "@/lib/authRoles";
 import { authFetch } from "@/lib/clientAuth";
 
@@ -31,16 +33,21 @@ function getRoleLabel(role: string, dashboards: Dashboard[]) {
   return dashboards.find((d) => d.role === role)?.label ?? role;
 }
 
+// super-admin has no dedicated dashboard page; exclude it from the cycle.
+function switchableDashboards(roles: string[]): Dashboard[] {
+  return getDashboardPathsForRoles(
+    roles.filter((r) => r !== "super-admin"),
+  );
+}
+
 function useRoleDashboards(currentRole: string) {
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
-  const [hasSuperAdmin, setHasSuperAdmin] = useState(false);
 
   useEffect(() => {
     // Seed from sessionStorage immediately so the UI isn't blank on first render.
     const cached = getAvailableRoles();
     if (cached.length > 0) {
-      setHasSuperAdmin(cached.includes("super-admin"));
-      setDashboards(getDashboardPathsForRoles(cached));
+      setDashboards(switchableDashboards(cached));
     }
 
     // Then re-fetch from the server so newly-granted roles are picked up
@@ -53,24 +60,21 @@ function useRoleDashboards(currentRole: string) {
           : [];
         if (fresh.length === 0) return;
         saveAvailableRoles(fresh);
-        setHasSuperAdmin(fresh.includes("super-admin"));
-        setDashboards(getDashboardPathsForRoles(fresh));
+        setDashboards(switchableDashboards(fresh));
       })
       .catch(() => {
         // Network / auth errors — silently fall back to cached roles.
       });
   }, [currentRole]);
 
-  return { dashboards, hasSuperAdmin };
+  return { dashboards };
 }
 
 // ─── Header Switcher (CLICK TO CYCLE) ───────────────────────────────────────
 
 export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
   const router = useRouter();
-  const { dashboards, hasSuperAdmin } = useRoleDashboards(currentRole);
-
-  if (hasSuperAdmin) return null;
+  const { dashboards } = useRoleDashboards(currentRole);
 
   const handleCycle = () => {
     if (dashboards.length <= 1) return;
@@ -81,6 +85,7 @@ export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
     if (!next) return;
 
     saveActiveRole(next.role);
+    saveLastRoleForEmail(getAuthEmail(), next.role);
     router.push(next.path);
   };
 
@@ -154,9 +159,7 @@ export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
 
 export function RoleSwitcherFAB({ currentRole }: { currentRole: string }) {
   const router = useRouter();
-  const { dashboards, hasSuperAdmin } = useRoleDashboards(currentRole);
-
-  if (hasSuperAdmin) return null;
+  const { dashboards } = useRoleDashboards(currentRole);
 
   const handleCycle = () => {
     if (dashboards.length <= 1) return;
@@ -167,6 +170,7 @@ export function RoleSwitcherFAB({ currentRole }: { currentRole: string }) {
     if (!next) return;
 
     saveActiveRole(next.role);
+    saveLastRoleForEmail(getAuthEmail(), next.role);
     router.push(next.path);
   };
 

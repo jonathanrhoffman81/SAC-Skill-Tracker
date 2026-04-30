@@ -18,7 +18,7 @@ const ROLE_OPTIONS = [
 
 type RoleKey = typeof ROLE_OPTIONS[number]['key'];
 
-export default function CreateAccountManager() {
+export default function CreateAccountManager({ onCreated }: { onCreated?: () => void } = {}) {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [email, setEmail] = useState('');
@@ -30,21 +30,8 @@ export default function CreateAccountManager() {
     function toggleRole(role: RoleKey) {
         setSelectedRoles((prev) => {
             const next = new Set(prev);
-            if (role === 'admin') {
-                // Admin implies instructor; toggling admin on forces instructor on too
-                if (next.has('admin')) {
-                    next.delete('admin');
-                } else {
-                    next.add('admin');
-                    next.add('instructor');
-                }
-            } else if (role === 'instructor' && next.has('admin')) {
-                // Can't remove instructor while admin is active
-                return prev;
-            } else {
-                if (next.has(role)) next.delete(role);
-                else next.add(role);
-            }
+            if (next.has(role)) next.delete(role);
+            else next.add(role);
             return next;
         });
     }
@@ -86,6 +73,7 @@ export default function CreateAccountManager() {
             setLastName('');
             setEmail('');
             setSelectedRoles(new Set(['instructor']));
+            onCreated?.();
         } catch {
             setError('Network error — please try again');
         } finally {
@@ -156,7 +144,6 @@ export default function CreateAccountManager() {
                         <div className="space-y-2">
                             {ROLE_OPTIONS.map(({ key, label, description }) => {
                                 const checked = selectedRoles.has(key);
-                                const locked = key === 'instructor' && selectedRoles.has('admin');
                                 return (
                                     <label
                                         key={key}
@@ -164,21 +151,18 @@ export default function CreateAccountManager() {
                                             checked
                                                 ? 'border-blue-500 bg-blue-50'
                                                 : 'border-gray-200 bg-white hover:bg-gray-50'
-                                        } ${locked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                        }`}
                                     >
                                         <input
                                             type="checkbox"
                                             checked={checked}
                                             onChange={() => toggleRole(key)}
-                                            disabled={submitting || locked}
+                                            disabled={submitting}
                                             className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                         />
                                         <div>
                                             <p className="text-sm font-medium text-gray-900">{label}</p>
                                             <p className="text-xs text-gray-500">{description}</p>
-                                            {locked && (
-                                                <p className="text-xs text-blue-600 mt-0.5">Required by Admin role</p>
-                                            )}
                                         </div>
                                     </label>
                                 );

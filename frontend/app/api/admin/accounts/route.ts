@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
             request.nextUrl.searchParams.get("email"),
         );
         const organizationId = adminContext.organizationId;
+        const currentPersonId = adminContext.personId ?? null;
 
         const { data: personOrgRows, error: personOrgError } = await supabase
             .from("person_organization")
@@ -204,7 +205,7 @@ export async function GET(request: NextRequest) {
                         .filter(Boolean),
                     roles: {
                         admin: isAdmin,
-                        instructor: isAdmin || Boolean(roleSet?.has(ROLE_IDS.instructor)),
+                        instructor: Boolean(roleSet?.has(ROLE_IDS.instructor)),
                         parent: Boolean(roleSet?.has(ROLE_IDS.parent)),
                         swimmer: swimmerPersonIds.has(person.person_id),
                     },
@@ -244,7 +245,7 @@ export async function GET(request: NextRequest) {
                 return aName.localeCompare(bName);
             });
 
-        return NextResponse.json({ accounts });
+        return NextResponse.json({ accounts, currentPersonId });
     } catch (error) {
         console.error("Accounts GET error:", error);
         const message = error instanceof Error ? error.message : "Internal server error";
@@ -378,14 +379,13 @@ export async function POST(request: NextRequest) {
             personOrgId = personOrgRow.person_organization_id;
         }
 
-        // Assign requested roles
+        // Assign requested roles. Admin and instructor are independent — admins
+        // (e.g. board members) may not be instructors and vice versa.
         const requestedRoles = (body.roles || []).filter((r) => r in ROLE_IDS) as (keyof typeof ROLE_IDS)[];
         if (requestedRoles.length > 0) {
-            const roleIdsToInsert = Array.from(new Set(
-                requestedRoles.flatMap((r) =>
-                    r === "admin" ? [ROLE_IDS.admin, ROLE_IDS.instructor] : [ROLE_IDS[r]],
-                ),
-            )).map((role_id) => ({ person_organization_id: personOrgId, role_id }));
+            const roleIdsToInsert = Array.from(
+                new Set(requestedRoles.map((r) => ROLE_IDS[r])),
+            ).map((role_id) => ({ person_organization_id: personOrgId, role_id }));
 
             const { error: roleError } = await supabase.from("person_org_role").upsert(roleIdsToInsert, { onConflict: "person_organization_id,role_id" });
             if (roleError) {
@@ -410,6 +410,204 @@ export async function POST(request: NextRequest) {
     }
 }
 
+export async function PUT(request: NextRequest) {
+    try {
+        const body = (await request.json()) as {
+            person_id?: string | null;
+            member_id?: string | null;
+            first_name?: string;
+            last_name?: string;
+            email?: string;
+            is_active?: boolean;
+        };
+
+        if (!body.person_id && !body.member_id) {
+            return NextResponse.json(
+                { error: "person_id or member_id is required" },
+                { status: 400 },
+            );
+        }
+
+        const supabase = getSupabaseAdminClient();
+        const adminContext = await resolveAdminRequestContext(request, supabase);
+        const organizationId = adminContext.organizationId;
+
+        // ─── Person account edit ────────────────────────────────────────────
+        if (body.person_id) {
+            const { data: personOrgRow, error: personOrgError } = await supabase
+                .from("person_organization")
+                .select("person_organization_id")
+                .eq("person_id", body.person_id)
+                .eq("organization_id", organizationId)
+                .eq("status", "active")
+                .maybeSingle();
+
+            if (personOrgError) {
+                return NextResponse.json(
+                    { error: `Failed to validate person: ${personOrgError.message}` },
+                    { status: 500 },
+                );
+            }
+            if (!personOrgRow) {
+                return NextResponse.json(
+                    { error: "Person not found in this organization" },
+                    { status: 404 },
+                );
+            }
+
+            // Self-protection: can't deactivate own account.
+            if (
+                adminContext.personId &&
+                body.person_id === adminContext.personId &&
+                body.is_active === false
+            ) {
+                return NextResponse.json(
+                    { error: "You can't deactivate your own account." },
+                    { status: 400 },
+                );
+            }
+
+            const { data: existingPerson, error: existingPersonError } = await supabase
+                .from("person")
+                .select("first_name, last_name, email, is_active, auth_user_id")
+                .eq("person_id", body.person_id)
+                .single();
+
+            if (existingPersonError || !existingPerson) {
+                return NextResponse.json(
+                    { error: `Failed to load person: ${existingPersonError?.message || "Unknown error"}` },
+                    { status: 500 },
+                );
+            }
+
+            const updates: Record<string, unknown> = {};
+            if (typeof body.first_name === "string") {
+                updates.first_name = body.first_name.trim();
+            }
+            if (typeof body.last_name === "string") {
+                updates.last_name = body.last_name.trim();
+            }
+            if (typeof body.is_active === "boolean") {
+                updates.is_active = body.is_active;
+            }
+
+            if (typeof body.email === "string") {
+                const newEmail = body.email.trim().toLowerCase();
+                if (newEmail && newEmail !== existingPerson.email) {
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+                        return NextResponse.json(
+                            { error: "Invalid email address" },
+                            { status: 400 },
+                        );
+                    }
+
+                    const { data: dup } = await supabase
+                        .from("person")
+                        .select("person_id")
+                        .eq("email", newEmail)
+                        .maybeSingle();
+                    if (dup && dup.person_id !== body.person_id) {
+                        return NextResponse.json(
+                            { error: "Another account already uses that email" },
+                            { status: 409 },
+                        );
+                    }
+
+                    updates.email = newEmail;
+
+                    if (existingPerson.auth_user_id) {
+                        const { error: authError } =
+                            await supabase.auth.admin.updateUserById(
+                                existingPerson.auth_user_id,
+                                { email: newEmail, email_confirm: true },
+                            );
+                        if (authError) {
+                            return NextResponse.json(
+                                { error: `Failed to update sign-in email: ${authError.message}` },
+                                { status: 500 },
+                            );
+                        }
+                    }
+                }
+            }
+
+            if (Object.keys(updates).length > 0) {
+                const { error: updateError } = await supabase
+                    .from("person")
+                    .update(updates)
+                    .eq("person_id", body.person_id);
+                if (updateError) {
+                    return NextResponse.json(
+                        { error: `Failed to save changes: ${updateError.message}` },
+                        { status: 500 },
+                    );
+                }
+            }
+
+            return NextResponse.json({ success: true });
+        }
+
+        // ─── Member-only swimmer edit ──────────────────────────────────────
+        const { data: memberRow, error: memberError } = await supabase
+            .from("member")
+            .select("member_id, organization_id")
+            .eq("member_id", body.member_id)
+            .maybeSingle();
+
+        if (memberError) {
+            return NextResponse.json(
+                { error: `Failed to load swimmer: ${memberError.message}` },
+                { status: 500 },
+            );
+        }
+        if (!memberRow || memberRow.organization_id !== organizationId) {
+            return NextResponse.json(
+                { error: "Swimmer not found in this organization" },
+                { status: 404 },
+            );
+        }
+
+        const memberUpdates: Record<string, unknown> = {};
+        if (typeof body.first_name === "string") {
+            memberUpdates.first_name = body.first_name.trim();
+        }
+        if (typeof body.last_name === "string") {
+            memberUpdates.last_name = body.last_name.trim();
+        }
+        if (typeof body.is_active === "boolean") {
+            memberUpdates.is_active = body.is_active;
+        }
+
+        if (Object.keys(memberUpdates).length > 0) {
+            const { error: memberUpdateError } = await supabase
+                .from("member")
+                .update(memberUpdates)
+                .eq("member_id", body.member_id);
+            if (memberUpdateError) {
+                return NextResponse.json(
+                    { error: `Failed to save changes: ${memberUpdateError.message}` },
+                    { status: 500 },
+                );
+            }
+        }
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error("Accounts PUT error:", error);
+        const message = error instanceof Error ? error.message : "Internal server error";
+        if (message.startsWith("FORBIDDEN:")) {
+            return NextResponse.json({ error: message.replace("FORBIDDEN:", "") }, { status: 403 });
+        }
+        if (message.startsWith("UNAUTHORIZED:")) {
+            return NextResponse.json({ error: message.replace("UNAUTHORIZED:", "") }, { status: 401 });
+        }
+        if (message === "Missing admin email") {
+            return NextResponse.json({ error: message }, { status: 400 });
+        }
+        return NextResponse.json({ error: message }, { status: 500 });
+    }
+}
+
 export async function PATCH(request: NextRequest) {
     try {
         const body = (await request.json()) as {
@@ -428,6 +626,19 @@ export async function PATCH(request: NextRequest) {
         const supabase = getSupabaseAdminClient();
         const adminContext = await resolveAdminRequestContext(request, supabase);
         const organizationId = adminContext.organizationId;
+
+        // Self-protection: an admin cannot remove their own admin role.
+        if (
+            adminContext.personId &&
+            body.person_id === adminContext.personId &&
+            body.role === "admin" &&
+            body.enabled === false
+        ) {
+            return NextResponse.json(
+                { error: "You can't remove your own admin role." },
+                { status: 400 },
+            );
+        }
 
         const { data: personOrgRow, error: personOrgError } = await supabase
             .from("person_organization")
@@ -559,40 +770,14 @@ export async function PATCH(request: NextRequest) {
             return NextResponse.json({ error: "Unsupported role" }, { status: 400 });
         }
 
-        if (body.role === "instructor" && !body.enabled) {
-            const { data: adminRoleRow, error: adminRoleError } = await supabase
-                .from("person_org_role")
-                .select("role_id")
-                .eq("person_organization_id", personOrgRow.person_organization_id)
-                .eq("role_id", ROLE_IDS.admin)
-                .maybeSingle();
-
-            if (adminRoleError) {
-                return NextResponse.json(
-                    { error: `Failed to validate admin role: ${adminRoleError.message}` },
-                    { status: 500 },
-                );
-            }
-
-            if (adminRoleRow) {
-                return NextResponse.json(
-                    { error: "Instructors cannot be removed while admin role is active." },
-                    { status: 400 },
-                );
-            }
-        }
-
         if (body.enabled) {
-            const rolesToUpsert =
-                body.role === "admin"
-                    ? [ROLE_IDS.admin, ROLE_IDS.instructor]
-                    : [roleId];
-
             const { error: upsertError } = await supabase.from("person_org_role").upsert(
-                rolesToUpsert.map((currentRoleId) => ({
-                    person_organization_id: personOrgRow.person_organization_id,
-                    role_id: currentRoleId,
-                })),
+                [
+                    {
+                        person_organization_id: personOrgRow.person_organization_id,
+                        role_id: roleId,
+                    },
+                ],
                 { onConflict: "person_organization_id,role_id" },
             );
 
