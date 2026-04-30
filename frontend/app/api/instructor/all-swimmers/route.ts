@@ -520,8 +520,9 @@ export async function GET(request: NextRequest) {
     const loadOrgSkillsPromise = !lightweight
       ? supabaseAdmin
         .from("skill")
-        .select("skill_id, name")
+        .select("skill_id, name, display_order")
         .eq("organization_id", organizationId)
+        .order("display_order", { ascending: true, nullsFirst: false })
         .order("name", { ascending: true })
       : supabaseAdmin
         .from("skill")

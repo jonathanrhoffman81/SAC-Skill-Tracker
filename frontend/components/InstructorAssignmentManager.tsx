@@ -1324,6 +1324,7 @@ export default function InstructorAssignmentManager() {
                                         <thead className="bg-slate-50 text-slate-600">
                                             <tr>
                                                 <th className="px-3 py-2 text-left font-semibold">Class</th>
+                                                <th className="px-3 py-2 text-left font-semibold">Slot</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Swimmers (Age)</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Instructors</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Add / Delete</th>
@@ -1416,7 +1417,9 @@ export default function InstructorAssignmentManager() {
                                                                     </button>
                                                                 </div>
                                                             )}
-                                                            <p className="text-[11px] text-slate-500">{slotLabel}</p>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-xs text-slate-600">
+                                                            {slotLabel}
                                                         </td>
                                                         <td className="px-3 py-2">
                                                             <div className="flex max-w-[320px] flex-wrap gap-1.5">
@@ -1621,7 +1624,6 @@ export default function InstructorAssignmentManager() {
                                                 <th className="px-3 py-2 text-left font-semibold">Slot</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Class</th>
                                                 <th className="px-3 py-2 text-left font-semibold">Group</th>
-                                                <th className="px-3 py-2 text-left font-semibold">Instructors</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1699,9 +1701,7 @@ export default function InstructorAssignmentManager() {
                                                                 ariaLabel={`Assign group for ${formatName(row.member_first_name, row.member_last_name)}`}
                                                             />
                                                         </td>
-                                                        <td className="px-3 py-2 text-slate-600">
-                                                            {instructorNames.length > 0 ? instructorNames.join(', ') : 'No instructor'}
-                                                        </td>
+
                                                     </tr>,
                                                 );
 

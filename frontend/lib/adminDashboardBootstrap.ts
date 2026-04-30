@@ -98,8 +98,9 @@ export async function loadAdminDashboardBootstrap(
       timedQuery("skills", () =>
         supabase
           .from("skill")
-          .select("skill_id, name")
+          .select("skill_id, name, display_order")
           .eq("organization_id", organizationId)
+          .order("display_order", { ascending: true, nullsFirst: false })
           .order("name", { ascending: true }),
       ),
     ]);

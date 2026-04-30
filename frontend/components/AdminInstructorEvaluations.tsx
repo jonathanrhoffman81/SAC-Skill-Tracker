@@ -2254,7 +2254,7 @@ export default function AdminInstructorEvaluations({
                                                                                                 </button>
                                                                                             </>
                                                                                         )}
-                                                                                        {!latestEvaluationEntry && !(isAddingThisClass || isEditingThisClass) && (
+                                                                                        {!latestEvaluationEntry && !isSelectedForEvaluation && !(isAddingThisClass || isEditingThisClass) && !(classItem.startDate && new Date(classItem.startDate) > new Date()) && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {

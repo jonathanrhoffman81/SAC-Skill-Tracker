@@ -14,11 +14,11 @@ export async function GET(request: NextRequest) {
         const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
         const orgId = adminContext.organizationId;
 
-        // Get all skills for this organization
         const { data: skills, error: skillsError } = await supabase
             .from('skill')
-            .select('skill_id, name, organization_id, created_at')
+            .select('skill_id, name, organization_id, created_at, display_order')
             .eq('organization_id', orgId)
+            .order('display_order', { ascending: true, nullsFirst: false })
             .order('name');
 
         if (skillsError) {
@@ -55,13 +55,20 @@ export async function POST(request: NextRequest) {
         const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
         const orgId = adminContext.organizationId;
 
-        // Create the skill
+        // Place new skill at the end of the list
+        const { data: maxRow } = await supabase
+            .from('skill')
+            .select('display_order')
+            .eq('organization_id', orgId)
+            .order('display_order', { ascending: false, nullsFirst: false })
+            .limit(1)
+            .maybeSingle();
+
+        const nextOrder = (maxRow?.display_order ?? 0) + 1;
+
         const { data: newSkill, error: createError } = await supabase
             .from('skill')
-            .insert({
-                name,
-                organization_id: orgId,
-            })
+            .insert({ name, organization_id: orgId, display_order: nextOrder })
             .select()
             .single();
 
@@ -82,6 +89,46 @@ export async function POST(request: NextRequest) {
     }
 }
 
+// PATCH: Reorder skills — accepts { orderedIds: string[] }
+export async function PATCH(request: NextRequest) {
+    try {
+        const body = await request.json() as { orderedIds?: string[] };
+        if (!Array.isArray(body.orderedIds) || body.orderedIds.length === 0) {
+            return NextResponse.json({ error: 'orderedIds array is required' }, { status: 400 });
+        }
+
+        const supabase = getSupabaseAdminClient();
+        const adminContext = await resolveAdminRequestContext(request, supabase);
+        const orgId = adminContext.organizationId;
+
+        // Verify all skills belong to this org
+        const { data: orgSkills } = await supabase
+            .from('skill')
+            .select('skill_id')
+            .eq('organization_id', orgId)
+            .in('skill_id', body.orderedIds);
+
+        const validIds = new Set((orgSkills || []).map((s: any) => s.skill_id));
+        const updates = body.orderedIds
+            .filter((id) => validIds.has(id))
+            .map((id, index) => supabase
+                .from('skill')
+                .update({ display_order: index + 1 })
+                .eq('skill_id', id)
+            );
+
+        await Promise.all(updates);
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Skills PATCH error:', error);
+        const message = error instanceof Error ? error.message : 'Internal server error';
+        if (message.startsWith('FORBIDDEN:')) return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
+        if (message.startsWith('UNAUTHORIZED:')) return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
+        return NextResponse.json({ error: message }, { status: 500 });
+    }
+}
+
 // PUT: Update an existing skill
 export async function PUT(request: NextRequest) {
     try {
@@ -99,7 +146,6 @@ export async function PUT(request: NextRequest) {
         const adminContext = await resolveAdminRequestContext(request, supabase, body.email);
         const orgId = adminContext.organizationId;
 
-        // Update the skill (only if it belongs to this organization)
         const { data: updatedSkill, error: updateError } = await supabase
             .from('skill')
             .update({ name })
@@ -141,7 +187,6 @@ export async function DELETE(request: NextRequest) {
         const adminContext = await resolveAdminRequestContext(request, supabase, request.nextUrl.searchParams.get('email'));
         const orgId = adminContext.organizationId;
 
-        // Delete the skill (only if it belongs to this organization)
         const { error: deleteError } = await supabase
             .from('skill')
             .delete()
@@ -162,9 +207,6 @@ export async function DELETE(request: NextRequest) {
         if (message.startsWith('FORBIDDEN:')) return NextResponse.json({ error: message.replace('FORBIDDEN:', '') }, { status: 403 });
         if (message.startsWith('UNAUTHORIZED:')) return NextResponse.json({ error: message.replace('UNAUTHORIZED:', '') }, { status: 401 });
         if (message === 'Missing admin email') return NextResponse.json({ error: message }, { status: 400 });
-        return NextResponse.json(
-            { error: message },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

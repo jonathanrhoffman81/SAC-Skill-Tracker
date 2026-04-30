@@ -223,7 +223,15 @@ export default function CertificatePage({
   const [modalUrl, setModalUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const urlCache = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   /* load swimmer — skipped when data is passed via props */
   useEffect(() => {
@@ -481,7 +489,7 @@ export default function CertificatePage({
                 {isGenerating || !modalUrl ? (
                   <div
                     style={{
-                      height: "440px",
+                      height: "340px",
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
@@ -519,6 +527,67 @@ export default function CertificatePage({
                       Generating certificate…
                     </p>
                     <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+                  </div>
+                ) : isMobile ? (
+                  /* Mobile: PDFs don't preview well in iframes — show open/download buttons instead */
+                  <div
+                    style={{
+                      minHeight: "220px",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 20,
+                      background: "white",
+                      padding: "32px 24px",
+                      textAlign: "center",
+                    }}
+                  >
+                    <svg width="56" height="56" viewBox="0 0 96 112">
+                      <path
+                        d="M48 6 C48 6 14 10 10 14 L10 46 C10 66 28 82 48 90 C68 82 86 66 86 46 L86 14 C82 10 48 6 48 6 Z"
+                        fill={c!.bg}
+                        stroke={c!.ring}
+                        strokeWidth="2.5"
+                      />
+                      <path d={starPath(48, 46, 17, 7, 5)} fill={c!.star} opacity="0.9" />
+                    </svg>
+                    <div>
+                      <p style={{ margin: "0 0 4px", fontSize: "15px", fontWeight: 700, color: "#1a1a1a" }}>
+                        {selectedSkill!.name}
+                      </p>
+                      <p style={{ margin: 0, fontSize: "13px", color: "#888" }}>
+                        Your certificate is ready
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 260 }}>
+                      <a
+                        href={modalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          padding: "11px 20px",
+                          borderRadius: "10px",
+                          background: `linear-gradient(135deg, ${c!.ring}, ${c!.star})`,
+                          color: "white",
+                          fontWeight: 700,
+                          fontSize: "14px",
+                          textDecoration: "none",
+                          boxShadow: `0 4px 14px ${c!.ring}55`,
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                        Open Certificate
+                      </a>
+                    </div>
                   </div>
                 ) : (
                   <div
