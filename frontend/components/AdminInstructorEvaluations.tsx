@@ -12,6 +12,7 @@ interface DashboardClass {
     id: string;
     name: string;
     schedule: string;
+    slot?: number | null;
     startDate?: string;
     endDate?: string;
 }
@@ -1707,9 +1708,17 @@ export default function AdminInstructorEvaluations({
                                         className="rounded-lg border border-blue-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
                                     >
                                         <p className="text-sm font-semibold text-gray-900">{swimmer.name}</p>
-                                        <p className="mt-1 text-xs text-gray-600">
-                                            {closestClass?.name ?? "Class"} ends {formatDateLabel(closestClass?.endDate)}
-                                        </p>
+                                        <div className="mt-1">
+                                            <p className="text-xs font-medium text-gray-700">
+                                                {closestClass?.name ?? "Class"}
+                                                {closestClass?.slot !== undefined && closestClass?.slot !== null
+                                                    ? ` - Slot ${closestClass.slot}`
+                                                    : ""}
+                                            </p>
+                                            <p className="mt-1 text-[11px] uppercase tracking-wide text-gray-500">
+                                                Ends {formatDateLabel(closestClass?.endDate)}
+                                            </p>
+                                        </div>
                                     </button>
                                 );
                             })}

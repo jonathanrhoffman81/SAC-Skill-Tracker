@@ -11,6 +11,7 @@ interface DashboardClassPayload {
   id: string;
   name: string;
   schedule: string;
+  slot?: number | null;
   startDate?: string;
   endDate?: string;
 }
@@ -551,7 +552,7 @@ export async function GET(request: NextRequest) {
 
     const loadEnrollmentsPromise =
       memberIds.length > 0
-        ? batchQuery("enrollment", "member_id, class_id, group_id", memberIds, "member_id")
+        ? batchQuery("enrollment", "member_id, class_id, group_id, slot", memberIds, "member_id")
         : Promise.resolve([] as any[]);
 
     const loadEvaluationRowsPromise =
@@ -964,7 +965,10 @@ export async function GET(request: NextRequest) {
 
       const existing = classesByMemberId.get(row.member_id) ?? [];
       if (!existing.some((item) => item.id === classItem.id)) {
-        existing.push(classItem);
+        existing.push({
+          ...classItem,
+          slot: row.slot ?? null,
+        });
         existing.sort((a, b) => a.name.localeCompare(b.name));
         classesByMemberId.set(row.member_id, existing);
       }
