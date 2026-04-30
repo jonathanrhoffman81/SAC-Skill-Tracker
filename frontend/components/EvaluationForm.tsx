@@ -57,6 +57,14 @@ const PROGRESS_OPTIONS: Array<{ value: 0 | 1 | 2 | 3 | 4; label: string }> = [
   { value: 4, label: '4 - Acquired' },
 ];
 
+const PROGRESS_DESCRIPTIONS: Record<0 | 1 | 2 | 3 | 4, string> = {
+  0: 'Unable to attempt the skill',
+  1: 'Unable to show skill without significant support',
+  2: 'Inconsistently or with support is able to demonstrate the skill',
+  3: 'Consistently demonstrates application of the skill',
+  4: 'Demonstrates complete understanding of the skill',
+};
+
 function proficiencyToPercentage(level: 0 | 1 | 2 | 3 | 4): number {
   const mapping: Record<number, number> = { 0: 0, 1: 25, 2: 50, 3: 75, 4: 100 };
   return mapping[level];
@@ -426,7 +434,10 @@ export default function EvaluationForm({
                           }
                           disabled={viewOnly}
                           aria-pressed={isActive}
-                          title={isActive ? `${option.label} (click to clear)` : option.label}
+                          aria-label={`${option.value}: ${PROGRESS_DESCRIPTIONS[option.value]}`}
+                          title={isActive
+                            ? `${option.value}: ${PROGRESS_DESCRIPTIONS[option.value]} (click to clear)`
+                            : `${option.value}: ${PROGRESS_DESCRIPTIONS[option.value]}`}
                           className={`inline-flex cursor-pointer items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isActive
                             ? 'border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700'
                             : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
