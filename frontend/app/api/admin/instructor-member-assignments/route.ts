@@ -496,18 +496,6 @@ export async function POST(request: NextRequest) {
       ),
     );
 
-    const { data: existingGroups, error: existingGroupsError } = await supabase
-      .from("class_group")
-      .select("group_id, name")
-      .eq("class_id", body.class_id);
-
-    if (existingGroupsError) {
-      return NextResponse.json(
-        { error: `Failed to generate group name: ${existingGroupsError.message}` },
-        { status: 500 },
-      );
-    }
-
     const selectedSlots = Array.from(
       new Set(
         (enrollmentRows || [])
@@ -525,8 +513,37 @@ export async function POST(request: NextRequest) {
           ? "Mixed Slots"
           : "No Slot";
 
+    // Find groups that share the same slot(s) — uniqueness is scoped to class + slot
+    let sameSlotGroupIds: string[] = [];
+    if (selectedSlots.length > 0) {
+      const { data: sameSlotEnrollments } = await supabase
+        .from("enrollment")
+        .select("group_id")
+        .eq("class_id", body.class_id)
+        .in("slot", selectedSlots)
+        .not("group_id", "is", null);
+
+      sameSlotGroupIds = Array.from(new Set((sameSlotEnrollments || []).map((r: any) => r.group_id).filter(Boolean)));
+    }
+
+    let existingGroups: any[] = [];
+    if (sameSlotGroupIds.length > 0) {
+      const { data, error: existingGroupsError } = await supabase
+        .from("class_group")
+        .select("group_id, name")
+        .in("group_id", sameSlotGroupIds);
+
+      if (existingGroupsError) {
+        return NextResponse.json(
+          { error: `Failed to generate group name: ${existingGroupsError.message}` },
+          { status: 500 },
+        );
+      }
+      existingGroups = data || [];
+    }
+
     const classDescriptor = (classRow.name || "Class").trim();
-    const existingGroupNames = (existingGroups || [])
+    const existingGroupNames = existingGroups
       .map((group: any) => (group.name || "").trim())
       .filter((name: string) => name.length > 0);
     const existingGroupNamesNormalized = new Set(

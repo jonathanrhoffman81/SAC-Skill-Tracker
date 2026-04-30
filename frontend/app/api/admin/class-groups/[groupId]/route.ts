@@ -60,25 +60,50 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
             );
         }
 
-        const { data: dup, error: dupError } = await supabase
-            .from("class_group")
-            .select("group_id")
-            .eq("class_id", groupRow.class_id)
-            .ilike("name", newName)
-            .neq("group_id", params.groupId)
-            .maybeSingle();
+        // Find which slots this group's members occupy
+        const { data: thisGroupSlots } = await supabase
+            .from("enrollment")
+            .select("slot")
+            .eq("group_id", params.groupId)
+            .not("slot", "is", null);
 
-        if (dupError) {
-            return NextResponse.json(
-                { error: `Failed to validate group name: ${dupError.message}` },
-                { status: 500 },
-            );
+        const slotValues = Array.from(new Set((thisGroupSlots || []).map((r: any) => r.slot).filter(Boolean)));
+
+        // Find other groups in this class that share any of the same slots
+        let conflictingGroupIds: string[] = [];
+        if (slotValues.length > 0) {
+            const { data: sameSlotEnrollments } = await supabase
+                .from("enrollment")
+                .select("group_id")
+                .eq("class_id", groupRow.class_id)
+                .in("slot", slotValues)
+                .not("group_id", "is", null)
+                .neq("group_id", params.groupId);
+
+            conflictingGroupIds = Array.from(new Set((sameSlotEnrollments || []).map((r: any) => r.group_id).filter(Boolean)));
         }
-        if (dup) {
-            return NextResponse.json(
-                { error: "Another group in this class already uses that name" },
-                { status: 409 },
-            );
+
+        // Only check for duplicate name within groups that share the same slot
+        if (conflictingGroupIds.length > 0) {
+            const { data: dup, error: dupError } = await supabase
+                .from("class_group")
+                .select("group_id")
+                .in("group_id", conflictingGroupIds)
+                .ilike("name", newName)
+                .maybeSingle();
+
+            if (dupError) {
+                return NextResponse.json(
+                    { error: `Failed to validate group name: ${dupError.message}` },
+                    { status: 500 },
+                );
+            }
+            if (dup) {
+                return NextResponse.json(
+                    { error: "Another group in this class and slot already uses that name" },
+                    { status: 409 },
+                );
+            }
         }
 
         const { error: updateError } = await supabase

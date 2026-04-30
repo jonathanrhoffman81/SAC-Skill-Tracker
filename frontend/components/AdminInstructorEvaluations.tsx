@@ -2172,7 +2172,7 @@ export default function AdminInstructorEvaluations({
                                                                                                 </button>
                                                                                             </>
                                                                                         )}
-                                                                                        {!latestEvaluationEntry && (
+                                                                                        {!latestEvaluationEntry && !isSelectedForEvaluation && !(classItem.startDate && new Date(classItem.startDate) > new Date()) && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
@@ -2188,24 +2188,6 @@ export default function AdminInstructorEvaluations({
                                                                                                 className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
                                                                                             >
                                                                                                 {classSummary ? "Add Eval" : "Add Evaluation"}
-                                                                                            </button>
-                                                                                        )}
-                                                                                        {isSelectedForEvaluation && (
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                onClick={() => {
-                                                                                                    setActiveEvaluationClassIdBySwimmer((prev) => ({
-                                                                                                        ...prev,
-                                                                                                        [swimmer.id]: null,
-                                                                                                    }));
-                                                                                                    setHistoryActionErrorBySwimmer((prev) => ({
-                                                                                                        ...prev,
-                                                                                                        [swimmer.id]: "",
-                                                                                                    }));
-                                                                                                }}
-                                                                                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
-                                                                                            >
-                                                                                                Close Form
                                                                                             </button>
                                                                                         )}
                                                                                     </div>

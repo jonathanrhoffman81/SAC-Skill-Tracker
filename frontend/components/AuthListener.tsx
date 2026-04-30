@@ -104,8 +104,11 @@ export default function AuthListener() {
     const { data: subscription } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (event === 'SIGNED_OUT') {
+          const wasSignedIn = Boolean(sessionUserIdRef.current);
           sessionUserIdRef.current = null;
-          redirectTo(EXPIRED_PATH);
+          // Only redirect if we actually had a session — avoids bouncing
+          // visitors who navigate directly to /login with no prior session.
+          if (wasSignedIn) redirectTo(EXPIRED_PATH);
           return;
         }
 

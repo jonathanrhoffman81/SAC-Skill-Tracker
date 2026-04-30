@@ -372,7 +372,7 @@ export default function AccountsManager({ onRefresh, refreshSignal }: { onRefres
             </div>
 
             <div className="relative z-0 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-visible">
-                <div className="relative z-10 bg-white border-b border-gray-200 p-4 sm:p-6">
+                <div className="relative z-10 bg-white border-b border-gray-200 p-4 sm:p-6 rounded-t-xl">
                     <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                         Manage Accounts
                     </p>

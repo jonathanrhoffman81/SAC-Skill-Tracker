@@ -5,7 +5,7 @@
 
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   authFetch,
@@ -436,6 +436,7 @@ function EntityEditor({
   onCancelEdit,
   onNewNameChange,
   onEditNameChange,
+  onReorder,
 }: {
   type: EntityType;
   state: EntityState;
@@ -446,14 +447,49 @@ function EntityEditor({
   onCancelEdit: () => void;
   onNewNameChange: (value: string) => void;
   onEditNameChange: (value: string) => void;
+  onReorder: (orderedIds: string[]) => void;
 }) {
   const config = ENTITY_CONFIG[type];
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  function handleDragStart(index: number) {
+    dragItem.current = index;
+    setDraggingIndex(index);
+  }
+
+  function handleDragEnter(index: number) {
+    dragOverItem.current = index;
+    setOverIndex(index);
+  }
+
+  function handleDragEnd() {
+    const from = dragItem.current;
+    const to = dragOverItem.current;
+    if (from !== null && to !== null && from !== to) {
+      const reordered = [...state.list];
+      const [moved] = reordered.splice(from, 1);
+      reordered.splice(to, 0, moved);
+      onReorder(reordered.map((item) => item.id));
+    }
+    dragItem.current = null;
+    dragOverItem.current = null;
+    setDraggingIndex(null);
+    setOverIndex(null);
+  }
 
   return (
     <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
-      <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
-        Manage {config.pluralLabel}
-      </p>
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
+        <p className="text-base sm:text-lg font-semibold text-gray-900">
+          Manage {config.pluralLabel}
+        </p>
+        {state.list.length > 1 && (
+          <p className="text-xs text-gray-400">Drag to reorder</p>
+        )}
+      </div>
 
       {/* Add New Item */}
       <div className="flex gap-2 mb-3 sm:mb-4">
@@ -484,11 +520,22 @@ function EntityEditor({
           No {config.pluralLabel.toLowerCase()} yet. Add one above!
         </p>
       ) : (
-        <div className="space-y-3">
-          {state.list.map((item) => (
+        <div className="space-y-2">
+          {state.list.map((item, index) => (
             <div
               key={item.id}
-              className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 group"
+              draggable={state.editingId !== item.id}
+              onDragStart={() => handleDragStart(index)}
+              onDragEnter={() => handleDragEnter(index)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => e.preventDefault()}
+              className={`border rounded-lg p-3 group transition-colors ${
+                draggingIndex === index
+                  ? "opacity-40 border-blue-300 bg-blue-50"
+                  : overIndex === index && draggingIndex !== index
+                  ? "border-blue-400 bg-blue-50"
+                  : "border-gray-200 hover:bg-gray-50"
+              }`}
             >
               <div className="flex items-center gap-2 py-1">
                 {state.editingId === item.id ? (
@@ -508,41 +555,30 @@ function EntityEditor({
                       onClick={() => onUpdate(item.id)}
                       className="text-green-600 hover:text-green-700 flex-shrink-0"
                     >
-                      <svg
-                        className="w-3.5 h-3.5 sm:w-4 sm:h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
+                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </button>
                     <button
                       onClick={onCancelEdit}
                       className="text-gray-400 hover:text-gray-600 flex-shrink-0"
                     >
-                      <svg
-                        className="w-3.5 h-3.5 sm:w-4 sm:h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
+                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
                   </>
                 ) : (
                   <>
+                    {/* Drag handle */}
+                    <span
+                      className="flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 touch-none"
+                      aria-hidden
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M7 4a1 1 0 100-2 1 1 0 000 2zM7 8a1 1 0 100-2 1 1 0 000 2zM7 12a1 1 0 100-2 1 1 0 000 2zM7 16a1 1 0 100-2 1 1 0 000 2zM13 4a1 1 0 100-2 1 1 0 000 2zM13 8a1 1 0 100-2 1 1 0 000 2zM13 12a1 1 0 100-2 1 1 0 000 2zM13 16a1 1 0 100-2 1 1 0 000 2z" />
+                      </svg>
+                    </span>
                     <span className="flex-1 text-xs sm:text-sm font-medium text-gray-900 truncate">
                       {config.displayName(item)}
                     </span>
@@ -551,8 +587,8 @@ function EntityEditor({
                         type="button"
                         onClick={() => onStartEdit(item)}
                         className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 transition hover:bg-amber-100 sm:h-8 sm:w-8"
-                        aria-label="Edit item"
-                        title="Edit item"
+                        aria-label="Edit skill"
+                        title="Edit skill"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
@@ -563,8 +599,8 @@ function EntityEditor({
                         type="button"
                         onClick={() => onDelete(item.id)}
                         className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100 sm:h-8 sm:w-8"
-                        aria-label="Delete item"
-                        title="Delete item"
+                        aria-label="Delete skill"
+                        title="Delete skill"
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
@@ -1253,6 +1289,35 @@ export default function AdminDashboard() {
     });
   };
 
+  const handleReorder = useCallback(
+    async (type: EntityType, orderedIds: string[]) => {
+      // Optimistically update the list order
+      setEntities((prev) => ({
+        ...prev,
+        [type]: {
+          ...prev[type],
+          list: orderedIds
+            .map((id) => prev[type].list.find((item) => item.id === id))
+            .filter(Boolean) as Entity[],
+        },
+      }));
+      try {
+        await authFetch(ENTITY_CONFIG[type].apiPath, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderedIds }),
+        });
+        // Bust both the entity cache and the bootstrap cache so refresh
+        // shows the new order instead of the old alphabetical one.
+        sessionStorage.removeItem(`${ENTITY_CACHE_KEY_PREFIX}${type}`);
+        sessionStorage.removeItem(ADMIN_STATS_CACHE_KEY);
+      } catch {
+        fetchEntity(type, { force: true });
+      }
+    },
+    [fetchEntity],
+  );
+
   // Delete entity after right-side confirmation.
   const handleDeleteConfirmed = async () => {
     const { type, entityId } = entityDeleteDialog;
@@ -1774,6 +1839,7 @@ export default function AdminDashboard() {
                     },
                   }))
                 }
+                onReorder={(orderedIds) => handleReorder("skills", orderedIds)}
               />
             </div>
           )}
