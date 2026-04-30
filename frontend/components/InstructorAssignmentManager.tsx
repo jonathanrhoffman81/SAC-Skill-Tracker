@@ -646,7 +646,7 @@ export default function InstructorAssignmentManager() {
                 if (slotA !== slotB) return slotA - slotB;
                 const dobA = a.dob ?? "";
                 const dobB = b.dob ?? "";
-                if (dobA && dobB && dobA !== dobB) return dobA < dobB ? -1 : 1;
+                if (dobA && dobB && dobA !== dobB) return dobA > dobB ? -1 : 1;
                 if (dobA && !dobB) return -1;
                 if (!dobA && dobB) return 1;
                 return a.name.localeCompare(b.name);
@@ -737,8 +737,8 @@ export default function InstructorAssignmentManager() {
             const dobA = a.date_of_birth ?? "";
             const dobB = b.date_of_birth ?? "";
             if (dobA && dobB && dobA !== dobB) {
-                // Older swimmers (earlier birthdate) sort first.
-                return dobA < dobB ? -1 : 1;
+                // Youngest swimmers (latest birthdate) sort first.
+                return dobA > dobB ? -1 : 1;
             }
             if (dobA && !dobB) return -1;
             if (!dobA && dobB) return 1;

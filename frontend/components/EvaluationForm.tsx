@@ -46,6 +46,7 @@ interface EvaluationFormProps {
   }) => void;
   closeDelayMs?: number;
   viewOnly?: boolean;
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 type ToastMessage = {
@@ -76,9 +77,14 @@ export default function EvaluationForm({
   onSubmissionComplete,
   closeDelayMs = 1200,
   viewOnly = false,
+  onDirtyChange,
 }: EvaluationFormProps) {
-  const [progressBySkillId, setProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
-  const [initialProgressBySkillId, setInitialProgressBySkillId] = useState<Record<string, SkillItem['progress']>>({});
+  // null = "not evaluated this session" / skipped. Skills left at null are
+  // excluded from the submitted skillUpdates so no member_skill row is written
+  // for skills that weren't relevant for this swimmer this session.
+  type ProgressValue = SkillItem['progress'] | null;
+  const [progressBySkillId, setProgressBySkillId] = useState<Record<string, ProgressValue>>({});
+  const [initialProgressBySkillId, setInitialProgressBySkillId] = useState<Record<string, ProgressValue>>({});
   const [skillNotesBySkillId, setSkillNotesBySkillId] = useState<Record<string, string>>({});
   const [expandedNoteSkillIds, setExpandedNoteSkillIds] = useState<Set<string>>(new Set());
   const [selectedClassId, setSelectedClassId] = useState('');
@@ -97,14 +103,27 @@ export default function EvaluationForm({
   };
 
   useEffect(() => {
+    // For new evaluations, leave skills with no progress history unselected
+    // (null) so the instructor isn't presented with a misleading "0" default.
+    // Skills that already have recorded progress carry that value through.
+    // When editing an existing evaluation, always show the current value so
+    // the user can see exactly what they're editing.
+    const isEditing = Boolean(editingEvaluation);
     const nextProgress = Object.fromEntries(
-      skills.map((skill) => [skill.id, skill.progress])
-    ) as Record<string, SkillItem['progress']>;
+      skills.map((skill) => {
+        const initial: ProgressValue = isEditing
+          ? skill.progress
+          : skill.progress > 0
+            ? skill.progress
+            : null;
+        return [skill.id, initial];
+      }),
+    ) as Record<string, ProgressValue>;
 
     setProgressBySkillId(nextProgress);
     setInitialProgressBySkillId(nextProgress);
     setSkillNotesBySkillId({});
-  }, [skills]);
+  }, [skills, editingEvaluation]);
 
   useEffect(() => {
     if (!editingEvaluation) {
@@ -145,9 +164,13 @@ export default function EvaluationForm({
       skills
         .map((skill) => ({
           skillId: skill.id,
-          progress: progressBySkillId[skill.id] ?? 0,
-          initialProgress: initialProgressBySkillId[skill.id] ?? 0,
+          progress: progressBySkillId[skill.id] ?? null,
+          initialProgress: initialProgressBySkillId[skill.id] ?? null,
         }))
+        // Skills left at "Skip" are intentionally excluded from the write set.
+        .filter((skill): skill is { skillId: string; progress: SkillItem['progress']; initialProgress: ProgressValue } =>
+          skill.progress !== null,
+        )
         .filter((skill) => skill.progress !== skill.initialProgress)
         .map((skill) => ({
           skillId: skill.skillId,
@@ -156,7 +179,7 @@ export default function EvaluationForm({
     [initialProgressBySkillId, progressBySkillId, skills]
   );
 
-  const handleProgressChange = (skillId: string, progress: SkillItem['progress']) => {
+  const handleProgressChange = (skillId: string, progress: ProgressValue) => {
     setProgressBySkillId((prev) => ({
       ...prev,
       [skillId]: progress,
@@ -175,6 +198,28 @@ export default function EvaluationForm({
         .filter((entry) => entry.note.length > 0),
     [skillNotesBySkillId, skills]
   );
+
+  // Surface a "dirty" signal so the host UI can warn the user before they
+  // close the form and lose unsaved progress changes / notes.
+  const initialNoteValue = (editingEvaluation?.feedback ?? '').trim();
+  const isDirty =
+    !viewOnly &&
+    (changedSkillUpdates.length > 0 ||
+      skillNoteEntries.length > 0 ||
+      note.trim() !== initialNoteValue);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  // Make sure we don't leave a stale "dirty" flag behind in the parent when
+  // the form unmounts (e.g. after a successful close).
+  useEffect(() => {
+    return () => {
+      onDirtyChange?.(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const extraSkillNoteEntriesForEdit = useMemo(() => {
     if (!editingEvaluation) {
@@ -310,8 +355,8 @@ export default function EvaluationForm({
       }
 
       const nextProgress = Object.fromEntries(
-        skills.map((skill) => [skill.id, progressBySkillId[skill.id] ?? 0])
-      ) as Record<string, SkillItem['progress']>;
+        skills.map((skill) => [skill.id, progressBySkillId[skill.id] ?? null])
+      ) as Record<string, ProgressValue>;
 
       setInitialProgressBySkillId(nextProgress);
       setSkillNotesBySkillId({});
@@ -378,7 +423,7 @@ export default function EvaluationForm({
 
       <div className="space-y-3">
         {skills.map((skill) => {
-          const progress = progressBySkillId[skill.id] ?? 0;
+          const progress = progressBySkillId[skill.id] ?? null;
 
           return (
             <div
@@ -401,24 +446,25 @@ export default function EvaluationForm({
                     {PROGRESS_OPTIONS.map((option) => {
                       const isActive = progress === option.value;
                       return (
-                        <label
+                        <button
                           key={option.value}
-                          className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${isActive
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                          type="button"
+                          onClick={() =>
+                            handleProgressChange(
+                              skill.id,
+                              isActive ? null : option.value,
+                            )
+                          }
+                          disabled={viewOnly}
+                          aria-pressed={isActive}
+                          title={isActive ? `${option.label} (click to clear)` : option.label}
+                          className={`inline-flex cursor-pointer items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${isActive
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700'
                             : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400'
                             }`}
                         >
-                          <input
-                            type="radio"
-                            name={`progress-${skill.id}`}
-                            value={option.value}
-                            checked={isActive}
-                            onChange={() => handleProgressChange(skill.id, option.value)}
-                            disabled={viewOnly}
-                            className="h-3 w-3 accent-blue-600"
-                          />
-                          <span>{option.value}</span>
-                        </label>
+                          {option.value}
+                        </button>
                       );
                     })}
                   </div>

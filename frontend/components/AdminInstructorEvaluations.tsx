@@ -386,6 +386,71 @@ export default function AdminInstructorEvaluations({
     const router = useRouter();
     const [openSwimmerId, setOpenSwimmerId] = useState<string | null>(null);
     const [needsEvalOpenSwimmerIds, setNeedsEvalOpenSwimmerIds] = useState<Set<string>>(new Set());
+
+    // Find which paginated page a swimmer's row lives on in the main list,
+    // so that clicking them from the small "Needs Evaluation" preview card
+    // jumps to the right page instead of leaving them hidden several pages
+    // down. Returns null if the swimmer isn't in the visible list at all.
+    const findSwimmerPage = (
+        swimmerId: string,
+        list: { id: string }[],
+    ): number | null => {
+        const index = list.findIndex((item) => item.id === swimmerId);
+        if (index < 0) return null;
+        return Math.floor(index / PAGE_SIZE) + 1;
+    };
+
+    // Pop the swimmer out of the "opened from needs-eval" set, and if it was
+    // there (and the parent enabled the behavior), scroll the page to the top.
+    // Used by both Save and Close so closing without saving still returns the
+    // user to the list head. The scroll is deferred past the next layout pass
+    // because closing the form removes a tall section, and a synchronous
+    // smooth-scroll started before that reflow gets fought by the browser's
+    // scroll-anchoring (which is why the earlier inline version "worked" only
+    // for save and not for close).
+    const consumeNeedsEvalSwimmer = (swimmerId: string) => {
+        const wasFromNeedsEval = needsEvalOpenSwimmerIds.has(swimmerId);
+        if (wasFromNeedsEval) {
+            setNeedsEvalOpenSwimmerIds((prev) => {
+                if (!prev.has(swimmerId)) return prev;
+                const next = new Set(prev);
+                next.delete(swimmerId);
+                return next;
+            });
+        }
+        if (wasFromNeedsEval && scrollToTopAfterNeedsEvalSave) {
+            // Two rAFs ≈ "after the next React commit's paint." That lets the
+            // form-collapse layout settle before we kick off the smooth scroll.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                });
+            });
+        }
+    };
+
+    const [dirtyEvaluationFormBySwimmer, setDirtyEvaluationFormBySwimmer] = useState<Record<string, boolean>>({});
+
+    const setEvaluationFormDirty = (swimmerId: string, isDirty: boolean) => {
+        setDirtyEvaluationFormBySwimmer((prev) => {
+            if (Boolean(prev[swimmerId]) === isDirty) return prev;
+            return { ...prev, [swimmerId]: isDirty };
+        });
+    };
+
+    // If the form has unsaved changes, ask the user before discarding them.
+    // Returns true when the caller should proceed with closing.
+    const confirmDiscardEvaluation = (swimmerId: string): boolean => {
+        if (!dirtyEvaluationFormBySwimmer[swimmerId]) return true;
+        const ok = window.confirm(
+            "You have unsaved changes in this evaluation. Close without saving?",
+        );
+        if (ok) {
+            setEvaluationFormDirty(swimmerId, false);
+        }
+        return ok;
+    };
+
     const [searchQuery, setSearchQuery] = useState("");
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
     const [isFiltersOpen, setIsFiltersOpen] = useState(false);
@@ -1615,6 +1680,13 @@ export default function AdminInstructorEvaluations({
                                             handleSwimmerClick(swimmer.id);
                                             // Track that this swimmer was opened from the needs-eval section
                                             setNeedsEvalOpenSwimmerIds((prev) => new Set(prev).add(swimmer.id));
+                                            // Jump the main paginated list to whatever page the
+                                            // swimmer's row card sits on, so the form actually
+                                            // becomes visible after we open it.
+                                            const targetPage = findSwimmerPage(swimmer.id, displayedSwimmers);
+                                            if (targetPage !== null && targetPage !== currentPage) {
+                                                setCurrentPage(targetPage);
+                                            }
                                             // Auto-open the eval form for the closest class and scroll to it
                                             if (closestClass?.id) {
                                                 pendingScrollToSwimmerRef.current = swimmer.id;
@@ -1939,7 +2011,17 @@ export default function AdminInstructorEvaluations({
                                             swimmerRowRefs.current[swimmer.id] = element;
                                         }}
                                         className="w-full p-4 text-left transition hover:bg-gray-50 sm:p-6"
-                                        onClick={() => handleSwimmerClick(swimmer.id)}
+                                        onClick={() => {
+                                            handleSwimmerClick(swimmer.id);
+                                            // Track when the swimmer is opened from the dedicated
+                                            // "Needs Evaluation" list view so Save/Close on the
+                                            // resulting form scrolls back to the top of the list.
+                                            if (listView === "needs-evaluation") {
+                                                setNeedsEvalOpenSwimmerIds((prev) =>
+                                                    new Set(prev).add(swimmer.id),
+                                                );
+                                            }
+                                        }}
                                     >
                                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                             <div className="flex items-center gap-3">
@@ -2172,7 +2254,7 @@ export default function AdminInstructorEvaluations({
                                                                                                 </button>
                                                                                             </>
                                                                                         )}
-                                                                                        {!latestEvaluationEntry && !isSelectedForEvaluation && !(classItem.startDate && new Date(classItem.startDate) > new Date()) && (
+                                                                                        {!latestEvaluationEntry && !isSelectedForEvaluation && !(isAddingThisClass || isEditingThisClass) && !(classItem.startDate && new Date(classItem.startDate) > new Date()) && (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
@@ -2188,6 +2270,26 @@ export default function AdminInstructorEvaluations({
                                                                                                 className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
                                                                                             >
                                                                                                 {classSummary ? "Add Eval" : "Add Evaluation"}
+                                                                                            </button>
+                                                                                        )}
+                                                                                        {isSelectedForEvaluation && !(isAddingThisClass || isEditingThisClass) && (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    if (!confirmDiscardEvaluation(swimmer.id)) return;
+                                                                                                    setActiveEvaluationClassIdBySwimmer((prev) => ({
+                                                                                                        ...prev,
+                                                                                                        [swimmer.id]: null,
+                                                                                                    }));
+                                                                                                    setHistoryActionErrorBySwimmer((prev) => ({
+                                                                                                        ...prev,
+                                                                                                        [swimmer.id]: "",
+                                                                                                    }));
+                                                                                                    consumeNeedsEvalSwimmer(swimmer.id);
+                                                                                                }}
+                                                                                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+                                                                                            >
+                                                                                                Close Form
                                                                                             </button>
                                                                                         )}
                                                                                     </div>
@@ -2216,6 +2318,7 @@ export default function AdminInstructorEvaluations({
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
+                                                                                                    if (!confirmDiscardEvaluation(swimmer.id)) return;
                                                                                                     setEditingEvaluationBySwimmer((prev) => ({
                                                                                                         ...prev,
                                                                                                         [swimmer.id]: null,
@@ -2232,6 +2335,7 @@ export default function AdminInstructorEvaluations({
                                                                                                         ...prev,
                                                                                                         [swimmer.id]: "",
                                                                                                     }));
+                                                                                                    consumeNeedsEvalSwimmer(swimmer.id);
                                                                                                 }}
                                                                                                 className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
                                                                                             >
@@ -2251,15 +2355,10 @@ export default function AdminInstructorEvaluations({
                                                                                             classes={resolvedClasses}
                                                                                             initialClassId={classItem.id}
                                                                                             editingEvaluation={isEditingThisClass ? editingEvaluation ?? undefined : undefined}
+                                                                                            onDirtyChange={(dirty) => setEvaluationFormDirty(swimmer.id, dirty)}
                                                                                             onSubmissionComplete={() => {
-                                                                                                if (scrollToTopAfterNeedsEvalSave && needsEvalOpenSwimmerIds.has(swimmer.id)) {
-                                                                                                    window.scrollTo({ top: 0, behavior: "smooth" });
-                                                                                                }
-                                                                                                setNeedsEvalOpenSwimmerIds((prev) => {
-                                                                                                    const next = new Set(prev);
-                                                                                                    next.delete(swimmer.id);
-                                                                                                    return next;
-                                                                                                });
+                                                                                                setEvaluationFormDirty(swimmer.id, false);
+                                                                                                consumeNeedsEvalSwimmer(swimmer.id);
                                                                                                 setEditingEvaluationBySwimmer((prev) => ({
                                                                                                     ...prev,
                                                                                                     [swimmer.id]: null,
@@ -2323,15 +2422,10 @@ export default function AdminInstructorEvaluations({
                                                             swimmerId={swimmer.id}
                                                             skills={resolvedSkills}
                                                             classes={resolvedClasses}
+                                                            onDirtyChange={(dirty) => setEvaluationFormDirty(swimmer.id, dirty)}
                                                             onSubmissionComplete={() => {
-                                                                if (scrollToTopAfterNeedsEvalSave && needsEvalOpenSwimmerIds.has(swimmer.id)) {
-                                                                    window.scrollTo({ top: 0, behavior: "smooth" });
-                                                                }
-                                                                setNeedsEvalOpenSwimmerIds((prev) => {
-                                                                    const next = new Set(prev);
-                                                                    next.delete(swimmer.id);
-                                                                    return next;
-                                                                });
+                                                                setEvaluationFormDirty(swimmer.id, false);
+                                                                consumeNeedsEvalSwimmer(swimmer.id);
                                                                 setOpenSwimmerId((current) => (current === swimmer.id ? null : current));
                                                                 void loadData(currentPage, debouncedSearchQuery, {
                                                                     forceRefresh: true,

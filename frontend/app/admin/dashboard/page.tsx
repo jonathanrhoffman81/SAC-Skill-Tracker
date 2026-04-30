@@ -1755,6 +1755,7 @@ export default function AdminDashboard() {
             >
               <MemoAdminInstructorEvaluations
                 initialFilters={evaluationFilterBootstrap ?? undefined}
+                scrollToTopAfterNeedsEvalSave
               />
             </div>
           )}
