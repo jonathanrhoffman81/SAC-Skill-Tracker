@@ -59,6 +59,23 @@ export default function Login() {
         throw new Error("Supabase not configured");
       }
 
+      // Hard block — throw on any failure so we never fall through to the reset call
+      const checkResponse = await fetch(
+        `/api/auth/check-email?email=${encodeURIComponent(normalizedEmail)}`,
+      );
+
+      if (!checkResponse.ok) {
+        throw new Error("Unable to verify account. Please try again.");
+      }
+
+      const payload = await checkResponse.json();
+
+      if (!payload?.hasAuthUser) {
+        setError("No account found for that email address.");
+        return;
+      }
+
+      // Only reached if hasAuthUser is confirmed true
       const { error } = await supabase.auth.resetPasswordForEmail(
         normalizedEmail,
         {
@@ -66,7 +83,14 @@ export default function Login() {
         },
       );
 
-      if (error) throw error;
+      if (error) {
+        if (error.status === 429) {
+          throw new Error(
+            "Too many reset attempts. Please wait a few minutes and try again.",
+          );
+        }
+        throw error;
+      }
 
       setError("Password reset email sent. Check your inbox.");
     } catch (err: any) {
@@ -302,8 +326,8 @@ export default function Login() {
               You were signed out
             </p>
             <p className="mt-1 text-xs text-amber-700">
-              A different account signed in on another tab. Please sign in
-              again to continue working in this tab.
+              A different account signed in on another tab. Please sign in again
+              to continue working in this tab.
             </p>
           </div>
         )}
