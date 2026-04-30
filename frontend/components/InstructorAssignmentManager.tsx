@@ -407,7 +407,70 @@ export default function InstructorAssignmentManager() {
     const [createGroupPending, setCreateGroupPending] = useState(false);
     const [pendingGroupDeleteIds, setPendingGroupDeleteIds] = useState<Set<string>>(new Set());
     const [deleteGroupPrompt, setDeleteGroupPrompt] = useState<GroupDeletePrompt>(null);
+    const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+    const [renameDraft, setRenameDraft] = useState("");
+    const [renamePending, setRenamePending] = useState(false);
     const hasCompletedInitialLoadRef = useRef(false);
+
+    const startGroupRename = (group: Group) => {
+        setRenamingGroupId(group.group_id);
+        setRenameDraft(group.group_name);
+    };
+
+    const cancelGroupRename = () => {
+        setRenamingGroupId(null);
+        setRenameDraft("");
+    };
+
+    const saveGroupRename = async (group: Group) => {
+        const trimmed = renameDraft.trim();
+        if (!trimmed) {
+            setErrorMessage("Group name can't be empty.");
+            return;
+        }
+        if (trimmed === group.group_name) {
+            cancelGroupRename();
+            return;
+        }
+        setRenamePending(true);
+        try {
+            const response = await authFetch(
+                `/api/admin/class-groups/${encodeURIComponent(group.group_id)}`,
+                {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: trimmed }),
+                },
+            );
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload?.error || "Failed to rename group");
+            }
+            const newName: string = payload?.name || trimmed;
+            setGroups((prev) =>
+                prev.map((item) =>
+                    item.group_id === group.group_id
+                        ? { ...item, group_name: newName }
+                        : item,
+                ),
+            );
+            setEnrollments((prev) =>
+                prev.map((row) =>
+                    row.group_id === group.group_id
+                        ? { ...row, group_name: newName }
+                        : row,
+                ),
+            );
+            showToast(`Renamed to ${stripClassFromGroupName(newName, group.class_name)}`);
+            cancelGroupRename();
+        } catch (error) {
+            setErrorMessage(
+                error instanceof Error ? error.message : "Failed to rename group",
+            );
+        } finally {
+            setRenamePending(false);
+        }
+    };
 
     const showToast = useCallback((message: string) => {
         setToastMessage(message);
@@ -563,7 +626,7 @@ export default function InstructorAssignmentManager() {
     }, [groups]);
 
     const swimmersByGroupId = useMemo(() => {
-        const map = new Map<string, { memberId: string; name: string; age: number | null; slot: number | null }[]>();
+        const map = new Map<string, { memberId: string; name: string; age: number | null; dob: string | null; slot: number | null }[]>();
         enrollments.forEach((row) => {
             if (!row.group_id) return;
             const existing = map.get(row.group_id) || [];
@@ -571,6 +634,7 @@ export default function InstructorAssignmentManager() {
                 memberId: row.member_id,
                 name: formatName(row.member_first_name, row.member_last_name),
                 age: getAge(row.date_of_birth),
+                dob: row.date_of_birth ?? null,
                 slot: row.slot,
             });
             map.set(row.group_id, existing);
@@ -580,9 +644,11 @@ export default function InstructorAssignmentManager() {
                 const slotA = slotSortValue(a.slot);
                 const slotB = slotSortValue(b.slot);
                 if (slotA !== slotB) return slotA - slotB;
-                const ageA = a.age ?? Number.MAX_SAFE_INTEGER;
-                const ageB = b.age ?? Number.MAX_SAFE_INTEGER;
-                if (ageA !== ageB) return ageA - ageB;
+                const dobA = a.dob ?? "";
+                const dobB = b.dob ?? "";
+                if (dobA && dobB && dobA !== dobB) return dobA < dobB ? -1 : 1;
+                if (dobA && !dobB) return -1;
+                if (!dobA && dobB) return 1;
                 return a.name.localeCompare(b.name);
             }));
         });
@@ -668,12 +734,14 @@ export default function InstructorAssignmentManager() {
             const slotB = slotSortValue(b.slot);
             if (slotA !== slotB) return slotA - slotB;
 
-            const ageA = getAge(a.date_of_birth);
-            const ageB = getAge(b.date_of_birth);
-            if (ageA === null && ageB === null) return 0;
-            if (ageA === null) return 1;
-            if (ageB === null) return -1;
-            if (ageA !== ageB) return ageA - ageB;
+            const dobA = a.date_of_birth ?? "";
+            const dobB = b.date_of_birth ?? "";
+            if (dobA && dobB && dobA !== dobB) {
+                // Older swimmers (earlier birthdate) sort first.
+                return dobA < dobB ? -1 : 1;
+            }
+            if (dobA && !dobB) return -1;
+            if (!dobA && dobB) return 1;
             const nameA = formatName(a.member_first_name, a.member_last_name).toLowerCase();
             const nameB = formatName(b.member_first_name, b.member_last_name).toLowerCase();
             return nameA.localeCompare(nameB);
@@ -1286,7 +1354,68 @@ export default function InstructorAssignmentManager() {
                                                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${classTag.bg} ${classTag.text}`}>
                                                                 {group.class_name}
                                                             </span>
-                                                            <p className="mt-1 text-xs font-semibold text-slate-800">{stripClassFromGroupName(group.group_name, group.class_name)}</p>
+                                                            {renamingGroupId === group.group_id ? (
+                                                                <div className="mt-1 flex items-center gap-1">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={renameDraft}
+                                                                        onChange={(e) => setRenameDraft(e.target.value)}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === "Enter") {
+                                                                                e.preventDefault();
+                                                                                void saveGroupRename(group);
+                                                                            } else if (e.key === "Escape") {
+                                                                                e.preventDefault();
+                                                                                cancelGroupRename();
+                                                                            }
+                                                                        }}
+                                                                        autoFocus
+                                                                        disabled={renamePending}
+                                                                        className="w-44 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => void saveGroupRename(group)}
+                                                                        disabled={renamePending}
+                                                                        title="Save"
+                                                                        aria-label="Save group name"
+                                                                        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-blue-500 bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
+                                                                    >
+                                                                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                                                        </svg>
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={cancelGroupRename}
+                                                                        disabled={renamePending}
+                                                                        title="Cancel"
+                                                                        aria-label="Cancel rename"
+                                                                        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                                                                    >
+                                                                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="mt-1 flex items-center gap-1.5">
+                                                                    <p className="text-xs font-semibold text-slate-800">
+                                                                        {stripClassFromGroupName(group.group_name, group.class_name)}
+                                                                    </p>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => startGroupRename(group)}
+                                                                        title="Rename group"
+                                                                        aria-label="Rename group"
+                                                                        className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                                                    >
+                                                                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                             <p className="text-[11px] text-slate-500">{slotLabel}</p>
                                                         </td>
                                                         <td className="px-3 py-2">

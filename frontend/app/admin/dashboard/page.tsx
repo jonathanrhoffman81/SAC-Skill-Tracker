@@ -40,6 +40,8 @@ const loadAdminInstructorEvaluations = () =>
   import("@/components/AdminInstructorEvaluations");
 const loadCreateAccountManager = () =>
   import("@/components/CreateAccountManager");
+const loadSwimmerClassManager = () =>
+  import("@/components/SwimmerClassManager");
 
 const ClassManager = dynamic(loadClassManager, {
   loading: () => <TabSkeleton title="classes" />,
@@ -65,9 +67,13 @@ const AdminInstructorEvaluations = dynamic(loadAdminInstructorEvaluations, {
 const CreateAccountManager = dynamic(loadCreateAccountManager, {
   loading: () => <TabSkeleton title="create account" />,
 });
+const SwimmerClassManager = dynamic(loadSwimmerClassManager, {
+  loading: () => <TabSkeleton title="swimmer classes" />,
+});
 
 const MemoAccountsManager = memo(AccountsManager);
 const MemoCreateAccountManager = memo(CreateAccountManager);
+const MemoSwimmerClassManager = memo(SwimmerClassManager);
 const MemoClassManager = memo(ClassManager);
 const MemoInstructorAssignmentManager = memo(InstructorAssignmentManager);
 const MemoAdminInstructorEvaluations = memo(AdminInstructorEvaluations);
@@ -129,6 +135,7 @@ type Tab =
   | "evaluations"
   | "classes"
   | "assignments"
+  | "swimmer-classes"
   | "create-account"
   | "settings";
 
@@ -138,6 +145,7 @@ const ALL_ADMIN_TABS: Tab[] = [
   "accounts",
   "evaluations",
   "classes",
+  "swimmer-classes",
   "roster",
   "create-account",
   "settings",
@@ -309,6 +317,25 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: "swimmer-classes",
+    label: "Swimmer Classes",
+    icon: (
+      <svg
+        className="w-4 h-4"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M5 13l4 4L19 7"
         />
       </svg>
     ),
@@ -800,6 +827,12 @@ export default function AdminDashboard() {
   const refreshStats = useCallback(() => {
     void fetchBootstrap({ force: true });
   }, [fetchBootstrap]);
+
+  const [accountsRefreshSignal, setAccountsRefreshSignal] = useState(0);
+  const handleAccountCreated = useCallback(() => {
+    setAccountsRefreshSignal((n) => n + 1);
+    refreshStats();
+  }, [refreshStats]);
 
   const applyHeaderAccentColor = useCallback(
     (nextColor: string | null) => {
@@ -1383,8 +1416,10 @@ export default function AdminDashboard() {
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
                 {getInitials(userName)}
               </div>
-              <div className="hidden text-left lg:block">
-                <p className="text-sm font-medium text-gray-900">{userName}</p>
+              <div className="text-left">
+                <p className="hidden text-sm font-medium text-gray-900 lg:block">
+                  {userName}
+                </p>
                 <RoleSwitcherBadge currentRole="admin" />
               </div>
             </div>
@@ -1642,7 +1677,10 @@ export default function AdminDashboard() {
             <div
               className={`w-full min-h-[60vh] ${activeTab === "accounts" ? "" : "hidden"}`}
             >
-              <MemoAccountsManager onRefresh={refreshStats} />
+              <MemoAccountsManager
+                onRefresh={refreshStats}
+                refreshSignal={accountsRefreshSignal}
+              />
             </div>
           )}
 
@@ -1672,11 +1710,19 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {visitedTabs.has("swimmer-classes") && (
+            <div
+              className={`w-full min-h-[60vh] ${activeTab === "swimmer-classes" ? "" : "hidden"}`}
+            >
+              <MemoSwimmerClassManager />
+            </div>
+          )}
+
           {visitedTabs.has("create-account") && (
             <div
               className={`w-full min-h-[60vh] ${activeTab === "create-account" ? "" : "hidden"}`}
             >
-              <MemoCreateAccountManager />
+              <MemoCreateAccountManager onCreated={handleAccountCreated} />
             </div>
           )}
 

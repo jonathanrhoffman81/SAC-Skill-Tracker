@@ -154,6 +154,8 @@ export function getRoleSelectBypass(appRoles: string[]): {
 
 const MULTI_ROLE_KEY = "auth:available-roles";
 const ACTIVE_ROLE_KEY = "auth:active-role";
+const AUTH_EMAIL_KEY = "auth:email";
+const LAST_ROLE_PREFIX = "auth:last-role:";
 
 /**
  * Persists all available roles to sessionStorage after login.
@@ -195,9 +197,48 @@ export function getActiveRole(): string | null {
 
 /**
  * Clears all role session data. Call on logout.
+ * The cross-session "last role" preference in localStorage is intentionally
+ * preserved so the next login lands on the previously-chosen dashboard.
  */
 export function clearRoleSession() {
   if (typeof window === "undefined") return;
   sessionStorage.removeItem(MULTI_ROLE_KEY);
   sessionStorage.removeItem(ACTIVE_ROLE_KEY);
+  sessionStorage.removeItem(AUTH_EMAIL_KEY);
+}
+
+// ─── Cross-session "last picked role" (localStorage, keyed by email) ─────────
+
+function lastRoleKey(email: string) {
+  return `${LAST_ROLE_PREFIX}${email.trim().toLowerCase()}`;
+}
+
+export function saveAuthEmail(email: string) {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(AUTH_EMAIL_KEY, email.trim().toLowerCase());
+}
+
+export function getAuthEmail(): string | null {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem(AUTH_EMAIL_KEY);
+}
+
+export function saveLastRoleForEmail(email: string | null, role: string) {
+  if (typeof window === "undefined") return;
+  if (!email) return;
+  try {
+    localStorage.setItem(lastRoleKey(email), role);
+  } catch {
+    /* storage disabled — best effort */
+  }
+}
+
+export function getLastRoleForEmail(email: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  if (!email) return null;
+  try {
+    return localStorage.getItem(lastRoleKey(email));
+  } catch {
+    return null;
+  }
 }

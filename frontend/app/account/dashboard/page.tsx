@@ -455,8 +455,8 @@ export default function AccountDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden text-right md:block">
-              <p className="text-sm font-medium text-gray-900">
+            <div className="text-right">
+              <p className="hidden text-sm font-medium text-gray-900 md:block">
                 {userName || "Guest User"}
               </p>
               <RoleSwitcherBadge currentRole="account" />

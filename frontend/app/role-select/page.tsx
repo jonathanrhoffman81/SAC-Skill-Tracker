@@ -11,10 +11,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  getAuthEmail,
   getAvailableRoles,
   getDashboardPathsForRoles,
   getRoleSelectBypass,
   saveActiveRole,
+  saveLastRoleForEmail,
 } from "@/lib/authRoles";
 
 const ROLE_ICONS: Record<string, React.ReactNode> = {
@@ -160,6 +162,7 @@ export default function RoleSelect() {
   const handleSelect = (role: string, path: string) => {
     setSelecting(role);
     saveActiveRole(role);
+    saveLastRoleForEmail(getAuthEmail(), role);
     router.push(path);
   };
 
