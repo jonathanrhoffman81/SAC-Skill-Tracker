@@ -2474,6 +2474,17 @@ export default function AdminInstructorEvaluations({
                                                                                             initialClassId={classItem.id}
                                                                                             editingEvaluation={viewingEvaluation ?? undefined}
                                                                                             viewOnly
+                                                                                            sessionEntries={(classSummary?.recentEntries ?? [])
+                                                                                                .filter((entry) =>
+                                                                                                    !latestEvaluationEntry?.date
+                                                                                                        ? true
+                                                                                                        : entry.date === latestEvaluationEntry.date,
+                                                                                                )
+                                                                                                .map((entry) => ({
+                                                                                                    isSkillNote: entry.isSkillNote,
+                                                                                                    skillName: entry.skillName,
+                                                                                                    feedback: entry.feedback,
+                                                                                                }))}
                                                                                         />
                                                                                     </div>
                                                                                 )}

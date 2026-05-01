@@ -50,6 +50,15 @@ interface EvaluationFormProps {
   }) => void;
   closeDelayMs?: number;
   viewOnly?: boolean;
+  // When viewing an existing evaluation, the host can pass every entry
+  // from the same session here so the form can populate per-skill notes
+  // and the session-level feedback all at once. Without this only the
+  // single clicked entry appears, leaving every other skill blank.
+  sessionEntries?: Array<{
+    isSkillNote: boolean;
+    skillName?: string;
+    feedback?: string;
+  }>;
   onDirtyChange?: (isDirty: boolean) => void;
 }
 
@@ -83,6 +92,7 @@ export default function EvaluationForm({
   onSubmissionComplete,
   closeDelayMs = 1200,
   viewOnly = false,
+  sessionEntries,
   onDirtyChange,
 }: EvaluationFormProps) {
   // null = "not evaluated this session" / skipped. Skills left at null are
@@ -128,6 +138,29 @@ export default function EvaluationForm({
       return;
     }
 
+    // If the host gave us the full set of entries for this session, hydrate
+    // every per-skill note and the anchor's class-level feedback at once.
+    // Otherwise we'd only show the single entry the user happened to click.
+    if (sessionEntries && sessionEntries.length > 0) {
+      const skillIdByName = new Map(skills.map((s) => [s.name, s.id]));
+      const notesMap: Record<string, string> = {};
+      let anchorFeedback = '';
+      for (const entry of sessionEntries) {
+        const text = entry.feedback?.trim();
+        if (!text) continue;
+        if (entry.isSkillNote && entry.skillName) {
+          const id = skillIdByName.get(entry.skillName);
+          if (id) notesMap[id] = entry.feedback ?? '';
+        } else if (!entry.isSkillNote) {
+          anchorFeedback = entry.feedback ?? '';
+        }
+      }
+      setNote(anchorFeedback);
+      setSkillNotesBySkillId(notesMap);
+      setExpandedNoteSkillIds(new Set(Object.keys(notesMap)));
+      return;
+    }
+
     if (editingEvaluation.isSkillNote && editingEvaluation.skillId) {
       setNote('');
       setSkillNotesBySkillId({
@@ -139,7 +172,7 @@ export default function EvaluationForm({
 
     setNote(editingEvaluation.feedback ?? '');
     setSkillNotesBySkillId({});
-  }, [editingEvaluation]);
+  }, [editingEvaluation, sessionEntries, skills]);
 
   useEffect(() => {
     if (initialClassId && classes.some((classItem) => classItem.id === initialClassId)) {
