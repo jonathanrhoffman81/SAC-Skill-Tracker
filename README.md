@@ -4,7 +4,7 @@ A multi-role web app for swim clubs (and similar skill-based programs) to track 
 
 Originally built for the **Shippensburg Aquatic Club**.
 
-🌐 **Live demo:** https://sac-skill-tracker-nine.vercel.app/
+🌐 **Live demo:** https://sac-skill-tracker-nine.vercel.app/ .
 
 ---
 
