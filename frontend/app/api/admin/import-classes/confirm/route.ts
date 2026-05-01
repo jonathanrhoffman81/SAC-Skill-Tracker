@@ -3,11 +3,9 @@
  * POST /api/admin/import-classes/confirm
  *
  * Dedup strategy (safe to re-import the same file):
- *  - member:         lookup by (org, first_name, last_name) case-insensitive,
- *                    then verify DOB if both sides have one. DOB alone never
- *                    blocks a match — a name match is sufficient to avoid dupes.
- *  - enrollment:     skip if (member_id, class_id) already exists
- *  - person:         lookup by email; insert only if not found
+ *  - member:          lookup by (org, first_name, last_name) case-insensitive
+ *  - enrollment:      skip if (member_id, class_id) already exists
+ *  - person:          lookup by email; insert only if not found
  *  - guardian_member: skip if (guardian_person_id, member_id) already exists
  */
 
@@ -22,8 +20,6 @@ export interface ClassSchedule {
   length_minutes: number;
   start_date: string;
   end_date: string;
-  schedule_days: string[];
-  schedule_time: string;
 }
 
 interface ConfirmBody {
@@ -81,8 +77,6 @@ export async function POST(request: NextRequest) {
           length_minutes: cls.length_minutes,
           start_date: cls.start_date || null,
           end_date: cls.end_date || null,
-          schedule_days: cls.schedule_days,
-          schedule_time: cls.schedule_time || null,
         })
         .select("class_id")
         .single();
@@ -99,20 +93,109 @@ export async function POST(request: NextRequest) {
       classesCreated++;
     }
 
+    // Guard: bail early if any class name still isn't resolved
+    const unresolvedClasses = allClassNames.filter((n) => !classIdMap.has(n));
+    if (unresolvedClasses.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `The following classes were not found in the database and had no ` +
+            `schedule provided. Please re-upload the file and configure them: ` +
+            unresolvedClasses.join(", "),
+        },
+        { status: 400 },
+      );
+    }
+
     /* ------------------------------------------------------------------ */
-    /* 2. Per-row: swimmer + enrollment + guardian                         */
+    /* 2. Batch-fetch all existing members for this org by name           */
+    /* ------------------------------------------------------------------ */
+    const uniqueFirstNames = [...new Set(rows.map((r) => r.member_first))];
+    const uniqueLastNames = [...new Set(rows.map((r) => r.member_last))];
+
+    const { data: allOrgMembers } = await supabase
+      .from("member")
+      .select("member_id, first_name, last_name, date_of_birth")
+      .eq("organization_id", organization_id)
+      .in("first_name", uniqueFirstNames)
+      .in("last_name", uniqueLastNames);
+
+    const memberLookup = new Map<
+      string,
+      { member_id: string; date_of_birth: string | null }[]
+    >();
+    for (const m of allOrgMembers ?? []) {
+      const key = `${m.first_name.toLowerCase()}|||${m.last_name.toLowerCase()}`;
+      const bucket = memberLookup.get(key) ?? [];
+      bucket.push({ member_id: m.member_id, date_of_birth: m.date_of_birth });
+      memberLookup.set(key, bucket);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 3. Batch-fetch all existing enrollments for these classes           */
+    /* ------------------------------------------------------------------ */
+    const allClassIds = Array.from(classIdMap.values());
+    const { data: existingEnrollments } = await supabase
+      .from("enrollment")
+      .select("member_id, class_id")
+      .in("class_id", allClassIds);
+
+    const enrollmentSet = new Set<string>();
+    for (const e of existingEnrollments ?? []) {
+      enrollmentSet.add(`${e.member_id}|||${e.class_id}`);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 4. Batch-fetch all existing persons by email                        */
+    /* ------------------------------------------------------------------ */
+    const allEmails = [...new Set(rows.map((r) => r.account_email))];
+    const { data: existingPersons } = await supabase
+      .from("person")
+      .select("person_id, email")
+      .in("email", allEmails);
+
+    const emailToPersonId = new Map<string, string>();
+    for (const p of existingPersons ?? []) {
+      emailToPersonId.set(p.email, p.person_id);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 5. Batch-fetch all existing guardian_member links                   */
+    /* ------------------------------------------------------------------ */
+    const allPersonIds = Array.from(emailToPersonId.values());
+    const guardianLinkSet = new Set<string>();
+
+    if (allPersonIds.length > 0) {
+      const { data: existingLinks } = await supabase
+        .from("guardian_member")
+        .select("guardian_person_id, member_id")
+        .in("guardian_person_id", allPersonIds);
+
+      for (const l of existingLinks ?? []) {
+        guardianLinkSet.add(`${l.guardian_person_id}|||${l.member_id}`);
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 6. Per-row loop — zero DB reads inside                              */
     /* ------------------------------------------------------------------ */
     let membersFound = 0;
     let membersCreated = 0;
-    let guardiansCreated = 0;
-    let guardiansLinked = 0;
-    let enrollmentsCreated = 0;
+    const enrollmentInserts: {
+      member_id: string;
+      class_id: string;
+      slot: number;
+    }[] = [];
+    const personInserts: {
+      email: string;
+      first_name: string;
+      last_name: string;
+    }[] = [];
+    const pendingPersonEmails = new Set<string>();
     const enrollmentErrors: string[] = [];
 
-    // email → person_id cache so a parent with multiple kids only hits DB once
-    const emailCache = new Map<string, string>();
-    // "personId|||memberId" → true, already linked
-    const guardianLinkCache = new Map<string, boolean>();
+    type GuardianWork = { email: string; memberId: string };
+    const guardianWorkList: GuardianWork[] = [];
 
     for (const row of rows) {
       const classId = classIdMap.get(row.class_name);
@@ -120,38 +203,24 @@ export async function POST(request: NextRequest) {
 
       const dobFormatted = normaliseDate(row.dob);
 
-      /* ---- 2a. Find or create swimmer --------------------------------- */
-      let memberId: string | null = null;
+      /* ---- 6a. Find or create swimmer --------------------------------- */
+      let memberId: string | undefined;
+      const nameKey = `${row.member_first.toLowerCase()}|||${row.member_last.toLowerCase()}`;
+      const matches = memberLookup.get(nameKey);
 
-      // Look up by org + name only (case-insensitive). We intentionally do NOT
-      // filter by DOB here because the DOB stored from a previous import may
-      // differ in format or be null, which would cause a false "not found" and
-      // create a duplicate member. A name match within the org is sufficient.
-      const { data: existingMembers, error: findError } = await supabase
-        .from("member")
-        .select("member_id, date_of_birth")
-        .eq("organization_id", organization_id)
-        .ilike("first_name", row.member_first)
-        .ilike("last_name", row.member_last);
-
-      if (findError) console.error("Member lookup error:", findError);
-
-      if (existingMembers && existingMembers.length > 0) {
-        // If multiple name matches, prefer the one whose DOB matches, otherwise
-        // just take the first — still better than creating a duplicate.
-        const dobMatch = existingMembers.find(
-          (m) => m.date_of_birth === dobFormatted,
-        );
-        const best = dobMatch ?? existingMembers[0];
+      if (matches && matches.length > 0) {
+        const dobMatch = matches.find((m) => m.date_of_birth === dobFormatted);
+        const best = dobMatch ?? matches[0];
         memberId = best.member_id;
         membersFound++;
 
-        // Backfill DOB if the existing record doesn't have one but the CSV does
         if (!best.date_of_birth && dobFormatted) {
-          await supabase
+          // Fire-and-forget DOB backfill
+          supabase
             .from("member")
             .update({ date_of_birth: dobFormatted })
-            .eq("member_id", memberId);
+            .eq("member_id", memberId)
+            .then(() => {});
         }
       } else {
         const { data: newMember, error: memberError } = await supabase
@@ -166,129 +235,178 @@ export async function POST(request: NextRequest) {
           .select("member_id")
           .single();
 
-        if (memberError) {
+        if (memberError || !newMember) {
           console.error(
             `Member insert error for ${row.member_first} ${row.member_last}:`,
             memberError,
           );
           continue;
         }
+
         memberId = newMember.member_id;
         membersCreated++;
+
+        const bucket = memberLookup.get(nameKey) ?? [];
+        bucket.push({
+          member_id: newMember.member_id,
+          date_of_birth: dobFormatted,
+        });
+        memberLookup.set(nameKey, bucket);
       }
 
-      /* ---- 2b. Enroll swimmer — skip if already enrolled -------------- */
-      const { data: existingEnrollment } = await supabase
-        .from("enrollment")
-        .select("member_id")
-        .eq("member_id", memberId)
-        .eq("class_id", classId)
-        .maybeSingle();
+      if (!memberId) continue;
 
-      if (!existingEnrollment) {
-        const { error: enrollError } = await supabase
-          .from("enrollment")
-          .insert({ member_id: memberId, class_id: classId, slot: row.slot });
-
-        if (enrollError) {
-          console.error("Enrollment error:", enrollError);
-          enrollmentErrors.push(
-            `${row.member_first} ${row.member_last} → ${row.class_name}`,
-          );
-        } else {
-          enrollmentsCreated++;
-        }
+      /* ---- 6b. Queue enrollment --------------------------------------- */
+      const enrollKey = `${memberId}|||${classId}`;
+      if (!enrollmentSet.has(enrollKey)) {
+        enrollmentInserts.push({
+          member_id: memberId,
+          class_id: classId,
+          slot: row.slot,
+        });
+        enrollmentSet.add(enrollKey);
       }
 
-      /* ---- 2c. Resolve parent/guardian by email ----------------------- */
-      let personId: string | null = null;
-      let isNewPerson = false;
+      /* ---- 6c. Queue person insert if needed -------------------------- */
+      if (
+        !emailToPersonId.has(row.account_email) &&
+        !pendingPersonEmails.has(row.account_email)
+      ) {
+        personInserts.push({
+          email: row.account_email,
+          first_name: row.account_first,
+          last_name: row.account_last,
+        });
+        pendingPersonEmails.add(row.account_email);
+      }
 
-      if (emailCache.has(row.account_email)) {
-        personId = emailCache.get(row.account_email)!;
+      /* ---- 6d. Queue guardian link ------------------------------------ */
+      guardianWorkList.push({ email: row.account_email, memberId });
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 7. Batch-insert new persons                                         */
+    /* ------------------------------------------------------------------ */
+    if (personInserts.length > 0) {
+      const { data: newPersons, error: personBatchError } = await supabase
+        .from("person")
+        .insert(personInserts)
+        .select("person_id, email");
+
+      if (personBatchError) {
+        console.error("Batch person insert error:", personBatchError);
       } else {
-        const { data: existingPerson } = await supabase
-          .from("person")
-          .select("person_id")
-          .eq("email", row.account_email)
-          .maybeSingle();
-
-        if (existingPerson) {
-          personId = existingPerson.person_id;
-        } else {
-          const { data: newPerson, error: personError } = await supabase
-            .from("person")
-            .insert({
-              email: row.account_email,
-              first_name: row.account_first,
-              last_name: row.account_last,
-            })
-            .select("person_id")
-            .single();
-
-          if (personError) {
-            console.error(
-              `Person insert error for ${row.account_email}:`,
-              personError,
-            );
-          } else {
-            personId = newPerson.person_id;
-            isNewPerson = true;
-          }
+        for (const p of newPersons ?? []) {
+          emailToPersonId.set(p.email, p.person_id);
         }
-
-        if (personId) emailCache.set(row.account_email, personId);
       }
+    }
 
+    /* ------------------------------------------------------------------ */
+    /* 8. Batch-insert enrollments                                         */
+    /* ------------------------------------------------------------------ */
+    let enrollmentsCreated = 0;
+    if (enrollmentInserts.length > 0) {
+      const { error: enrollBatchError } = await supabase
+        .from("enrollment")
+        .insert(enrollmentInserts);
+
+      if (enrollBatchError) {
+        console.error("Batch enrollment insert error:", enrollBatchError);
+        for (const e of enrollmentInserts) {
+          enrollmentErrors.push(
+            `member_id ${e.member_id} → class_id ${e.class_id}`,
+          );
+        }
+      } else {
+        enrollmentsCreated = enrollmentInserts.length;
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 9. Resolve guardian links                                           */
+    /* ------------------------------------------------------------------ */
+
+    // Re-fetch links now that new persons exist
+    const allPersonIdsNow = [...emailToPersonId.values()];
+    if (allPersonIdsNow.length > 0) {
+      const { data: freshLinks } = await supabase
+        .from("guardian_member")
+        .select("guardian_person_id, member_id")
+        .in("guardian_person_id", allPersonIdsNow);
+
+      for (const l of freshLinks ?? []) {
+        guardianLinkSet.add(`${l.guardian_person_id}|||${l.member_id}`);
+      }
+    }
+
+    const poUpserts: {
+      person_id: string;
+      organization_id: string;
+      status: string;
+    }[] = [];
+    const gmInserts: { guardian_person_id: string; member_id: string }[] = [];
+    const newGuardianPersonIds = new Set<string>();
+    const linkedGuardianPersonIds = new Set<string>();
+
+    for (const { email, memberId } of guardianWorkList) {
+      const personId = emailToPersonId.get(email);
       if (!personId) continue;
 
-      /* ---- 2d. Skip guardian linking if already linked ---------------- */
-      const guardianCacheKey = `${personId}|||${memberId}`;
+      const linkKey = `${personId}|||${memberId}`;
+      if (guardianLinkSet.has(linkKey)) continue;
 
-      if (!guardianLinkCache.has(guardianCacheKey)) {
-        const { data: existingLink } = await supabase
-          .from("guardian_member")
-          .select("guardian_person_id")
-          .eq("guardian_person_id", personId)
-          .eq("member_id", memberId)
-          .maybeSingle();
+      poUpserts.push({
+        person_id: personId,
+        organization_id,
+        status: "active",
+      });
+      gmInserts.push({ guardian_person_id: personId, member_id: memberId });
+      guardianLinkSet.add(linkKey);
 
-        if (existingLink) {
-          guardianLinkCache.set(guardianCacheKey, true);
-        } else {
-          /* ---- 2e. New link — org membership, role, guardian_member --- */
-          const { data: poData, error: poError } = await supabase
-            .from("person_organization")
-            .upsert(
-              { person_id: personId, organization_id, status: "active" },
-              { onConflict: "person_id,organization_id" },
-            )
-            .select("person_organization_id")
-            .single();
+      const wasExisting = existingPersons?.some((p) => p.email === email);
+      if (wasExisting) linkedGuardianPersonIds.add(personId);
+      else newGuardianPersonIds.add(personId);
+    }
 
-          if (poError || !poData) {
-            console.error("person_organization upsert error:", poError);
-            continue;
-          }
+    let guardiansCreated = 0;
+    let guardiansLinked = 0;
 
-          await supabase.from("person_org_role").upsert(
-            {
-              person_organization_id: poData.person_organization_id,
-              role_id: ROLE_GUARDIAN,
-            },
-            { onConflict: "person_organization_id,role_id" },
-          );
+    if (poUpserts.length > 0) {
+      const dedupedPO = Array.from(
+        new Map(poUpserts.map((p) => [p.person_id, p])).values(),
+      );
 
-          const { error: gmError } = await supabase
-            .from("guardian_member")
-            .insert({ guardian_person_id: personId, member_id: memberId });
+      const { data: poRows, error: poError } = await supabase
+        .from("person_organization")
+        .upsert(dedupedPO, { onConflict: "person_id,organization_id" })
+        .select("person_organization_id, person_id");
 
-          if (!gmError) {
-            guardianLinkCache.set(guardianCacheKey, true);
-            if (isNewPerson) guardiansCreated++;
-            else guardiansLinked++;
-          }
+      if (poError) {
+        console.error("person_organization batch upsert error:", poError);
+      } else {
+        const roleUpserts = (poRows ?? []).map((po) => ({
+          person_organization_id: po.person_organization_id,
+          role_id: ROLE_GUARDIAN,
+        }));
+        if (roleUpserts.length > 0) {
+          await supabase.from("person_org_role").upsert(roleUpserts, {
+            onConflict: "person_organization_id,role_id",
+          });
         }
+      }
+    }
+
+    if (gmInserts.length > 0) {
+      const { error: gmError } = await supabase
+        .from("guardian_member")
+        .insert(gmInserts);
+
+      if (!gmError) {
+        guardiansCreated = newGuardianPersonIds.size;
+        guardiansLinked = linkedGuardianPersonIds.size;
+      } else {
+        console.error("guardian_member batch insert error:", gmError);
       }
     }
 
