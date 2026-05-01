@@ -131,6 +131,26 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
         const groupNameById = new Map<string, string>();
         (groupRows || []).forEach((g: any) => groupNameById.set(g.group_id, g.name));
 
+        // Count this swimmer's evaluations per class so the UI can disable
+        // the Remove button when there's history to protect.
+        const { data: evalRows, error: evalRowsError } = await supabase
+            .from("evaluation")
+            .select("class_id")
+            .eq("member_id", params.memberId);
+
+        if (evalRowsError) {
+            throw new Error(`Failed to load evaluations: ${evalRowsError.message}`);
+        }
+
+        const evaluationCountByClassId = new Map<string, number>();
+        (evalRows || []).forEach((row: any) => {
+            if (!row.class_id) return;
+            evaluationCountByClassId.set(
+                row.class_id,
+                (evaluationCountByClassId.get(row.class_id) ?? 0) + 1,
+            );
+        });
+
         // Reject enrollments whose class isn't in this org (defensive — shouldn't
         // happen given normal data flow, but skip rather than expose).
         const enrollments = (enrollmentRows || [])
@@ -142,6 +162,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
                 group_name: row.group_id ? groupNameById.get(row.group_id) ?? null : null,
                 slot: row.slot,
                 enrolled_at: row.enrolled_at,
+                evaluation_count: evaluationCountByClassId.get(row.class_id) ?? 0,
             }));
 
         const availableClasses = (classRows || []).map((c: any) => ({
@@ -240,6 +261,30 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
 
         await ensureMemberInOrg(supabase, params.memberId, organizationId);
         await ensureClassInOrg(supabase, classId, organizationId);
+
+        // Refuse to unenroll a swimmer from a class they already have any
+        // evaluation in — that would orphan the eval record from its class
+        // context and lose history that the admin / parents rely on.
+        const { count: evalCount, error: evalCountError } = await supabase
+            .from("evaluation")
+            .select("evaluation_id", { count: "exact", head: true })
+            .eq("member_id", params.memberId)
+            .eq("class_id", classId);
+
+        if (evalCountError) {
+            throw new Error(`Failed to check evaluations: ${evalCountError.message}`);
+        }
+
+        if ((evalCount ?? 0) > 0) {
+            return NextResponse.json(
+                {
+                    error:
+                        "Can't remove this swimmer from the class — they already have evaluations recorded for it. Delete the evaluations first if you really need to unenroll them.",
+                    evaluationCount: evalCount,
+                },
+                { status: 409 },
+            );
+        }
 
         const { error: deleteError } = await supabase
             .from("enrollment")

@@ -38,8 +38,6 @@ const loadLogoManage = () => import("@/components/LogoManage");
 const loadAccountsManager = () => import("@/components/AccountsManager");
 const loadAdminInstructorEvaluations = () =>
   import("@/components/AdminInstructorEvaluations");
-const loadCreateAccountManager = () =>
-  import("@/components/CreateAccountManager");
 const loadSwimmerClassManager = () =>
   import("@/components/SwimmerClassManager");
 
@@ -64,15 +62,11 @@ const AccountsManager = dynamic(loadAccountsManager, {
 const AdminInstructorEvaluations = dynamic(loadAdminInstructorEvaluations, {
   loading: () => <TabSkeleton title="swimmer evaluations" />,
 });
-const CreateAccountManager = dynamic(loadCreateAccountManager, {
-  loading: () => <TabSkeleton title="create account" />,
-});
 const SwimmerClassManager = dynamic(loadSwimmerClassManager, {
   loading: () => <TabSkeleton title="swimmer classes" />,
 });
 
 const MemoAccountsManager = memo(AccountsManager);
-const MemoCreateAccountManager = memo(CreateAccountManager);
 const MemoSwimmerClassManager = memo(SwimmerClassManager);
 const MemoClassManager = memo(ClassManager);
 const MemoInstructorAssignmentManager = memo(InstructorAssignmentManager);
@@ -136,7 +130,6 @@ type Tab =
   | "classes"
   | "assignments"
   | "swimmer-classes"
-  | "create-account"
   | "settings";
 
 const ALL_ADMIN_TABS: Tab[] = [
@@ -147,7 +140,6 @@ const ALL_ADMIN_TABS: Tab[] = [
   "classes",
   "swimmer-classes",
   "roster",
-  "create-account",
   "settings",
 ];
 
@@ -336,25 +328,6 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
           strokeLinejoin="round"
           strokeWidth={2}
           d="M5 13l4 4L19 7"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "create-account",
-    label: "Create Account",
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
         />
       </svg>
     ),
@@ -864,9 +837,14 @@ export default function AdminDashboard() {
     void fetchBootstrap({ force: true });
   }, [fetchBootstrap]);
 
-  const [accountsRefreshSignal, setAccountsRefreshSignal] = useState(0);
-  const handleAccountCreated = useCallback(() => {
-    setAccountsRefreshSignal((n) => n + 1);
+  // Bumped when external triggers (currently none — kept for future use) want
+  // AccountsManager to refetch. The inline Create Account form refetches
+  // itself; this prop stays so the API doesn't churn if a sibling needs it.
+  const [accountsRefreshSignal] = useState(0);
+
+  const [assignmentsRefreshSignal, setAssignmentsRefreshSignal] = useState(0);
+  const handleSwimmerEnrollmentChanged = useCallback(() => {
+    setAssignmentsRefreshSignal((n) => n + 1);
     refreshStats();
   }, [refreshStats]);
 
@@ -1772,7 +1750,9 @@ export default function AdminDashboard() {
             <div
               className={`w-full min-h-[60vh] ${activeTab === "assignments" ? "" : "hidden"}`}
             >
-              <MemoInstructorAssignmentManager />
+              <MemoInstructorAssignmentManager
+                refreshSignal={assignmentsRefreshSignal}
+              />
             </div>
           )}
 
@@ -1780,15 +1760,9 @@ export default function AdminDashboard() {
             <div
               className={`w-full min-h-[60vh] ${activeTab === "swimmer-classes" ? "" : "hidden"}`}
             >
-              <MemoSwimmerClassManager />
-            </div>
-          )}
-
-          {visitedTabs.has("create-account") && (
-            <div
-              className={`w-full min-h-[60vh] ${activeTab === "create-account" ? "" : "hidden"}`}
-            >
-              <MemoCreateAccountManager onCreated={handleAccountCreated} />
+              <MemoSwimmerClassManager
+                onChanged={handleSwimmerEnrollmentChanged}
+              />
             </div>
           )}
 

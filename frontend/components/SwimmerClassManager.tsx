@@ -34,6 +34,7 @@ type Enrollment = {
     group_name: string | null;
     slot: number;
     enrolled_at: string;
+    evaluation_count?: number;
 };
 
 type Toast = { id: number; message: string; type: "success" | "error" };
@@ -51,7 +52,9 @@ function classScheduleSummary(c: AvailableClass) {
     return combined || "Schedule TBD";
 }
 
-export default function SwimmerClassManager() {
+export default function SwimmerClassManager({
+    onChanged,
+}: { onChanged?: () => void } = {}) {
     const [members, setMembers] = useState<Member[]>([]);
     const [membersLoading, setMembersLoading] = useState(false);
     const [search, setSearch] = useState("");
@@ -177,6 +180,7 @@ export default function SwimmerClassManager() {
             const payload = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(payload?.error || "Failed to add enrollment");
             showMessage("Class added", "success");
+            onChanged?.();
             await loadEnrollments(selectedMemberId);
         } catch (err) {
             showMessage(
@@ -208,6 +212,7 @@ export default function SwimmerClassManager() {
             const payload = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(payload?.error || "Failed to remove enrollment");
             showMessage("Class removed", "success");
+            onChanged?.();
             setEnrollments((prev) => prev.filter((e) => e.class_id !== classId));
         } catch (err) {
             showMessage(
@@ -322,31 +327,51 @@ export default function SwimmerClassManager() {
                                         </p>
                                     ) : (
                                         <ul className="space-y-2">
-                                            {enrollments.map((enr) => (
-                                                <li
-                                                    key={enr.class_id}
-                                                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2"
-                                                >
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                                            {enr.class_name}
-                                                        </p>
-                                                        <p className="text-xs text-gray-500 truncate">
-                                                            {enr.group_name
-                                                                ? `Group: ${enr.group_name}`
-                                                                : "No group"}
-                                                        </p>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRemove(enr.class_id)}
-                                                        disabled={pendingRemove.has(enr.class_id)}
-                                                        className="text-xs px-2.5 py-1 rounded-md border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                            {enrollments.map((enr) => {
+                                                const evalCount = enr.evaluation_count ?? 0;
+                                                const hasEvals = evalCount > 0;
+                                                const isPending = pendingRemove.has(enr.class_id);
+                                                return (
+                                                    <li
+                                                        key={enr.class_id}
+                                                        className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2"
                                                     >
-                                                        {pendingRemove.has(enr.class_id) ? "Removing…" : "Remove"}
-                                                    </button>
-                                                </li>
-                                            ))}
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-sm font-medium text-gray-900 truncate">
+                                                                    {enr.class_name}
+                                                                </p>
+                                                                {hasEvals && (
+                                                                    <span
+                                                                        className="inline-flex flex-shrink-0 items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
+                                                                        title={`${evalCount} evaluation${evalCount === 1 ? "" : "s"} on file — can't remove`}
+                                                                    >
+                                                                        {evalCount} eval{evalCount === 1 ? "" : "s"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-gray-500 truncate">
+                                                                {enr.group_name
+                                                                    ? `Group: ${enr.group_name}`
+                                                                    : "No group"}
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemove(enr.class_id)}
+                                                            disabled={isPending || hasEvals}
+                                                            title={
+                                                                hasEvals
+                                                                    ? "This swimmer has evaluations in this class. Delete those first to unenroll."
+                                                                    : undefined
+                                                            }
+                                                            className="text-xs px-2.5 py-1 rounded-md border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        >
+                                                            {isPending ? "Removing…" : "Remove"}
+                                                        </button>
+                                                    </li>
+                                                );
+                                            })}
                                         </ul>
                                     )}
                                 </div>

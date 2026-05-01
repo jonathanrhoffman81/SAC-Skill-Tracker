@@ -7,6 +7,10 @@ interface SkillItem {
   id: string;
   name: string;
   progress: 0 | 1 | 2 | 3 | 4;
+  // True when the swimmer actually has a recorded progress entry for this
+  // skill. Used to distinguish "evaluated as 0" from "never evaluated"
+  // when seeding the form's chip selection.
+  hasProgressHistory?: boolean;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -96,19 +100,18 @@ export default function EvaluationForm({
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
-    // For new evaluations, leave skills with no progress history unselected
-    // (null) so the instructor isn't presented with a misleading "0" default.
-    // Skills that already have recorded progress carry that value through.
-    // When editing an existing evaluation, always show the current value so
-    // the user can see exactly what they're editing.
-    const isEditing = Boolean(editingEvaluation);
+    // Carry through any skill that has actual recorded progress (a real
+    // member_skill row, even if its value is 0). Skills with no recorded
+    // progress start unselected so the instructor isn't presented with
+    // misleading "0" defaults. Same rule for new and edit modes — what the
+    // instructor sees as "selected" matches what the swimmer actually has.
     const nextProgress = Object.fromEntries(
       skills.map((skill) => {
-        const initial: ProgressValue = isEditing
-          ? skill.progress
-          : skill.progress > 0
-            ? skill.progress
-            : null;
+        // Prefer the API's explicit signal; fall back to the heuristic
+        // "progress > 0" for callers (older swimmer-detail pages) that
+        // don't supply hasProgressHistory yet.
+        const hasHistory = skill.hasProgressHistory ?? skill.progress > 0;
+        const initial: ProgressValue = hasHistory ? skill.progress : null;
         return [skill.id, initial];
       }),
     ) as Record<string, ProgressValue>;
@@ -290,6 +293,11 @@ export default function EvaluationForm({
               body: JSON.stringify({
                 skillId: update.skillId,
                 progress: update.progress,
+                // Link the new member_skill row to the evaluation we're
+                // editing so it stays associated with this class. Without
+                // this, edits drop class linkage and disappear from
+                // class-history views once the class window closes.
+                evaluationId: editingEvaluation.evaluationId,
               }),
             });
 

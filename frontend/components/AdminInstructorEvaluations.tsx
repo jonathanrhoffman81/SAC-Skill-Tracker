@@ -21,6 +21,7 @@ interface DashboardSkill {
     id: string;
     name: string;
     progress: 0 | 1 | 2 | 3 | 4;
+    hasProgressHistory?: boolean;
     mastered: boolean;
     dateAcquired?: string;
 }
@@ -1730,7 +1731,7 @@ export default function AdminInstructorEvaluations({
             )}
 
             {showProficiencyScaleSection && (
-                <section className="pt-2">
+                <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                     <details className="group">
                         <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-800">
                             <span>Proficiency scale</span>
@@ -2308,6 +2309,64 @@ export default function AdminInstructorEvaluations({
                                                                                     <span>{getClassWindowLabel(classItem)}</span>
                                                                                     <span>{classItem.schedule || "Schedule TBD"}</span>
                                                                                 </div>
+
+                                                                                {(() => {
+                                                                                    const entriesWithFeedback = (classSummary?.recentEntries ?? []).filter(
+                                                                                        (entry) => Boolean(entry.feedback && entry.feedback.trim()),
+                                                                                    );
+                                                                                    if (entriesWithFeedback.length === 0) return null;
+                                                                                    const skillEntries = entriesWithFeedback.filter((e) => e.isSkillNote);
+                                                                                    const generalEntries = entriesWithFeedback.filter((e) => !e.isSkillNote);
+                                                                                    return (
+                                                                                        <div className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+                                                                                            {generalEntries.length > 0 && (
+                                                                                                <div>
+                                                                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                                                                                        Class feedback
+                                                                                                    </p>
+                                                                                                    <ul className="mt-1 space-y-1.5">
+                                                                                                        {generalEntries.map((entry) => (
+                                                                                                            <li
+                                                                                                                key={`gen:${entry.evaluationId}`}
+                                                                                                                className="text-xs text-gray-700"
+                                                                                                            >
+                                                                                                                <p className="leading-snug">{entry.feedback}</p>
+                                                                                                                <p className="mt-0.5 text-[11px] text-gray-500">
+                                                                                                                    {entry.date} · {entry.instructor}
+                                                                                                                </p>
+                                                                                                            </li>
+                                                                                                        ))}
+                                                                                                    </ul>
+                                                                                                </div>
+                                                                                            )}
+                                                                                            {skillEntries.length > 0 && (
+                                                                                                <div>
+                                                                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                                                                                        Skill notes
+                                                                                                    </p>
+                                                                                                    <ul className="mt-1 space-y-1.5">
+                                                                                                        {skillEntries.map((entry) => (
+                                                                                                            <li
+                                                                                                                key={`skill:${entry.evaluationId}`}
+                                                                                                                className="text-xs text-gray-700"
+                                                                                                            >
+                                                                                                                <p className="leading-snug">
+                                                                                                                    <span className="font-semibold text-gray-900">
+                                                                                                                        {entry.skillName ?? "Skill"}:
+                                                                                                                    </span>{" "}
+                                                                                                                    {entry.feedback}
+                                                                                                                </p>
+                                                                                                                <p className="mt-0.5 text-[11px] text-gray-500">
+                                                                                                                    {entry.date} · {entry.instructor}
+                                                                                                                </p>
+                                                                                                            </li>
+                                                                                                        ))}
+                                                                                                    </ul>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
 
                                                                                 {(isEditingThisClass || isAddingThisClass) && (
                                                                                     <div className="mt-4 space-y-3 rounded-lg bg-blue-50/60 p-4">

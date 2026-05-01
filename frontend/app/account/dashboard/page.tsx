@@ -195,14 +195,9 @@ export default function AccountDashboard() {
   const [openSwimmerIds, setOpenSwimmerIds] = useState<string[]>([]);
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
   const [showInactive, setShowInactive] = useState(false);
-  const [logoUrl, setLogoUrl] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return sessionStorage.getItem(LOGO_CACHE_KEY);
-    } catch {
-      return null;
-    }
-  });
+  // Logo URL starts null on both server and client to avoid a hydration
+  // mismatch (the cached value is read after mount in the effect below).
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [headerAccentColor, setHeaderAccentColor] = useState<string | null>(
     null,
   );
@@ -215,6 +210,18 @@ export default function AccountDashboard() {
   // Place resolvedHeaderAccentColor here so it's available before any use
   const resolvedHeaderAccentColor =
     headerAccentColor ?? DEFAULT_HEADER_ACCENT_COLOR;
+
+  // Hydrate the cached logo from sessionStorage after mount (not during the
+  // initial render) so server-rendered HTML and the client's first paint
+  // agree, avoiding a hydration mismatch on the <img> tag.
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem(LOGO_CACHE_KEY);
+      if (cached) setLogoUrl(cached);
+    } catch {
+      /* private browsing — accept the brief flash through null */
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -779,8 +786,9 @@ export default function AccountDashboard() {
         </section>
 
         {/* Proficiency rating — collapsed by default; open when parents want
-            to look up what a given level means. */}
-        <section className="pt-2">
+            to look up what a given level means. Wrapped in a white card so
+            it stays readable when the org's accent color is dark. */}
+        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
           <details className="group">
             <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:text-gray-800">
               <span>Proficiency scale</span>

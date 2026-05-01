@@ -382,7 +382,9 @@ function StyledMultiSelect({
     );
 }
 
-export default function InstructorAssignmentManager() {
+export default function InstructorAssignmentManager({
+    refreshSignal = 0,
+}: { refreshSignal?: number } = {}) {
     const SWIMMER_PAGE_SIZE = 25;
     const GROUP_PAGE_SIZE = 8;
 
@@ -567,6 +569,15 @@ export default function InstructorAssignmentManager() {
     useEffect(() => {
         fetchAssignmentData();
     }, [fetchAssignmentData]);
+
+    // Refetch silently when the parent bumps the refresh signal — e.g. after
+    // an admin adds or removes an enrollment from the Swimmer Classes tab.
+    const refreshSignalSeenRef = useRef(refreshSignal);
+    useEffect(() => {
+        if (refreshSignal === refreshSignalSeenRef.current) return;
+        refreshSignalSeenRef.current = refreshSignal;
+        void fetchAssignmentData({ silent: true });
+    }, [refreshSignal, fetchAssignmentData]);
 
     const instructorNameById = useMemo(
         () => new Map(instructors.map((instructor) => [

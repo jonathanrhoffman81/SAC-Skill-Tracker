@@ -20,6 +20,10 @@ interface DashboardSkillPayload {
   id: string;
   name: string;
   progress: 0 | 1 | 2 | 3 | 4;
+  // True only when the swimmer has an actual member_skill row for this
+  // skill. Lets the UI distinguish "evaluated as 0" from "never evaluated"
+  // (both surface as progress=0 otherwise).
+  hasProgressHistory: boolean;
   mastered: boolean;
   dateAcquired?: string;
 }
@@ -922,7 +926,10 @@ export async function GET(request: NextRequest) {
             existingClassSummary.instructors.push(classInstructorName);
           }
 
-          if (existingClassSummary.recentEntries.length < 4) {
+          // Cap raised from 4 to 100: a single evaluation session can produce
+          // many skill notes (one per skill) plus an anchor row, and capping
+                  // low silently dropped notes from the dashboard view.
+          if (existingClassSummary.recentEntries.length < 100) {
             const skillName = row.skill_id
               ? orgSkills.find((skill) => skill.skill_id === row.skill_id)?.name
               : undefined;
@@ -1034,6 +1041,7 @@ export async function GET(request: NextRequest) {
             id: skill.skill_id,
             name: skill.name,
             progress,
+            hasProgressHistory: Boolean(memberSkill),
             mastered: progress === 4 || Boolean(memberSkill?.dateAcquired),
             dateAcquired: memberSkill?.dateAcquired,
           };

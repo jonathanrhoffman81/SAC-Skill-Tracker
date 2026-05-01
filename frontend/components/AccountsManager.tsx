@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authFetch } from "@/lib/clientAuth";
 import DropdownButton from "@/components/DropdownButton";
+import CreateAccountManager from "@/components/CreateAccountManager";
 
 type RoleKey = "admin" | "instructor" | "parent" | "swimmer";
 
@@ -44,6 +45,7 @@ export default function AccountsManager({ onRefresh, refreshSignal }: { onRefres
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
     const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set());
     const [toasts, setToasts] = useState<Toast[]>([]);
+    const [showCreateForm, setShowCreateForm] = useState(false);
     const [editingKey, setEditingKey] = useState<string | null>(null);
     const [editForm, setEditForm] = useState({
         first_name: "",
@@ -373,9 +375,45 @@ export default function AccountsManager({ onRefresh, refreshSignal }: { onRefres
 
             <div className="relative z-0 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-visible">
                 <div className="relative z-10 bg-white border-b border-gray-200 p-4 sm:p-6 rounded-t-xl">
-                    <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
-                        Manage Accounts
-                    </p>
+                    <div className="mb-3 flex items-center justify-between gap-3 sm:mb-4">
+                        <p className="text-base sm:text-lg font-semibold text-gray-900">
+                            Manage Accounts
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setShowCreateForm((v) => !v)}
+                            aria-expanded={showCreateForm}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 sm:text-sm"
+                        >
+                            {showCreateForm ? (
+                                <>
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    Close
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Create Account
+                                </>
+                            )}
+                        </button>
+                    </div>
+
+                    {showCreateForm && (
+                        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/40 p-3 sm:p-4">
+                            <CreateAccountManager
+                                onCreated={() => {
+                                    setShowCreateForm(false);
+                                    void fetchAccounts();
+                                    onRefresh?.();
+                                }}
+                            />
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                         <input

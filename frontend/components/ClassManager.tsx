@@ -19,7 +19,7 @@ interface Class {
     created_at: string;
 }
 
-type ClassFilter = 'active' | 'past';
+type ClassFilter = 'active' | 'past' | 'future';
 
 interface ClassManagerProps {
     onRefresh: () => void;
@@ -75,14 +75,18 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
-    const isActiveClass = (classItem: Class) => {
+    // Bucket a class as future / active / past based on today's date.
+    // - future: start_date is after today (hasn't begun yet).
+    // - past:   end_date is before today (already ended).
+    // - active: anything else (currently running, or undated).
+    const classStatus = (classItem: Class): ClassFilter => {
         const now = new Date();
         const start = parseDate(classItem.start_date);
         const end = parseDate(classItem.end_date);
 
-        if (start && end) return start <= now && now <= end;
-        if (end) return end >= now;
-        return true;
+        if (start && start > now) return 'future';
+        if (end && end < now) return 'past';
+        return 'active';
     };
 
     const getSortTime = (classItem: Class, filter: ClassFilter) => {
@@ -107,8 +111,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
     };
 
     const filteredClasses = useMemo(() => {
-        const rows = classes.filter((classItem) =>
-            classFilter === 'active' ? isActiveClass(classItem) : !isActiveClass(classItem),
+        const rows = classes.filter(
+            (classItem) => classStatus(classItem) === classFilter,
         );
 
         rows.sort((a, b) => {
@@ -116,6 +120,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
             const bTime = getSortTime(b, classFilter);
 
             if (aTime !== bTime) {
+                // Past: most recently ended first. Future: soonest first.
+                // Active: by start date ascending.
                 return classFilter === 'past' ? bTime - aTime : aTime - bTime;
             }
 
@@ -231,6 +237,29 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
             <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Manage Classes</p>
 
+            {/* Active / Past / Future toggle — kept outside the empty-state
+                branch so admins can always switch between views, even when
+                the current filter has no results. */}
+            <div className="mb-3 flex flex-wrap gap-2">
+                {([
+                    { value: 'active', label: 'Active' },
+                    { value: 'past', label: 'Past' },
+                    { value: 'future', label: 'Future' },
+                ] as Array<{ value: ClassFilter; label: string }>).map((option) => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setClassFilter(option.value)}
+                        className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${classFilter === option.value
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                            }`}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+
             {/* Classes List */}
             {loading ? (
                 <div className="flex items-center justify-center py-6 sm:py-8">
@@ -240,33 +269,12 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">
                     {classFilter === 'active'
                         ? 'No active classes found.'
-                        : 'No past classes found.'}
+                        : classFilter === 'past'
+                            ? 'No past classes found.'
+                            : 'No upcoming classes found.'}
                 </p>
             ) : (
                 <div>
-                    <div className="mb-3 flex flex-wrap gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setClassFilter('active')}
-                            className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${classFilter === 'active'
-                                ? 'border-blue-600 bg-blue-600 text-white'
-                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            Active
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setClassFilter('past')}
-                            className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${classFilter === 'past'
-                                ? 'border-blue-600 bg-blue-600 text-white'
-                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                                }`}
-                        >
-                            Past
-                        </button>
-                    </div>
-
                     <div className="space-y-2">
                         {filteredClasses.map((classItem) => (
                             <div

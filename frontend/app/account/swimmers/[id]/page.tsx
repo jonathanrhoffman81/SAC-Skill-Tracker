@@ -16,6 +16,35 @@ interface SwimmerDetail {
     enrollmentDate: string;
     organization: string;
     isActive: boolean;
+    headerAccentColor?: string | null;
+}
+
+const DEFAULT_HEADER_ACCENT_COLOR = "#ffffff";
+
+function normalizeHexColor(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const hex = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+    if (![3, 6].includes(hex.length) || !/^[0-9a-fA-F]+$/.test(hex)) {
+        return null;
+    }
+    if (hex.length === 3) {
+        return `#${hex
+            .split("")
+            .map((char) => `${char}${char}`)
+            .join("")
+            .toUpperCase()}`;
+    }
+    return `#${hex.toUpperCase()}`;
+}
+
+function hexToRgba(hexColor: string, alpha: number) {
+    const normalized = normalizeHexColor(hexColor);
+    if (!normalized) return `rgba(255, 255, 255, ${alpha})`;
+    const red = Number.parseInt(normalized.slice(1, 3), 16);
+    const green = Number.parseInt(normalized.slice(3, 5), 16);
+    const blue = Number.parseInt(normalized.slice(5, 7), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 interface NoteItem {
@@ -428,8 +457,11 @@ export default function ParentSwimmerDetail() {
         );
     }
 
+    const resolvedHeaderAccentColor =
+        normalizeHexColor(swimmer?.headerAccentColor || "") ?? DEFAULT_HEADER_ACCENT_COLOR;
+
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div style={{ minHeight: "100vh", backgroundColor: resolvedHeaderAccentColor }}>
             <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
                 <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
                     <div className="flex items-center gap-4">

@@ -634,18 +634,41 @@ async function buildAuthorizedSwimmerProfiles(
           skillNotesBySkillId.set(key, existing);
         });
 
+      // A history row "belongs" to this class either by timing
+      // (updated before the class window cutoff) OR by direct linkage
+      // (its evaluation_id points to an evaluation in this same class).
+      // The latter handles the common case where the instructor records
+      // an evaluation a few days after the class end date — the rating
+      // should still surface in this class's history view.
+      const isRowEligibleForClass = (
+        row: MemberSkillHistoryRow,
+      ): boolean => {
+        if (isHistoryRowBeforeCutoff(row, options.cutoffMillis)) return true;
+        if (!options.classId || !row.evaluation_id) return false;
+        const ev = evaluationById.get(row.evaluation_id);
+        return ev?.class_id === options.classId;
+      };
+
+      const findEligibleSnapshotRow = (
+        historyRows: MemberSkillHistoryRow[],
+      ) => {
+        for (let i = historyRows.length - 1; i >= 0; i -= 1) {
+          if (isRowEligibleForClass(historyRows[i])) return historyRows[i];
+        }
+        return null;
+      };
+
       return orgSkills.map((skill) => {
         const history = skillHistoryById.get(skill.skill_id) ?? [];
         const currentSkill = currentSkillById.get(skill.skill_id);
         const snapshotRow =
-          findLatestSkillStateBefore(history, options.cutoffMillis) ??
+          findEligibleSnapshotRow(history) ??
           (options.fallbackToCurrent ? (currentSkill ?? null) : null);
         const progress = snapshotRow?.progress ?? 0;
         const obtainedRow = findSkillObtainedRow(history);
         const obtainedDate = getSkillObtainedDate(obtainedRow);
         const visibleObtainedDate =
-          obtainedDate &&
-          (!options.classEndDate || obtainedDate <= options.classEndDate)
+          obtainedRow && isRowEligibleForClass(obtainedRow)
             ? obtainedDate
             : null;
         const obtainedEvaluation = obtainedRow?.evaluation_id
@@ -660,7 +683,7 @@ async function buildAuthorizedSwimmerProfiles(
                 obtainedClassId === options.classId,
             );
         const progressHistory = history
-          .filter((row) => isHistoryRowBeforeCutoff(row, options.cutoffMillis))
+          .filter((row) => isRowEligibleForClass(row))
           .filter((row) => {
             if (!options.isGeneral) return true;
             if (!row.evaluation_id) return true;

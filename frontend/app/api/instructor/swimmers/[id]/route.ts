@@ -516,7 +516,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
     const instructor = instructorResolution.person;
 
-    if (body.evaluationId) {
+    // Feedback-only edit: evaluationId without a skillId/progress means
+    // we're updating the evaluation row's feedback text, nothing else.
+    const isFeedbackEdit =
+      Boolean(body.evaluationId) &&
+      body.skillId === undefined &&
+      body.progress === undefined &&
+      body.mastered === undefined;
+
+    if (isFeedbackEdit) {
       const trimmedFeedback = body.feedback?.trim() ?? '';
 
       const { data: evaluationRow, error: evaluationLookupError } = await supabaseAdmin
@@ -568,11 +576,40 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const skillUpdate = skillUpdates[0];
 
+    // When the client supplies evaluationId alongside the skill update we're
+    // editing an existing evaluation. Linking the new member_skill row to
+    // that evaluation keeps the rating tied to the class for class-history
+    // and for cascade-delete when the eval is removed.
+    let linkedEvaluationId: string | undefined;
+    if (body.evaluationId) {
+      const { data: evalRow, error: evalLookupErr } = await supabaseAdmin
+        .from('evaluation')
+        .select('evaluation_id, member_id')
+        .eq('evaluation_id', body.evaluationId)
+        .eq('member_id', memberId)
+        .maybeSingle();
+
+      if (evalLookupErr) {
+        return NextResponse.json(
+          { error: `Failed to validate evaluation: ${evalLookupErr.message}` },
+          { status: 500 }
+        );
+      }
+      if (!evalRow) {
+        return NextResponse.json(
+          { error: 'Evaluation not found for this swimmer.' },
+          { status: 404 }
+        );
+      }
+      linkedEvaluationId = body.evaluationId;
+    }
+
     const { error: upsertError } = await saveMemberSkillProgress({
       memberId,
       skillId: skillUpdate.skillId,
       progress: skillUpdate.progress,
       updatedByPersonId: instructor.person_id,
+      evaluationId: linkedEvaluationId,
     });
 
     if (upsertError) {
