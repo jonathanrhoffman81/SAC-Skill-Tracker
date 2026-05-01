@@ -26,25 +26,16 @@ interface ConfirmResult {
   enrollmentErrors: string[];
 }
 
-const DAYS = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-] as const;
+// What the UI manages per-class (dates only)
+interface ClassDateConfig {
+  name: string;
+  length_minutes: number;
+  start_date: string;
+  end_date: string;
+}
 
-const DAY_ABBR: Record<string, string> = {
-  Monday: "Mon",
-  Tuesday: "Tue",
-  Wednesday: "Wed",
-  Thursday: "Thu",
-  Friday: "Fri",
-  Saturday: "Sat",
-  Sunday: "Sun",
-};
+// Path to the static template file served from /public
+const TEMPLATE_PATH = "/swim_class_import_template.xlsx";
 
 export default function ImportClasses({
   organizationId,
@@ -57,7 +48,7 @@ export default function ImportClasses({
   const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
-  const [schedules, setSchedules] = useState<ClassSchedule[]>([]);
+  const [classConfigs, setClassConfigs] = useState<ClassDateConfig[]>([]);
   const [confirmResult, setConfirmResult] = useState<ConfirmResult | null>(
     null,
   );
@@ -71,7 +62,7 @@ export default function ImportClasses({
     async (file: File) => {
       const ext = file.name.split(".").pop()?.toLowerCase();
       if (!["csv", "xls", "xlsx"].includes(ext ?? "")) {
-        setErrors(["Only CSV or Excel files are accepted."]);
+        setErrors(["Only CSV or Excel (.xls / .xlsx) files are accepted."]);
         return;
       }
       if (!organizationId) {
@@ -107,17 +98,16 @@ export default function ImportClasses({
         const result = data as ParseResult;
         setParseResult(result);
 
+        // Class configs: dates only, for new classes
         const newClasses = result.uniqueClasses.filter(
           (c) => !c.already_exists,
         );
-        setSchedules(
+        setClassConfigs(
           newClasses.map((cls) => ({
             name: cls.name,
             length_minutes: cls.length_minutes,
             start_date: "",
             end_date: "",
-            schedule_days: [],
-            schedule_time: "",
           })),
         );
 
@@ -147,35 +137,26 @@ export default function ImportClasses({
     if (file) handleFile(file);
   };
 
-  const updateSchedule = (index: number, patch: Partial<ClassSchedule>) => {
-    setSchedules((prev) =>
-      prev.map((s, i) => (i === index ? { ...s, ...patch } : s)),
-    );
-  };
-
-  const toggleDay = (index: number, day: string) => {
-    setSchedules((prev) =>
-      prev.map((s, i) => {
-        if (i !== index) return s;
-        const days = s.schedule_days.includes(day)
-          ? s.schedule_days.filter((d) => d !== day)
-          : [...s.schedule_days, day];
-        return { ...s, schedule_days: days };
-      }),
+  const updateClassConfig = (
+    index: number,
+    patch: Partial<ClassDateConfig>,
+  ) => {
+    setClassConfigs((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, ...patch } : c)),
     );
   };
 
   const handleConfirm = async () => {
     if (!organizationId || !parseResult) return;
 
-    const invalid = schedules.filter((s) => !s.start_date);
-    if (invalid.length > 0) {
+    const invalidClasses = classConfigs.filter((c) => !c.start_date);
+    if (invalidClasses.length > 0) {
       setStatus({
         type: "error",
-        message: "Please complete required class schedule fields.",
+        message: "Please set a start date for all new classes.",
       });
       setErrors([
-        `Please set a start date for: ${invalid.map((s) => s.name).join(", ")}`,
+        `Missing start date for: ${invalidClasses.map((c) => c.name).join(", ")}`,
       ]);
       return;
     }
@@ -184,13 +165,21 @@ export default function ImportClasses({
     setStatus(null);
     setStep("importing");
 
+    // Build ClassSchedule objects (dates only)
+    const classSchedules: ClassSchedule[] = classConfigs.map((c) => ({
+      name: c.name,
+      length_minutes: c.length_minutes,
+      start_date: c.start_date,
+      end_date: c.end_date,
+    }));
+
     try {
       const res = await authFetch("/api/admin/import-classes/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organization_id: organizationId,
-          classSchedules: schedules,
+          classSchedules,
           rows: parseResult.rows,
         }),
       });
@@ -237,54 +226,93 @@ export default function ImportClasses({
 
       {/* ── Step 1: Upload ─────────────────────────────────────────── */}
       {step === "upload" && (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center text-center transition ${
-            isDragging ? "border-black bg-gray-50" : "border-gray-200"
-          }`}
-        >
-          <p className="text-base font-semibold text-gray-900 mb-1">
-            Import Swim Classes
-          </p>
-          <p className="text-sm text-gray-500 mb-6">
-            Upload a SportsEngine "New Registrations Report" export to create
-            classes, enrol swimmers, and link parents.
-          </p>
+        <div>
+          {/* Template download banner */}
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-blue-900">
+                Need the right format?
+              </p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                Download the Excel template — it includes all required columns
+                and example rows.
+              </p>
+            </div>
+            <a
+              href={TEMPLATE_PATH}
+              download="swim_class_import_template.xlsx"
+              className="ml-4 shrink-0 flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50 transition"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 4v11"
+                />
+              </svg>
+              Download template
+            </a>
+          </div>
 
-          <input
-            type="file"
-            accept=".csv,.xls,.xlsx"
-            className="hidden"
-            id="swimClassUpload"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
+          {/* Drop zone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
             }}
-          />
-
-          <label
-            htmlFor="swimClassUpload"
-            className={`cursor-pointer border text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition ${
-              isParsing
-                ? "border-gray-200 bg-gray-100 text-gray-400 pointer-events-none"
-                : "border-gray-300 hover:bg-gray-50"
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center text-center transition ${
+              isDragging ? "border-black bg-gray-50" : "border-gray-200"
             }`}
           >
-            {isParsing ? "Parsing…" : "Choose file"}
-          </label>
+            <p className="text-base font-semibold text-gray-900 mb-1">
+              Import Swim Classes
+            </p>
+            <p className="text-sm text-gray-500 mb-1">
+              Upload a "New Registrations Report" file to create classes, enrol
+              swimmers, and link parents.
+            </p>
+            <p className="text-xs text-gray-400 mb-6">
+              Accepts CSV, XLS, or XLSX
+            </p>
 
-          {errors.length > 0 && (
-            <div className="mt-4 text-sm text-red-600 space-y-1">
-              {errors.map((e, i) => (
-                <p key={i}>{e}</p>
-              ))}
-            </div>
-          )}
+            <input
+              type="file"
+              accept=".csv,.xls,.xlsx"
+              className="hidden"
+              id="swimClassUpload"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFile(file);
+              }}
+            />
+
+            <label
+              htmlFor="swimClassUpload"
+              className={`cursor-pointer border text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition ${
+                isParsing
+                  ? "border-gray-200 bg-gray-100 text-gray-400 pointer-events-none"
+                  : "border-gray-300 hover:bg-gray-50"
+              }`}
+            >
+              {isParsing ? "Parsing…" : "Choose file"}
+            </label>
+
+            {errors.length > 0 && (
+              <div className="mt-4 text-sm text-red-600 space-y-1">
+                {errors.map((e, i) => (
+                  <p key={i}>{e}</p>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -302,6 +330,7 @@ export default function ImportClasses({
             already in the system.
           </div>
 
+          {/* ── Existing classes ── */}
           {existingClasses.length > 0 && (
             <div className="mb-5">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
@@ -331,40 +360,41 @@ export default function ImportClasses({
             </div>
           )}
 
+          {/* ── New classes — dates only ── */}
           {hasNewClasses && (
-            <div>
+            <div className="mb-6">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                New classes — set schedule
+                New classes — set session dates
               </p>
-              <div className="space-y-4">
-                {schedules.map((schedule, idx) => {
-                  const cls = newClasses.find((c) => c.name === schedule.name);
+              <div className="space-y-3">
+                {classConfigs.map((config, idx) => {
+                  const cls = newClasses.find((c) => c.name === config.name);
                   return (
                     <div
-                      key={schedule.name}
+                      key={config.name}
                       className="border border-gray-200 rounded-xl p-5"
                     >
                       <div className="mb-4">
                         <p className="font-semibold text-gray-900 text-sm">
-                          {schedule.name}
+                          {config.name}
                         </p>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          {schedule.length_minutes} min ·{" "}
-                          {cls?.member_count ?? 0} swimmer
+                          {config.length_minutes} min · {cls?.member_count ?? 0}{" "}
+                          swimmer
                           {(cls?.member_count ?? 0) !== 1 ? "s" : ""}
                         </p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">
                             Start date <span className="text-red-500">*</span>
                           </label>
                           <input
                             type="date"
-                            value={schedule.start_date}
+                            value={config.start_date}
                             onChange={(e) =>
-                              updateSchedule(idx, {
+                              updateClassConfig(idx, {
                                 start_date: e.target.value,
                               })
                             }
@@ -377,53 +407,15 @@ export default function ImportClasses({
                           </label>
                           <input
                             type="date"
-                            value={schedule.end_date}
+                            value={config.end_date}
                             onChange={(e) =>
-                              updateSchedule(idx, { end_date: e.target.value })
+                              updateClassConfig(idx, {
+                                end_date: e.target.value,
+                              })
                             }
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black"
                           />
                         </div>
-                      </div>
-
-                      <div className="mb-4">
-                        <label className="block text-xs font-medium text-gray-600 mb-2">
-                          Days of week
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                          {DAYS.map((day) => {
-                            const active = schedule.schedule_days.includes(day);
-                            return (
-                              <button
-                                key={day}
-                                onClick={() => toggleDay(idx, day)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                                  active
-                                    ? "bg-black text-white border-black"
-                                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                                }`}
-                              >
-                                {DAY_ABBR[day]}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Class time
-                        </label>
-                        <input
-                          type="time"
-                          value={schedule.schedule_time}
-                          onChange={(e) =>
-                            updateSchedule(idx, {
-                              schedule_time: e.target.value,
-                            })
-                          }
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black"
-                        />
                       </div>
                     </div>
                   );
@@ -489,7 +481,9 @@ export default function ImportClasses({
             <div className="border border-gray-200 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-5">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center ${hasChanges ? "bg-green-100" : "bg-gray-100"}`}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    hasChanges ? "bg-green-100" : "bg-gray-100"
+                  }`}
                 >
                   {hasChanges ? (
                     <svg
@@ -585,7 +579,7 @@ export default function ImportClasses({
                 onClick={() => {
                   setStep("upload");
                   setParseResult(null);
-                  setSchedules([]);
+                  setClassConfigs([]);
                   setConfirmResult(null);
                   setErrors([]);
                 }}
