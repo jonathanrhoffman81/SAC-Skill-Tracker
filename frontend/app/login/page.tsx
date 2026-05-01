@@ -148,7 +148,12 @@ export default function Login() {
         data.user.email || normalizedEmail,
       );
 
-      // ── Step 1: collect all raw roles from metadata ───────────────────────
+      // ── Step 1: collect roles from metadata (treated as a hint only) ──────
+      // Auth user_metadata is set when an account is first created and is
+      // never updated when an admin assigns additional roles in the DB. So
+      // we read the metadata for diagnostics / cache warm-up but always
+      // also hit /api/auth/resolve-role so multi-role users get every role
+      // they actually have today.
       const metadataRawRoles = [
         data.user.user_metadata?.role,
         data.user.user_metadata?.user_role,
@@ -158,29 +163,31 @@ export default function Login() {
         (v): v is string => typeof v === "string" && v.trim().length > 0,
       );
 
-      let allRawRoles: string[] = metadataRawRoles.map((r) => normalizeRole(r));
+      let allRawRoles: string[] = [];
 
-      // ── Step 2: if metadata has no roles, fall back to DB resolve ──────────
-      if (allRawRoles.length === 0) {
+      // ── Step 2: always resolve from the DB (source of truth) ──────────────
+      try {
         const authHeaders = await createAuthenticatedHeaders();
         const roleResponse = await fetch("/api/auth/resolve-role", {
           headers: authHeaders,
         });
 
-        if (!roleResponse.ok) {
-          throw new Error("Could not resolve your role. Please try again.");
+        if (roleResponse.ok) {
+          const rolePayload = await roleResponse.json();
+          const payloadRoles: string[] = Array.isArray(rolePayload?.roles)
+            ? rolePayload.roles
+            : rolePayload?.role
+              ? [String(rolePayload.role)]
+              : [];
+          allRawRoles = payloadRoles.map((r) => normalizeRole(r)).filter(Boolean);
         }
+      } catch {
+        /* fall through to metadata fallback below */
+      }
 
-        const rolePayload = await roleResponse.json();
-
-        // resolve-role may return a single `role` or an array `roles`
-        const payloadRoles: string[] = Array.isArray(rolePayload?.roles)
-          ? rolePayload.roles
-          : rolePayload?.role
-            ? [String(rolePayload.role)]
-            : [];
-
-        allRawRoles = payloadRoles.map((r) => normalizeRole(r)).filter(Boolean);
+      // ── Step 3: metadata fallback if the DB call failed entirely ──────────
+      if (allRawRoles.length === 0 && metadataRawRoles.length > 0) {
+        allRawRoles = metadataRawRoles.map((r) => normalizeRole(r));
       }
 
       if (allRawRoles.length === 0) {
@@ -189,7 +196,7 @@ export default function Login() {
         );
       }
 
-      // ── Step 3: convert raw roles → unique app-level roles ─────────────────
+      // ── Step 4: convert raw roles → unique app-level roles ─────────────────
       const appRoles = getAllAppRoles(allRawRoles);
       const availableDashboards = getDashboardPathsForRoles(appRoles);
       const roleSelectBypass = getRoleSelectBypass(appRoles);
@@ -200,11 +207,11 @@ export default function Login() {
         );
       }
 
-      // ── Step 4: persist roles for use by the role switcher widget ──────────
+      // ── Step 5: persist roles for use by the role switcher widget ──────────
       saveAvailableRoles(appRoles);
       saveAuthEmail(authenticatedEmail);
 
-      // ── Step 5: legacy localStorage cleanup ───────────────────────────────
+      // ── Step 6: legacy localStorage cleanup ───────────────────────────────
       const highestRole = appRoles[0];
       if (LEGACY_LOCALSTORAGE_ROLE_SET.has(highestRole)) {
         localStorage.setItem(
@@ -215,7 +222,7 @@ export default function Login() {
         localStorage.removeItem("user");
       }
 
-      // ── Step 6: route — last-role / bypass / multi-role / single-role ─────
+      // ── Step 7: route — last-role / bypass / multi-role / single-role ─────
       // A remembered last-role for this email wins over the super-admin bypass:
       // if the user explicitly cycled into Instructor on their last session,
       // log them back in there.

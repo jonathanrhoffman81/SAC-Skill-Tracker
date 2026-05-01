@@ -35,6 +35,7 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hasLocalSupabaseAuthToken } from '@/lib/clientAuth';
+import { saveAuthEmail } from '@/lib/authRoles';
 
 const EXPIRED_PATH = '/login?reason=session_expired';
 const SWITCHED_PATH = '/login?reason=switched_account';
@@ -96,8 +97,14 @@ export default function AuthListener() {
     if (typeof window === 'undefined') return;
 
     // Capture the initial user_id so we have a baseline to compare against.
+    // Also re-seed sessionStorage's auth:email so features that rely on the
+    // current user's email (last-role persistence, etc.) keep working even
+    // when the tab was opened with an existing session — i.e. the user did
+    // NOT pass through the login form in this tab.
     void supabase.auth.getSession().then(({ data }) => {
       sessionUserIdRef.current = data.session?.user?.id ?? null;
+      const sessionEmail = data.session?.user?.email;
+      if (sessionEmail) saveAuthEmail(sessionEmail);
     });
 
     // 1 + 2: Supabase's own events.
@@ -148,6 +155,12 @@ export default function AuthListener() {
           // was self-initiated. Otherwise the ref goes stale and
           // subsequent legitimate switches won't trigger.
           sessionUserIdRef.current = incomingUserId ?? knownUserId;
+
+          // Mirror the email into sessionStorage so role-switcher saves
+          // and last-role lookups can key off it without going through
+          // the login form again.
+          const incomingEmail = session?.user?.email;
+          if (incomingEmail) saveAuthEmail(incomingEmail);
         }
       },
     );

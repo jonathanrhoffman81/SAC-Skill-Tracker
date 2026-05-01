@@ -16,8 +16,27 @@ import {
   getDashboardPathsForRoles,
   getRoleSelectBypass,
   saveActiveRole,
+  saveAuthEmail,
   saveLastRoleForEmail,
 } from "@/lib/authRoles";
+import { supabase } from "@/lib/supabase";
+
+// See RoleSwitcher.tsx — same defensive fallback so the picker still
+// remembers the user's choice even when sessionStorage hasn't been
+// hydrated yet.
+async function persistLastRoleForCurrentUser(role: string) {
+  let email = getAuthEmail();
+  if (!email && supabase) {
+    try {
+      const { data } = await supabase.auth.getUser();
+      email = data.user?.email ?? null;
+      if (email) saveAuthEmail(email);
+    } catch {
+      /* nothing more we can do */
+    }
+  }
+  if (email) saveLastRoleForEmail(email, role);
+}
 
 const ROLE_ICONS: Record<string, React.ReactNode> = {
   admin: (
@@ -162,7 +181,7 @@ export default function RoleSelect() {
   const handleSelect = (role: string, path: string) => {
     setSelecting(role);
     saveActiveRole(role);
-    saveLastRoleForEmail(getAuthEmail(), role);
+    void persistLastRoleForCurrentUser(role);
     router.push(path);
   };
 

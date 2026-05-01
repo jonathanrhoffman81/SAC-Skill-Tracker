@@ -14,10 +14,31 @@ import {
   getAvailableRoles,
   getDashboardPathsForRoles,
   saveActiveRole,
+  saveAuthEmail,
   saveAvailableRoles,
   saveLastRoleForEmail,
 } from "@/lib/authRoles";
 import { authFetch } from "@/lib/clientAuth";
+import { supabase } from "@/lib/supabase";
+
+// Persist last-role for the current user. Tries sessionStorage first
+// (synchronous, populated by AuthListener / login form). Falls back to
+// fetching from the live Supabase session — covers the corner case where
+// the switcher is clicked before AuthListener's async getSession resolves,
+// or in a tab that came in with a pre-existing cookie session.
+async function persistLastRoleForCurrentUser(role: string) {
+  let email = getAuthEmail();
+  if (!email && supabase) {
+    try {
+      const { data } = await supabase.auth.getUser();
+      email = data.user?.email ?? null;
+      if (email) saveAuthEmail(email);
+    } catch {
+      /* offline / private browsing — nothing more we can do */
+    }
+  }
+  if (email) saveLastRoleForEmail(email, role);
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -76,7 +97,7 @@ export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
   const router = useRouter();
   const { dashboards } = useRoleDashboards(currentRole);
 
-  const handleCycle = () => {
+  const handleCycle = async () => {
     if (dashboards.length <= 1) return;
 
     const currentIndex = dashboards.findIndex((d) => d.role === currentRole);
@@ -85,7 +106,9 @@ export function RoleSwitcherBadge({ currentRole }: { currentRole: string }) {
     if (!next) return;
 
     saveActiveRole(next.role);
-    saveLastRoleForEmail(getAuthEmail(), next.role);
+    // Await the save before navigating so the localStorage write actually
+    // lands before any logout/refresh the user may trigger next.
+    await persistLastRoleForCurrentUser(next.role);
     router.push(next.path);
   };
 
@@ -161,7 +184,7 @@ export function RoleSwitcherFAB({ currentRole }: { currentRole: string }) {
   const router = useRouter();
   const { dashboards } = useRoleDashboards(currentRole);
 
-  const handleCycle = () => {
+  const handleCycle = async () => {
     if (dashboards.length <= 1) return;
 
     const currentIndex = dashboards.findIndex((d) => d.role === currentRole);
@@ -170,7 +193,7 @@ export function RoleSwitcherFAB({ currentRole }: { currentRole: string }) {
     if (!next) return;
 
     saveActiveRole(next.role);
-    saveLastRoleForEmail(getAuthEmail(), next.role);
+    await persistLastRoleForCurrentUser(next.role);
     router.push(next.path);
   };
 
