@@ -80,6 +80,7 @@ function formatDate(value?: string | null): string | null {
 async function resolveAccountContext(request: NextRequest): Promise<{
   email: string;
   personId: string;
+  userName?: string;
 }> {
   let sessionPerson = null;
   try {
@@ -120,7 +121,7 @@ async function resolveAccountContext(request: NextRequest): Promise<{
   const supabaseAdmin = getSupabaseAdminClient();
   const { data: person, error: personError } = await supabaseAdmin
     .from("person")
-    .select("person_id")
+    .select("person_id, first_name, last_name")
     .ilike("email", email)
     .maybeSingle();
 
@@ -135,13 +136,14 @@ async function resolveAccountContext(request: NextRequest): Promise<{
   return {
     email,
     personId: person.person_id,
+    userName: `${person.first_name ?? ""} ${person.last_name ?? ""}`.trim(),
   };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdminClient();
-    const { email, personId } = await resolveAccountContext(request);
+    const { email, personId, userName: resolvedUserName } = await resolveAccountContext(request);
 
     const { data, error } = await supabaseAdmin.rpc("get_parent_dashboard", {
       p_email: email,
@@ -254,7 +256,18 @@ export async function GET(request: NextRequest) {
       payload.profilesBySwimmer = Object.fromEntries(profileMap.entries());
     }
 
-    return NextResponse.json(payload);
+    function formatEmailToName(email?: string | null): string | null {
+      if (!email) return null;
+      const local = String(email).split("@")[0];
+      const words = local.replace(/[._\-]+/g, " ").split(" ").filter(Boolean);
+      if (words.length === 0) return null;
+      return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+    }
+
+    return NextResponse.json({
+      ...payload,
+      userName: resolvedUserName || payload.userName || formatEmailToName(email) || email || "",
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown server error";

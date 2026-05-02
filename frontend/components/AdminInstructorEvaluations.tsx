@@ -250,6 +250,14 @@ function getInitials(name: string) {
         .toUpperCase();
 }
 
+function formatEmailToName(email?: string | null) {
+    if (!email) return undefined;
+    const local = String(email).split("@")[0];
+    const words = local.replace(/[._\-]+/g, " ").split(" ").filter(Boolean);
+    if (words.length === 0) return undefined;
+    return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+
 function formatDateForSummary(date: Date): string {
     return date.toLocaleDateString("en-US", {
         month: "short",
@@ -524,6 +532,13 @@ export default function AdminInstructorEvaluations({
             label: group.label,
         })),
     );
+    const [groupClassMap, setGroupClassMap] = useState<Map<string, string>>(() => {
+        const map = new Map<string, string>();
+        (initialFilters?.groups ?? []).forEach((group) => {
+            if (group.value && group.classId) map.set(group.value, group.classId);
+        });
+        return map;
+    });
     const [memberIdsByGroupId, setMemberIdsByGroupId] = useState<Record<string, Set<string>>>(() =>
         Object.fromEntries(
             Object.entries(initialFilters?.memberIdsByGroupId ?? {}).map(([groupId, memberIds]) => [
@@ -758,6 +773,7 @@ export default function AdminInstructorEvaluations({
 
             const classMap = new Map<string, string>();
             const groupMap = new Map<string, string>();
+            const newGroupClassMap = new Map<string, string>();
             const enrollmentMap: Record<string, Set<string>> = {};
             const instructorMemberMap: Record<string, Set<string>> = {};
             (payload.classes ?? []).forEach((classOption) => {
@@ -772,6 +788,7 @@ export default function AdminInstructorEvaluations({
                 }
                 if (group.group_id && !groupMap.has(group.group_id)) {
                     groupMap.set(group.group_id, group.group_name || group.class_name || "Unnamed group");
+                    newGroupClassMap.set(group.group_id, group.class_id);
                 }
             });
 
@@ -787,6 +804,7 @@ export default function AdminInstructorEvaluations({
 
                 if (!groupMap.has(groupId)) {
                     groupMap.set(groupId, enrollment.group_name || "Unnamed group");
+                    if (enrollment.class_id) newGroupClassMap.set(groupId, enrollment.class_id);
                 }
             });
 
@@ -807,12 +825,12 @@ export default function AdminInstructorEvaluations({
                 });
             });
 
-            const instructorOptions = (payload.instructors ?? [])
+                    const instructorOptions = (payload.instructors ?? [])
                 .map((instructor) => {
                     const value = instructor.person_id || instructor.value;
                     if (!value) return null;
                     const fullName = `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim();
-                    const label = fullName || instructor.label || instructor.email || "Instructor";
+                    const label = fullName || instructor.label || formatEmailToName(instructor.email) || instructor.email || "Instructor";
                     return { value, label: label.trim() };
                 })
                 .filter((option): option is { value: string; label: string } => Boolean(option?.value));
@@ -832,6 +850,7 @@ export default function AdminInstructorEvaluations({
                     .map(([value, label]) => ({ value, label }))
                     .sort((a, b) => a.label.localeCompare(b.label)),
             );
+            setGroupClassMap(newGroupClassMap);
 
             setMemberIdsByGroupId(enrollmentMap);
             setMemberIdsByInstructorId(instructorMemberMap);
@@ -1440,6 +1459,10 @@ export default function AdminInstructorEvaluations({
         const optionMap = new Map<string, string>();
 
         fallbackGroupOptions.forEach((option) => {
+            if (classFilter !== "all") {
+                const groupClass = groupClassMap.get(option.value);
+                if (groupClass && groupClass !== classFilter) return;
+            }
             optionMap.set(option.value, option.label);
         });
 
@@ -1455,7 +1478,7 @@ export default function AdminInstructorEvaluations({
         }
 
         return [{ value: "all", label: "All groups" }, ...options];
-    }, [fallbackGroupOptions]);
+    }, [fallbackGroupOptions, groupClassMap, classFilter]);
 
     useEffect(() => {
         if (!groupFilterOptions.some((option) => option.value === groupFilter)) {

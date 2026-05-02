@@ -72,6 +72,13 @@ export async function loadAdminDashboardBootstrap(
   supabase: any,
   organizationId: string,
 ): Promise<AdminDashboardBootstrapPayload> {
+  function formatEmailToName(email?: string | null): string | null {
+    if (!email) return null;
+    const local = String(email).split("@")[0];
+    const words = local.replace(/[._\-]+/g, " ").split(" ").filter(Boolean);
+    if (words.length === 0) return null;
+    return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  }
   const [organization, memberCountResultRaw, memberListResultRaw, classesResultRaw, skillsResultRaw] =
     await Promise.all([
       timedQuery("organization", () =>
@@ -257,7 +264,7 @@ export async function loadAdminDashboardBootstrap(
           }> | null) ?? [])
             .map((row) => {
               const fullName = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
-              const label = fullName || row.email || "Instructor";
+              const label = fullName || formatEmailToName(row.email) || row.email || "Instructor";
               return {
                 value: row.person_id,
                 label,

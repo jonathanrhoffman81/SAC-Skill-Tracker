@@ -88,7 +88,7 @@ function getInitials(name: string) {
 }
 
 export default function InstructorDashboard() {
-  const [userName, setUserName] = useState("Instructor");
+  const [userName, setUserName] = useState("");
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [currentInstructorId, setCurrentInstructorId] = useState<string | null>(
@@ -114,7 +114,7 @@ export default function InstructorDashboard() {
 
         if (!isMounted) return;
 
-        setUserName(payload.userName || "Instructor");
+        setUserName(payload.userName || "");
         setOrganizationName(payload.organizationName || "SAC Skill Tracker");
         setLogoUrl(payload.organizationLogoUrl || null);
         setCurrentInstructorId(payload.currentInstructorId || null);
@@ -126,7 +126,7 @@ export default function InstructorDashboard() {
         // through to the "Instructor" placeholder reset.
         if (err instanceof SessionExpiredError) return;
         if (!isMounted) return;
-        setUserName("Instructor");
+        setUserName("");
         setOrganizationName("SAC Skill Tracker");
         setLogoUrl(null);
         setCurrentInstructorId(null);
@@ -192,12 +192,12 @@ export default function InstructorDashboard() {
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="text-right">
               <p className="hidden text-sm font-medium text-gray-900 md:block">
-                {userName || "Instructor"}
+                {userName}
               </p>
               <RoleSwitcherBadge currentRole="instructor" />
             </div>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
-              {userName ? getInitials(userName) : "IN"}
+              {getInitials(userName)}
             </div>
             <button
               onClick={async () => {

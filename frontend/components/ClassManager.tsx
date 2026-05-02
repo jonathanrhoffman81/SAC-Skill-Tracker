@@ -19,7 +19,7 @@ interface Class {
     created_at: string;
 }
 
-type ClassFilter = 'active' | 'past';
+type ClassFilter = 'active' | 'past' | 'future';
 
 interface ClassManagerProps {
     onRefresh: () => void;
@@ -75,14 +75,13 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
-    // A class is "past" only when its end date is before today. Everything
-    // else — currently running, scheduled for the future, or undated —
-    // belongs in "active." Matches how the rest of the app talks about
-    // active vs past classes.
     const classStatus = (classItem: Class): ClassFilter => {
         const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const start = parseDate(classItem.start_date);
         const end = parseDate(classItem.end_date);
         if (end && end < now) return 'past';
+        if (start && start > now) return 'future';
         return 'active';
     };
 
@@ -234,14 +233,10 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         <div className="bg-white rounded-lg sm:rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
             <p className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Manage Classes</p>
 
-            {/* Active / Past toggle — kept outside the empty-state branch so
-                admins can always switch between views, even when the current
-                filter has no results. "Active" includes future-scheduled
-                classes; only classes whose end date has already passed go
-                into "Past." */}
             <div className="mb-3 flex flex-wrap gap-2">
                 {([
                     { value: 'active', label: 'Active' },
+                    { value: 'future', label: 'Future' },
                     { value: 'past', label: 'Past' },
                 ] as Array<{ value: ClassFilter; label: string }>).map((option) => (
                     <button
@@ -267,6 +262,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">
                     {classFilter === 'active'
                         ? 'No active classes found.'
+                        : classFilter === 'future'
+                        ? 'No future classes found.'
                         : 'No past classes found.'}
                 </p>
             ) : (

@@ -227,6 +227,17 @@ function formatDate(value?: string | null): string | undefined {
   });
 }
 
+function formatEmailToName(email?: string | null): string | undefined {
+  if (!email) return undefined;
+  const local = String(email).split("@")[0];
+  // Replace common separators with spaces, split into words and title-case them
+  const words = local.replace(/[._\-]+/g, " ").split(" ").filter(Boolean);
+  if (words.length === 0) return undefined;
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function normalizeProgress(
   value: number | null | undefined,
 ): 0 | 1 | 2 | 3 | 4 {
@@ -312,7 +323,7 @@ export async function GET(request: NextRequest) {
 
     const userName =
       `${person.first_name ?? ""} ${person.last_name ?? ""}`.trim() ||
-      person.email;
+      formatEmailToName(person.email) || person.email;
 
     // Get instructor's organization
     const { data: personOrg, error: personOrgError } = await supabaseAdmin
@@ -719,16 +730,17 @@ export async function GET(request: NextRequest) {
       try {
         const instructors = await timed("load-instructor-names", () => batchQuery(
           "person",
-          "person_id, first_name, last_name",
+          "person_id, first_name, last_name, email",
           instructorIds,
           "person_id",
         ));
 
         instructors.forEach((row: any) => {
-          instructorNameById.set(
-            row.person_id,
-            `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Instructor",
-          );
+          const composed = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
+          const fallback = composed || formatEmailToName(row.email) || "Instructor";
+          // Map both the person_id (usual case) and email (some rows store email)
+          if (row.person_id) instructorNameById.set(row.person_id, fallback);
+          if (row.email) instructorNameById.set(row.email, fallback);
         });
       } catch (error) {
         console.error(

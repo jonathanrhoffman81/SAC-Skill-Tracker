@@ -90,6 +90,7 @@ interface AdminStats {
 
 interface DashboardBootstrapPayload {
   stats: AdminStats;
+  userName?: string | null;
   tabEssentials?: {
     skills?: Array<{ skill_id: string; name: string }>;
     evaluationFilters?: {
@@ -592,7 +593,7 @@ function EntityEditor({
 }
 
 export default function AdminDashboard() {
-  const [userName, setUserName] = useState("Admin User");
+  const [userName, setUserName] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("assignments");
   const [visitedTabs] = useState<Set<Tab>>(new Set(ALL_ADMIN_TABS));
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -799,6 +800,10 @@ export default function AdminDashboard() {
           writeCachedStats(data.stats);
         }
 
+        if (data.userName) {
+          setUserName(data.userName);
+        }
+
         const bootstrapSkills = (data.tabEssentials?.skills ?? []).map(
           (item) => ({
             ...item,
@@ -956,7 +961,7 @@ export default function AdminDashboard() {
     (async () => {
       try {
         const identity = await getAuthenticatedSessionIdentity();
-        setUserName(identity.displayName || "Admin User");
+        setUserName((prev) => prev || identity.displayName || "");
       } catch {}
       void fetchBootstrap();
     })();
@@ -1456,17 +1461,6 @@ export default function AdminDashboard() {
                   </svg>
                 </button>
               )}
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
-                {getInitials(userName)}
-              </div>
-              <div className="text-left">
-                <p className="hidden text-sm font-medium text-gray-900 lg:block">
-                  {userName}
-                </p>
-                <RoleSwitcherBadge currentRole="admin" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3">
               <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
                 {logoUrl ? (
                   <img
@@ -1491,13 +1485,24 @@ export default function AdminDashboard() {
                   </svg>
                 )}
               </div>
-              <div className="min-w-0 text-right">
+              <div className="min-w-0">
                 <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
                   {stats?.organizationName || "SAC Skill Tracker"}
                 </p>
                 <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">
                   Administrator Dashboard
                 </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="text-right">
+                <p className="hidden text-sm font-medium text-gray-900 md:block">
+                  {userName}
+                </p>
+                <RoleSwitcherBadge currentRole="admin" />
+              </div>
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
+                {getInitials(userName)}
               </div>
             </div>
           </div>
