@@ -402,8 +402,9 @@ async function buildAuthorizedSwimmerProfiles(
         .in("organization_id", organizationIds),
       supabaseAdmin
         .from("skill")
-        .select("skill_id, organization_id, name")
+        .select("skill_id, organization_id, name, display_order")
         .in("organization_id", organizationIds)
+        .order("display_order", { ascending: true, nullsFirst: false })
         .order("name", { ascending: true }),
       (() => {
         const authorIds = Array.from(
