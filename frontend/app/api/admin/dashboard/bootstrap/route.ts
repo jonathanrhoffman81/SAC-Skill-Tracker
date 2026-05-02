@@ -37,19 +37,19 @@ export async function GET(request: NextRequest) {
       .select("first_name, last_name")
       .eq("person_id", adminContext.personId)
       .maybeSingle();
-        function formatEmailToName(email?: string | null): string | null {
-          if (!email) return null;
-          const local = String(email).split("@")[0];
-          const words = local.replace(/[._\-]+/g, " ").split(" ").filter(Boolean);
-          if (words.length === 0) return null;
-          return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-        }
+    function formatEmailToName(email?: string | null): string | null {
+      if (!email) return null;
+      const local = String(email).split("@")[0];
+      const words = local.replace(/[._\-]+/g, " ").split(" ").filter(Boolean);
+      if (words.length === 0) return null;
+      return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+    }
 
-        const userName =
-          `${personRow?.first_name ?? ""} ${personRow?.last_name ?? ""}`.trim() ||
-          formatEmailToName(adminContext.email) ||
-          adminContext.email ||
-          null;
+    const userName =
+      `${personRow?.first_name ?? ""} ${personRow?.last_name ?? ""}`.trim() ||
+      formatEmailToName(adminContext.email) ||
+      adminContext.email ||
+      null;
 
     return withCacheHeaders(NextResponse.json({ ...value, userName }), cacheStatus);
   } catch (error) {

@@ -503,13 +503,12 @@ function EntityEditor({
               onDragEnter={() => handleDragEnter(index)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={`border rounded-lg p-3 group transition-colors ${
-                draggingIndex === index
+              className={`border rounded-lg p-3 group transition-colors ${draggingIndex === index
                   ? "opacity-40 border-blue-300 bg-blue-50"
                   : overIndex === index && draggingIndex !== index
-                  ? "border-blue-400 bg-blue-50"
-                  : "border-gray-200 hover:bg-gray-50"
-              }`}
+                    ? "border-blue-400 bg-blue-50"
+                    : "border-gray-200 hover:bg-gray-50"
+                }`}
             >
               <div className="flex items-center gap-2 py-1">
                 {state.editingId === item.id ? (
@@ -962,7 +961,7 @@ export default function AdminDashboard() {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName((prev) => prev || identity.displayName || "");
-      } catch {}
+      } catch { }
       void fetchBootstrap();
     })();
   }, [fetchBootstrap]);
@@ -1347,9 +1346,8 @@ export default function AdminDashboard() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${
-          sidebarVisible ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "-translate-x-full"
+          }`}
         aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
@@ -1387,11 +1385,10 @@ export default function AdminDashboard() {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${
-                activeTab === tab.id
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
                   ? "bg-gray-100 text-gray-900"
                   : "text-gray-700 hover:bg-gray-50"
-              }`}
+                }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
               <span>{tab.label}</span>
@@ -1590,11 +1587,10 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => setImportTab("roster")}
-                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
-                        importTab === "roster"
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${importTab === "roster"
                           ? "border-blue-600 bg-blue-600 text-white"
                           : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
+                        }`}
                     >
                       Roster
                     </button>
@@ -1602,11 +1598,10 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => setImportTab("classes")}
-                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
-                        importTab === "classes"
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${importTab === "classes"
                           ? "border-blue-600 bg-blue-600 text-white"
                           : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
+                        }`}
                     >
                       Classes
                     </button>
@@ -1828,11 +1823,10 @@ export default function AdminDashboard() {
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${
-                  toast.type === "success"
+                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${toast.type === "success"
                     ? "bg-green-50 border-green-200 text-green-800"
                     : "bg-red-50 border-red-200 text-red-800"
-                }`}
+                  }`}
               >
                 {toast.message}
               </div>

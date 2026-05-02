@@ -47,7 +47,7 @@ export function redirectToLoginExpired(): void {
   }
 
   // Fire-and-forget so other tabs eventually get the SIGNED_OUT event.
-  void signOutCurrentUser().catch(() => {});
+  void signOutCurrentUser().catch(() => { });
 
   window.location.replace(SESSION_EXPIRED_PATH);
 }

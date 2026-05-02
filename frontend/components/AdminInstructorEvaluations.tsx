@@ -825,7 +825,7 @@ export default function AdminInstructorEvaluations({
                 });
             });
 
-                    const instructorOptions = (payload.instructors ?? [])
+            const instructorOptions = (payload.instructors ?? [])
                 .map((instructor) => {
                     const value = instructor.person_id || instructor.value;
                     if (!value) return null;
@@ -1829,8 +1829,8 @@ export default function AdminInstructorEvaluations({
                             aria-controls="evaluation-filters-panel"
                             aria-label={isFiltersOpen ? "Hide filters" : "Show filters"}
                             className={`flex flex-shrink-0 items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isFiltersOpen
-                                    ? "border-blue-500 bg-blue-50 text-blue-700"
-                                    : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                                ? "border-blue-500 bg-blue-50 text-blue-700"
+                                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
                                 }`}
                         >
                             <svg className={`h-3.5 w-3.5 transition-transform ${isFiltersOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
