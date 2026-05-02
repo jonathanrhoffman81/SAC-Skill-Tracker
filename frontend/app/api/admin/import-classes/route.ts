@@ -56,6 +56,17 @@ function splitName(raw: string): [string, string] {
   return [raw.slice(commaIdx + 2).trim(), raw.slice(0, commaIdx).trim()];
 }
 
+function normaliseDob(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // MM/DD/YYYY or M/D/YYYY
+  const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy)
+    return `${mdy[3]}-${mdy[1].padStart(2, "0")}-${mdy[2].padStart(2, "0")}`;
+  return null;
+}
+
 /**
  * Parse any supported file into a 2-D grid of strings.
  *   grid[0] = sentinel row  (col 0 = "New Registrations Report")
@@ -189,7 +200,7 @@ export async function POST(request: NextRequest) {
       const className = get("Registered Class");
       if (!className) continue;
 
-      const dob = get("Member DOB") || null;
+      const dob = normaliseDob(get("Member DOB"));
       const gender = get("Gender") || null;
       const slot = parseSlot(get("Slot"));
       const length_minutes = parseLength(get("Class Length"));

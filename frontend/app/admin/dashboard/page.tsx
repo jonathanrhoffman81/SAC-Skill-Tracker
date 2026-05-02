@@ -297,7 +297,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "roster",
-    label: "Import CSV",
+    label: "Import",
     icon: (
       <svg
         className="w-4 h-4"
@@ -503,12 +503,13 @@ function EntityEditor({
               onDragEnter={() => handleDragEnter(index)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={`border rounded-lg p-3 group transition-colors ${draggingIndex === index
+              className={`border rounded-lg p-3 group transition-colors ${
+                draggingIndex === index
                   ? "opacity-40 border-blue-300 bg-blue-50"
                   : overIndex === index && draggingIndex !== index
                     ? "border-blue-400 bg-blue-50"
                     : "border-gray-200 hover:bg-gray-50"
-                }`}
+              }`}
             >
               <div className="flex items-center gap-2 py-1">
                 {state.editingId === item.id ? (
@@ -528,16 +529,36 @@ function EntityEditor({
                       onClick={() => onUpdate(item.id)}
                       className="text-green-600 hover:text-green-700 flex-shrink-0"
                     >
-                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      <svg
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
                       </svg>
                     </button>
                     <button
                       onClick={onCancelEdit}
                       className="text-gray-400 hover:text-gray-600 flex-shrink-0"
                     >
-                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   </>
@@ -548,7 +569,11 @@ function EntityEditor({
                       className="flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 touch-none"
                       aria-hidden
                     >
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <svg
+                        className="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
                         <path d="M7 4a1 1 0 100-2 1 1 0 000 2zM7 8a1 1 0 100-2 1 1 0 000 2zM7 12a1 1 0 100-2 1 1 0 000 2zM7 16a1 1 0 100-2 1 1 0 000 2zM13 4a1 1 0 100-2 1 1 0 000 2zM13 8a1 1 0 100-2 1 1 0 000 2zM13 12a1 1 0 100-2 1 1 0 000 2zM13 16a1 1 0 100-2 1 1 0 000 2z" />
                       </svg>
                     </span>
@@ -563,9 +588,24 @@ function EntityEditor({
                         aria-label="Edit skill"
                         title="Edit skill"
                       >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                          />
                         </svg>
                       </button>
                       <button
@@ -575,8 +615,18 @@ function EntityEditor({
                         aria-label="Delete skill"
                         title="Delete skill"
                       >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8"
+                          />
                         </svg>
                       </button>
                     </div>
@@ -961,7 +1011,7 @@ export default function AdminDashboard() {
       try {
         const identity = await getAuthenticatedSessionIdentity();
         setUserName((prev) => prev || identity.displayName || "");
-      } catch { }
+      } catch {}
       void fetchBootstrap();
     })();
   }, [fetchBootstrap]);
@@ -1346,8 +1396,9 @@ export default function AdminDashboard() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "-translate-x-full"
-          }`}
+        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${
+          sidebarVisible ? "translate-x-0" : "-translate-x-full"
+        }`}
         aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
@@ -1385,10 +1436,11 @@ export default function AdminDashboard() {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${
+                activeTab === tab.id
                   ? "bg-gray-100 text-gray-900"
                   : "text-gray-700 hover:bg-gray-50"
-                }`}
+              }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
               <span>{tab.label}</span>
@@ -1587,10 +1639,11 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => setImportTab("roster")}
-                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${importTab === "roster"
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
+                        importTab === "roster"
                           ? "border-blue-600 bg-blue-600 text-white"
                           : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                        }`}
+                      }`}
                     >
                       Roster
                     </button>
@@ -1598,10 +1651,11 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => setImportTab("classes")}
-                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${importTab === "classes"
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
+                        importTab === "classes"
                           ? "border-blue-600 bg-blue-600 text-white"
                           : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                        }`}
+                      }`}
                     >
                       Classes
                     </button>
@@ -1823,10 +1877,11 @@ export default function AdminDashboard() {
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${toast.type === "success"
+                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${
+                  toast.type === "success"
                     ? "bg-green-50 border-green-200 text-green-800"
                     : "bg-red-50 border-red-200 text-red-800"
-                  }`}
+                }`}
               >
                 {toast.message}
               </div>

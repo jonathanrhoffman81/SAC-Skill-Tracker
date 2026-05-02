@@ -30,8 +30,13 @@ interface ConfirmBody {
 
 function normaliseDate(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const d = new Date(raw);
-  return isNaN(d.getTime()) ? null : d.toISOString().split("T")[0];
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // MM/DD/YYYY or M/D/YYYY
+  const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy)
+    return `${mdy[3]}-${mdy[1].padStart(2, "0")}-${mdy[2].padStart(2, "0")}`;
+  return null;
 }
 
 export async function POST(request: NextRequest) {
