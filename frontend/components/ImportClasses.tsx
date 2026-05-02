@@ -276,7 +276,7 @@ export default function ImportClasses({
               Import Swim Classes
             </p>
             <p className="text-sm text-gray-500 mb-1">
-              Upload a "New Registrations Report" file to create classes, enrol
+              Upload a &quot;New Registrations Report&quot; file to create classes, enrol
               swimmers, and link parents.
             </p>
             <p className="text-xs text-gray-400 mb-6">

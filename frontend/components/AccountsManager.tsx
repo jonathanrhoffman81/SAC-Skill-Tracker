@@ -682,7 +682,7 @@ export default function AccountsManager({ onRefresh, refreshSignal }: { onRefres
                                                                         <span>
                                                                             Active
                                                                             {account.person_id === currentPersonId && (
-                                                                                <span className="ml-1 text-[11px] text-gray-400">(can't deactivate yourself)</span>
+                                                                                <span className="ml-1 text-[11px] text-gray-400">(can&apos;t deactivate yourself)</span>
                                                                             )}
                                                                         </span>
                                                                     </label>
