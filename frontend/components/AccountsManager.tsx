@@ -482,274 +482,274 @@ export default function AccountsManager({ onRefresh, refreshSignal }: { onRefres
                                                 {groupedAccounts[letter].map((account) => {
                                                     const isEditing = editingKey === accountKey(account);
                                                     return (
-                                                    <div
-                                                        key={account.person_id || `member:${account.member_id}`}
-                                                        className="border border-gray-200 rounded-lg p-3"
-                                                    >
-                                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                            <div className="min-w-0">
-                                                                <div className="mb-1 flex items-center gap-2">
-                                                                    <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
-                                                                        {getDisplayName(account)}
-                                                                    </p>
-                                                                    <span
-                                                                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${account.is_active === false
-                                                                            ? "border-red-200 bg-red-50 text-red-700"
-                                                                            : "border-green-200 bg-green-50 text-green-700"
-                                                                            }`}
-                                                                    >
-                                                                        {account.is_active === false ? "Inactive" : "Active"}
-                                                                    </span>
-                                                                </div>
-                                                                <p className="text-xs text-gray-500 truncate">
-                                                                    {account.email || "No email"}
-                                                                </p>
-                                                            </div>
-
-                                                            <div className="flex flex-wrap gap-1.5 sm:ml-auto sm:justify-end">
-                                                                {roleFilter === "swimmer" ? (
-                                                                    <>
-                                                                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs text-blue-700">
-                                                                            Swimmer
+                                                        <div
+                                                            key={account.person_id || `member:${account.member_id}`}
+                                                            className="border border-gray-200 rounded-lg p-3"
+                                                        >
+                                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                                <div className="min-w-0">
+                                                                    <div className="mb-1 flex items-center gap-2">
+                                                                        <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
+                                                                            {getDisplayName(account)}
+                                                                        </p>
+                                                                        <span
+                                                                            className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${account.is_active === false
+                                                                                ? "border-red-200 bg-red-50 text-red-700"
+                                                                                : "border-green-200 bg-green-50 text-green-700"
+                                                                                }`}
+                                                                        >
+                                                                            {account.is_active === false ? "Inactive" : "Active"}
                                                                         </span>
-                                                                        {account.roles.parent && (
-                                                                            <span className="inline-flex items-center rounded-full border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-700">
-                                                                                Account
+                                                                    </div>
+                                                                    <p className="text-xs text-gray-500 truncate">
+                                                                        {account.email || "No email"}
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="flex flex-wrap gap-1.5 sm:ml-auto sm:justify-end">
+                                                                    {roleFilter === "swimmer" ? (
+                                                                        <>
+                                                                            <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs text-blue-700">
+                                                                                Swimmer
                                                                             </span>
-                                                                        )}
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        {ROLE_ORDER.map((role) => {
-                                                                            const enabled = Boolean(account.roles[role]);
-                                                                            const pendingKey = `${account.person_id}:${role}`;
-                                                                            const pending = pendingUpdates.has(pendingKey);
-                                                                            const lockedSelfAdmin =
-                                                                                role === "admin" &&
-                                                                                enabled &&
-                                                                                Boolean(account.person_id) &&
-                                                                                account.person_id === currentPersonId;
-                                                                            const cannotToggle =
-                                                                                pending || !account.person_id || lockedSelfAdmin;
-
-                                                                            return (
-                                                                                <button
-                                                                                    key={role}
-                                                                                    type="button"
-                                                                                    onClick={() => {
-                                                                                        if (!account.person_id || cannotToggle) return;
-                                                                                        updateRole(account.person_id, role, !enabled);
-                                                                                    }}
-                                                                                    disabled={cannotToggle}
-                                                                                    title={
-                                                                                        lockedSelfAdmin
-                                                                                            ? "You can't remove your own admin role"
-                                                                                            : undefined
-                                                                                    }
-                                                                                    className={`px-2.5 py-1 text-xs rounded-md border transition ${enabled
-                                                                                        ? "border-blue-600 bg-blue-600 text-white"
-                                                                                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                                                                                        } ${cannotToggle ? "opacity-60 cursor-not-allowed" : ""}`}
-                                                                                >
-                                                                                    {pending ? "Updating..." : ROLE_LABELS[role]}
-                                                                                </button>
-                                                                            );
-                                                                        })}
-
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                if (!account.person_id) return;
-                                                                                updateRole(account.person_id, "parent", !account.roles.parent);
-                                                                            }}
-                                                                            disabled={!account.person_id || pendingUpdates.has(`${account.person_id}:parent`)}
-                                                                            className={`px-2.5 py-1 text-xs rounded-md border transition ${account.roles.parent
-                                                                                ? 'border-blue-600 bg-blue-600 text-white'
-                                                                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                                                                                } ${!account.person_id || pendingUpdates.has(`${account.person_id}:parent`) ? "opacity-60 cursor-not-allowed" : ""}`}
-                                                                        >
-                                                                            {pendingUpdates.has(`${account.person_id}:parent`) ? "Updating..." : "Account"}
-                                                                        </button>
-                                                                    </>
-                                                                )}
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => (isEditing ? cancelEdit() : startEdit(account))}
-                                                                    aria-label={isEditing ? "Cancel edit" : "Edit account"}
-                                                                    title={isEditing ? "Cancel edit" : "Edit account"}
-                                                                    className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                                                                >
-                                                                    {isEditing ? (
-                                                                        <svg
-                                                                            className="h-4 w-4"
-                                                                            fill="none"
-                                                                            stroke="currentColor"
-                                                                            viewBox="0 0 24 24"
-                                                                        >
-                                                                            <path
-                                                                                strokeLinecap="round"
-                                                                                strokeLinejoin="round"
-                                                                                strokeWidth={2}
-                                                                                d="M6 18L18 6M6 6l12 12"
-                                                                            />
-                                                                        </svg>
+                                                                            {account.roles.parent && (
+                                                                                <span className="inline-flex items-center rounded-full border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-700">
+                                                                                    Account
+                                                                                </span>
+                                                                            )}
+                                                                        </>
                                                                     ) : (
-                                                                        <svg
-                                                                            className="h-4 w-4"
-                                                                            fill="none"
-                                                                            stroke="currentColor"
-                                                                            viewBox="0 0 24 24"
-                                                                        >
-                                                                            <path
-                                                                                strokeLinecap="round"
-                                                                                strokeLinejoin="round"
-                                                                                strokeWidth={2}
-                                                                                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                                                                            />
-                                                                        </svg>
-                                                                    )}
-                                                                </button>
-                                                            </div>
-                                                        </div>
+                                                                        <>
+                                                                            {ROLE_ORDER.map((role) => {
+                                                                                const enabled = Boolean(account.roles[role]);
+                                                                                const pendingKey = `${account.person_id}:${role}`;
+                                                                                const pending = pendingUpdates.has(pendingKey);
+                                                                                const lockedSelfAdmin =
+                                                                                    role === "admin" &&
+                                                                                    enabled &&
+                                                                                    Boolean(account.person_id) &&
+                                                                                    account.person_id === currentPersonId;
+                                                                                const cannotToggle =
+                                                                                    pending || !account.person_id || lockedSelfAdmin;
 
-                                                        {isEditing && (
-                                                            <div className="mt-3 border-t border-gray-100 pt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                                                <div>
-                                                                    <label className="block text-[11px] font-medium text-gray-600 mb-1">First name</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={editForm.first_name}
-                                                                        onChange={(e) =>
-                                                                            setEditForm((prev) => ({
-                                                                                ...prev,
-                                                                                first_name: e.target.value,
-                                                                            }))
-                                                                        }
-                                                                        disabled={savingEdit}
-                                                                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                                                                    />
+                                                                                return (
+                                                                                    <button
+                                                                                        key={role}
+                                                                                        type="button"
+                                                                                        onClick={() => {
+                                                                                            if (!account.person_id || cannotToggle) return;
+                                                                                            updateRole(account.person_id, role, !enabled);
+                                                                                        }}
+                                                                                        disabled={cannotToggle}
+                                                                                        title={
+                                                                                            lockedSelfAdmin
+                                                                                                ? "You can't remove your own admin role"
+                                                                                                : undefined
+                                                                                        }
+                                                                                        className={`px-2.5 py-1 text-xs rounded-md border transition ${enabled
+                                                                                            ? "border-blue-600 bg-blue-600 text-white"
+                                                                                            : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                                                                            } ${cannotToggle ? "opacity-60 cursor-not-allowed" : ""}`}
+                                                                                    >
+                                                                                        {pending ? "Updating..." : ROLE_LABELS[role]}
+                                                                                    </button>
+                                                                                );
+                                                                            })}
+
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    if (!account.person_id) return;
+                                                                                    updateRole(account.person_id, "parent", !account.roles.parent);
+                                                                                }}
+                                                                                disabled={!account.person_id || pendingUpdates.has(`${account.person_id}:parent`)}
+                                                                                className={`px-2.5 py-1 text-xs rounded-md border transition ${account.roles.parent
+                                                                                    ? 'border-blue-600 bg-blue-600 text-white'
+                                                                                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                                                                    } ${!account.person_id || pendingUpdates.has(`${account.person_id}:parent`) ? "opacity-60 cursor-not-allowed" : ""}`}
+                                                                            >
+                                                                                {pendingUpdates.has(`${account.person_id}:parent`) ? "Updating..." : "Account"}
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => (isEditing ? cancelEdit() : startEdit(account))}
+                                                                        aria-label={isEditing ? "Cancel edit" : "Edit account"}
+                                                                        title={isEditing ? "Cancel edit" : "Edit account"}
+                                                                        className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                                                                    >
+                                                                        {isEditing ? (
+                                                                            <svg
+                                                                                className="h-4 w-4"
+                                                                                fill="none"
+                                                                                stroke="currentColor"
+                                                                                viewBox="0 0 24 24"
+                                                                            >
+                                                                                <path
+                                                                                    strokeLinecap="round"
+                                                                                    strokeLinejoin="round"
+                                                                                    strokeWidth={2}
+                                                                                    d="M6 18L18 6M6 6l12 12"
+                                                                                />
+                                                                            </svg>
+                                                                        ) : (
+                                                                            <svg
+                                                                                className="h-4 w-4"
+                                                                                fill="none"
+                                                                                stroke="currentColor"
+                                                                                viewBox="0 0 24 24"
+                                                                            >
+                                                                                <path
+                                                                                    strokeLinecap="round"
+                                                                                    strokeLinejoin="round"
+                                                                                    strokeWidth={2}
+                                                                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                                                                                />
+                                                                            </svg>
+                                                                        )}
+                                                                    </button>
                                                                 </div>
-                                                                <div>
-                                                                    <label className="block text-[11px] font-medium text-gray-600 mb-1">Last name</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={editForm.last_name}
-                                                                        onChange={(e) =>
-                                                                            setEditForm((prev) => ({
-                                                                                ...prev,
-                                                                                last_name: e.target.value,
-                                                                            }))
-                                                                        }
-                                                                        disabled={savingEdit}
-                                                                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                                                                    />
-                                                                </div>
-                                                                {account.person_id && (
-                                                                    <div className="sm:col-span-2">
-                                                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Email (sign-in address)</label>
+                                                            </div>
+
+                                                            {isEditing && (
+                                                                <div className="mt-3 border-t border-gray-100 pt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                                                    <div>
+                                                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">First name</label>
                                                                         <input
-                                                                            type="email"
-                                                                            value={editForm.email}
+                                                                            type="text"
+                                                                            value={editForm.first_name}
                                                                             onChange={(e) =>
                                                                                 setEditForm((prev) => ({
                                                                                     ...prev,
-                                                                                    email: e.target.value,
+                                                                                    first_name: e.target.value,
                                                                                 }))
                                                                             }
                                                                             disabled={savingEdit}
                                                                             className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none"
                                                                         />
                                                                     </div>
-                                                                )}
-                                                                <div className="sm:col-span-2 flex items-center justify-between gap-3 pt-1">
-                                                                    <label className="flex items-center gap-2 text-xs text-gray-700">
+                                                                    <div>
+                                                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Last name</label>
                                                                         <input
-                                                                            type="checkbox"
-                                                                            checked={editForm.is_active}
+                                                                            type="text"
+                                                                            value={editForm.last_name}
                                                                             onChange={(e) =>
                                                                                 setEditForm((prev) => ({
                                                                                     ...prev,
-                                                                                    is_active: e.target.checked,
+                                                                                    last_name: e.target.value,
                                                                                 }))
                                                                             }
-                                                                            disabled={
-                                                                                savingEdit ||
-                                                                                (Boolean(account.person_id) &&
-                                                                                    account.person_id === currentPersonId)
-                                                                            }
-                                                                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                            disabled={savingEdit}
+                                                                            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none"
                                                                         />
-                                                                        <span>
-                                                                            Active
-                                                                            {account.person_id === currentPersonId && (
-                                                                                <span className="ml-1 text-[11px] text-gray-400">(can&apos;t deactivate yourself)</span>
-                                                                            )}
-                                                                        </span>
-                                                                    </label>
-                                                                    <div className="flex gap-2">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={cancelEdit}
-                                                                            disabled={savingEdit}
-                                                                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                                                                        >
-                                                                            Cancel
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => saveEdit(account)}
-                                                                            disabled={savingEdit}
-                                                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                                        >
-                                                                            {savingEdit ? "Saving…" : "Save"}
-                                                                        </button>
+                                                                    </div>
+                                                                    {account.person_id && (
+                                                                        <div className="sm:col-span-2">
+                                                                            <label className="block text-[11px] font-medium text-gray-600 mb-1">Email (sign-in address)</label>
+                                                                            <input
+                                                                                type="email"
+                                                                                value={editForm.email}
+                                                                                onChange={(e) =>
+                                                                                    setEditForm((prev) => ({
+                                                                                        ...prev,
+                                                                                        email: e.target.value,
+                                                                                    }))
+                                                                                }
+                                                                                disabled={savingEdit}
+                                                                                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="sm:col-span-2 flex items-center justify-between gap-3 pt-1">
+                                                                        <label className="flex items-center gap-2 text-xs text-gray-700">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={editForm.is_active}
+                                                                                onChange={(e) =>
+                                                                                    setEditForm((prev) => ({
+                                                                                        ...prev,
+                                                                                        is_active: e.target.checked,
+                                                                                    }))
+                                                                                }
+                                                                                disabled={
+                                                                                    savingEdit ||
+                                                                                    (Boolean(account.person_id) &&
+                                                                                        account.person_id === currentPersonId)
+                                                                                }
+                                                                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                            />
+                                                                            <span>
+                                                                                Active
+                                                                                {account.person_id === currentPersonId && (
+                                                                                    <span className="ml-1 text-[11px] text-gray-400">(can&apos;t deactivate yourself)</span>
+                                                                                )}
+                                                                            </span>
+                                                                        </label>
+                                                                        <div className="flex gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={cancelEdit}
+                                                                                disabled={savingEdit}
+                                                                                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => saveEdit(account)}
+                                                                                disabled={savingEdit}
+                                                                                className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                            >
+                                                                                {savingEdit ? "Saving…" : "Save"}
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
+                                                            )}
 
-                                                        {account.linkedSwimmers && account.linkedSwimmers.length > 0 && (
-                                                            <div className="mt-3 border-t border-gray-100 pt-3">
-                                                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
-                                                                    Kids
-                                                                </p>
-                                                                <div className="space-y-2">
-                                                                    {account.linkedSwimmers.map((swimmer) => (
-                                                                        <div
-                                                                            key={swimmer.member_id}
-                                                                            className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2"
-                                                                        >
-                                                                            <div className="flex items-center justify-between gap-2">
-                                                                                <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
-                                                                                    {accountByMemberId.get(swimmer.member_id)
-                                                                                        ? getDisplayName(accountByMemberId.get(swimmer.member_id) as AccountRecord)
-                                                                                        : swimmer.name}
-                                                                                </p>
-                                                                                <div className="flex flex-wrap items-center justify-end gap-1">
-                                                                                    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">
-                                                                                        Swimmer
-                                                                                    </span>
-                                                                                    {accountByMemberId.get(swimmer.member_id)?.roles.parent && (
-                                                                                        <span className="inline-flex items-center rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] text-gray-700">
-                                                                                            Account
+                                                            {account.linkedSwimmers && account.linkedSwimmers.length > 0 && (
+                                                                <div className="mt-3 border-t border-gray-100 pt-3">
+                                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+                                                                        Kids
+                                                                    </p>
+                                                                    <div className="space-y-2">
+                                                                        {account.linkedSwimmers.map((swimmer) => (
+                                                                            <div
+                                                                                key={swimmer.member_id}
+                                                                                className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2"
+                                                                            >
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
+                                                                                        {accountByMemberId.get(swimmer.member_id)
+                                                                                            ? getDisplayName(accountByMemberId.get(swimmer.member_id) as AccountRecord)
+                                                                                            : swimmer.name}
+                                                                                    </p>
+                                                                                    <div className="flex flex-wrap items-center justify-end gap-1">
+                                                                                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">
+                                                                                            Swimmer
                                                                                         </span>
-                                                                                    )}
-                                                                                    <span
-                                                                                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] ${accountByMemberId.get(swimmer.member_id)?.is_active === false
-                                                                                            ? "border-red-200 bg-red-50 text-red-700"
-                                                                                            : "border-green-200 bg-green-50 text-green-700"
-                                                                                            }`}
-                                                                                    >
-                                                                                        {accountByMemberId.get(swimmer.member_id)?.is_active === false ? "Inactive" : "Active"}
-                                                                                    </span>
+                                                                                        {accountByMemberId.get(swimmer.member_id)?.roles.parent && (
+                                                                                            <span className="inline-flex items-center rounded-full border border-gray-300 bg-white px-2 py-0.5 text-[10px] text-gray-700">
+                                                                                                Account
+                                                                                            </span>
+                                                                                        )}
+                                                                                        <span
+                                                                                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] ${accountByMemberId.get(swimmer.member_id)?.is_active === false
+                                                                                                ? "border-red-200 bg-red-50 text-red-700"
+                                                                                                : "border-green-200 bg-green-50 text-green-700"
+                                                                                                }`}
+                                                                                        >
+                                                                                            {accountByMemberId.get(swimmer.member_id)?.is_active === false ? "Inactive" : "Active"}
+                                                                                        </span>
+                                                                                    </div>
                                                                                 </div>
                                                                             </div>
-                                                                        </div>
-                                                                    ))}
+                                                                        ))}
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                            )}
+                                                        </div>
                                                     );
                                                 })}
                                             </div>

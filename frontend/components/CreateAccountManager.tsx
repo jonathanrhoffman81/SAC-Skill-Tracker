@@ -147,11 +147,10 @@ export default function CreateAccountManager({ onCreated }: { onCreated?: () => 
                                 return (
                                     <label
                                         key={key}
-                                        className={`flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition ${
-                                            checked
+                                        className={`flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition ${checked
                                                 ? 'border-blue-500 bg-blue-50'
                                                 : 'border-gray-200 bg-white hover:bg-gray-50'
-                                        }`}
+                                            }`}
                                     >
                                         <input
                                             type="checkbox"
