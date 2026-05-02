@@ -87,7 +87,7 @@ export default function CreateAccountManager({ onCreated }: { onCreated?: () => 
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900">Create Account</h2>
                 <p className="mt-1 text-sm text-gray-500">
                     Create a login account for an instructor, admin, or parent. They can set their password
-                    via "Forgot password" on the login page.
+                    via &quot;Forgot password&quot; on the login page.
                 </p>
             </div>
 
@@ -147,11 +147,10 @@ export default function CreateAccountManager({ onCreated }: { onCreated?: () => 
                                 return (
                                     <label
                                         key={key}
-                                        className={`flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition ${
-                                            checked
+                                        className={`flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition ${checked
                                                 ? 'border-blue-500 bg-blue-50'
                                                 : 'border-gray-200 bg-white hover:bg-gray-50'
-                                        }`}
+                                            }`}
                                     >
                                         <input
                                             type="checkbox"
@@ -214,7 +213,7 @@ export default function CreateAccountManager({ onCreated }: { onCreated?: () => 
                             ))}
                         </div>
                         <p className="mt-3 text-xs text-gray-500">
-                            New accounts can sign in after setting a password via "Forgot password" on the login page.
+                            New accounts can sign in after setting a password via &quot;Forgot password&quot; on the login page.
                         </p>
                     </div>
                 )}

@@ -214,11 +214,10 @@ export default function ImportClasses({
     <div className="p-4 sm:p-6">
       {status && (
         <div
-          className={`mb-4 rounded-lg border px-3 py-2 text-xs sm:text-sm ${
-            status.type === "success"
+          className={`mb-4 rounded-lg border px-3 py-2 text-xs sm:text-sm ${status.type === "success"
               ? "border-green-200 bg-green-50 text-green-800"
               : "border-red-200 bg-red-50 text-red-800"
-          }`}
+            }`}
         >
           {status.message}
         </div>
@@ -268,15 +267,14 @@ export default function ImportClasses({
             }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center text-center transition ${
-              isDragging ? "border-black bg-gray-50" : "border-gray-200"
-            }`}
+            className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center text-center transition ${isDragging ? "border-black bg-gray-50" : "border-gray-200"
+              }`}
           >
             <p className="text-base font-semibold text-gray-900 mb-1">
               Import Swim Classes
             </p>
             <p className="text-sm text-gray-500 mb-1">
-              Upload a "New Registrations Report" file to create classes, enrol
+              Upload a &quot;New Registrations Report&quot; file to create classes, enrol
               swimmers, and link parents.
             </p>
             <p className="text-xs text-gray-400 mb-6">
@@ -296,11 +294,10 @@ export default function ImportClasses({
 
             <label
               htmlFor="swimClassUpload"
-              className={`cursor-pointer border text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition ${
-                isParsing
+              className={`cursor-pointer border text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition ${isParsing
                   ? "border-gray-200 bg-gray-100 text-gray-400 pointer-events-none"
                   : "border-gray-300 hover:bg-gray-50"
-              }`}
+                }`}
             >
               {isParsing ? "Parsing…" : "Choose file"}
             </label>
@@ -481,9 +478,8 @@ export default function ImportClasses({
             <div className="border border-gray-200 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-5">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    hasChanges ? "bg-green-100" : "bg-gray-100"
-                  }`}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${hasChanges ? "bg-green-100" : "bg-gray-100"
+                    }`}
                 >
                   {hasChanges ? (
                     <svg

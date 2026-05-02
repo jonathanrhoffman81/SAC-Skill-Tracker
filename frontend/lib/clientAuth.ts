@@ -47,7 +47,7 @@ export function redirectToLoginExpired(): void {
   }
 
   // Fire-and-forget so other tabs eventually get the SIGNED_OUT event.
-  void signOutCurrentUser().catch(() => {});
+  void signOutCurrentUser().catch(() => { });
 
   window.location.replace(SESSION_EXPIRED_PATH);
 }
@@ -122,11 +122,18 @@ export async function getAuthenticatedSessionIdentity(): Promise<AuthenticatedSe
       .filter(Boolean)
       .join(' ')
       .trim();
+  function formatEmailToName(email?: string | null): string | null {
+    if (!email) return null;
+    const local = String(email).split('@')[0];
+    const words = local.replace(/[._\-]+/g, ' ').split(' ').filter(Boolean);
+    if (words.length === 0) return null;
+    return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
 
   return {
     authUserId: session.user.id,
     email: session.user.email ?? null,
-    displayName: fullName || session.user.email || null,
+    displayName: fullName || formatEmailToName(session.user.email) || session.user.email || null,
   };
 }
 

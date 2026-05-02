@@ -90,6 +90,7 @@ interface AdminStats {
 
 interface DashboardBootstrapPayload {
   stats: AdminStats;
+  userName?: string | null;
   tabEssentials?: {
     skills?: Array<{ skill_id: string; name: string }>;
     evaluationFilters?: {
@@ -502,13 +503,12 @@ function EntityEditor({
               onDragEnter={() => handleDragEnter(index)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={`border rounded-lg p-3 group transition-colors ${
-                draggingIndex === index
+              className={`border rounded-lg p-3 group transition-colors ${draggingIndex === index
                   ? "opacity-40 border-blue-300 bg-blue-50"
                   : overIndex === index && draggingIndex !== index
-                  ? "border-blue-400 bg-blue-50"
-                  : "border-gray-200 hover:bg-gray-50"
-              }`}
+                    ? "border-blue-400 bg-blue-50"
+                    : "border-gray-200 hover:bg-gray-50"
+                }`}
             >
               <div className="flex items-center gap-2 py-1">
                 {state.editingId === item.id ? (
@@ -592,7 +592,7 @@ function EntityEditor({
 }
 
 export default function AdminDashboard() {
-  const [userName, setUserName] = useState("Admin User");
+  const [userName, setUserName] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("assignments");
   const [visitedTabs] = useState<Set<Tab>>(new Set(ALL_ADMIN_TABS));
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -799,6 +799,10 @@ export default function AdminDashboard() {
           writeCachedStats(data.stats);
         }
 
+        if (data.userName) {
+          setUserName(data.userName);
+        }
+
         const bootstrapSkills = (data.tabEssentials?.skills ?? []).map(
           (item) => ({
             ...item,
@@ -956,8 +960,8 @@ export default function AdminDashboard() {
     (async () => {
       try {
         const identity = await getAuthenticatedSessionIdentity();
-        setUserName(identity.displayName || "Admin User");
-      } catch {}
+        setUserName((prev) => prev || identity.displayName || "");
+      } catch { }
       void fetchBootstrap();
     })();
   }, [fetchBootstrap]);
@@ -1342,9 +1346,8 @@ export default function AdminDashboard() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${
-          sidebarVisible ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed left-0 top-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-gray-200 bg-white px-4 py-6 shadow-2xl transition-transform duration-200 ${sidebarVisible ? "translate-x-0" : "-translate-x-full"
+          }`}
         aria-hidden={!sidebarVisible}
       >
         <div className="mb-8 flex items-center justify-between px-1">
@@ -1382,11 +1385,10 @@ export default function AdminDashboard() {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${
-                activeTab === tab.id
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl text-base font-medium transition-all duration-200 whitespace-nowrap text-left ${activeTab === tab.id
                   ? "bg-gray-100 text-gray-900"
                   : "text-gray-700 hover:bg-gray-50"
-              }`}
+                }`}
             >
               <span className="[&>svg]:w-5 [&>svg]:h-5">{tab.icon}</span>
               <span>{tab.label}</span>
@@ -1456,17 +1458,6 @@ export default function AdminDashboard() {
                   </svg>
                 </button>
               )}
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
-                {getInitials(userName)}
-              </div>
-              <div className="text-left">
-                <p className="hidden text-sm font-medium text-gray-900 lg:block">
-                  {userName}
-                </p>
-                <RoleSwitcherBadge currentRole="admin" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3">
               <div className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-100 sm:h-9 sm:w-9 sm:rounded-xl">
                 {logoUrl ? (
                   <img
@@ -1491,13 +1482,24 @@ export default function AdminDashboard() {
                   </svg>
                 )}
               </div>
-              <div className="min-w-0 text-right">
+              <div className="min-w-0">
                 <p className="truncate text-xs font-bold text-gray-900 sm:text-sm">
                   {stats?.organizationName || "SAC Skill Tracker"}
                 </p>
                 <p className="hidden text-[10px] text-gray-500 sm:block sm:text-xs">
                   Administrator Dashboard
                 </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="text-right">
+                <p className="hidden text-sm font-medium text-gray-900 md:block">
+                  {userName}
+                </p>
+                <RoleSwitcherBadge currentRole="admin" />
+              </div>
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
+                {getInitials(userName)}
               </div>
             </div>
           </div>
@@ -1585,11 +1587,10 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => setImportTab("roster")}
-                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
-                        importTab === "roster"
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${importTab === "roster"
                           ? "border-blue-600 bg-blue-600 text-white"
                           : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
+                        }`}
                     >
                       Roster
                     </button>
@@ -1597,11 +1598,10 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => setImportTab("classes")}
-                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${
-                        importTab === "classes"
+                      className={`rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition ${importTab === "classes"
                           ? "border-blue-600 bg-blue-600 text-white"
                           : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      }`}
+                        }`}
                     >
                       Classes
                     </button>
@@ -1823,11 +1823,10 @@ export default function AdminDashboard() {
             {toasts.map((toast) => (
               <div
                 key={toast.id}
-                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${
-                  toast.type === "success"
+                className={`pointer-events-auto max-h-56 overflow-y-auto rounded-lg border px-3 py-2 text-sm leading-relaxed shadow-lg break-words whitespace-pre-wrap sm:text-sm ${toast.type === "success"
                     ? "bg-green-50 border-green-200 text-green-800"
                     : "bg-red-50 border-red-200 text-red-800"
-                }`}
+                  }`}
               >
                 {toast.message}
               </div>

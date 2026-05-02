@@ -250,7 +250,7 @@ export default function SwimmerClassManager({
                         Swimmer Class Enrollments
                     </h2>
                     <p className="mt-1 text-sm text-gray-500">
-                        Pick a swimmer to view and update which classes they're enrolled
+                        Pick a swimmer to view and update which classes they&apos;re enrolled
                         in.
                     </p>
                 </div>

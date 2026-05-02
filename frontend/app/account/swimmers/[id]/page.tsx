@@ -697,8 +697,8 @@ export default function ParentSwimmerDetail() {
                                                         </div>
                                                     )}
 
-                                                    {/* Progress history — collapsed by default, plain list when open */}
-                                                    {progressHistory.length > 0 && (
+                                                    {/* Progress history — only shown when there are multiple entries */}
+                                                    {progressHistory.length > 1 && (
                                                         <details className="group mt-3">
                                                             <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-gray-600 hover:text-gray-800">
                                                                 <span>Progress history ({progressHistory.length})</span>

@@ -190,7 +190,7 @@ function getProgressBadgeClasses(progress: SkillProgress) {
 
 export default function AccountDashboard() {
   const router = useRouter();
-  const [userName, setUserName] = useState("Guest User");
+  const [userName, setUserName] = useState("");
   const [organizationName, setOrganizationName] = useState("SAC Skill Tracker");
   const [openSwimmerIds, setOpenSwimmerIds] = useState<string[]>([]);
   const [swimmers, setSwimmers] = useState<SwimmerCard[]>([]);
@@ -273,7 +273,7 @@ export default function AccountDashboard() {
         setIsLoading(true);
         setError("");
         const identity = await getAuthenticatedSessionIdentity();
-        const localName = identity.displayName || "Guest User";
+        const localName = identity.displayName || "";
 
         setUserName(localName);
 
@@ -464,12 +464,12 @@ export default function AccountDashboard() {
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="text-right">
               <p className="hidden text-sm font-medium text-gray-900 md:block">
-                {userName || "Guest User"}
+                {userName}
               </p>
               <RoleSwitcherBadge currentRole="account" />
             </div>
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-800 text-[10px] font-semibold text-white sm:h-9 sm:w-9 sm:text-xs">
-              {userName ? getInitials(userName) : "GU"}
+              {getInitials(userName)}
             </div>
             <button
               onClick={async () => {
