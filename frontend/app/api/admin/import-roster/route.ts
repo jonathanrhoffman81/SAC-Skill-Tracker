@@ -29,6 +29,10 @@ function normaliseDob(raw: string | null | undefined): string | null {
   return null;
 }
 
+function isActive(status: string): boolean {
+  return status.toLowerCase().trim() === "active";
+}
+
 async function fileToGrid(file: File): Promise<string[][]> {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (ext === "csv") {
@@ -136,7 +140,7 @@ export async function POST(request: NextRequest) {
       const email = get(row, "Email").toLowerCase();
       const accFirstName = get(row, "Acct. First Name");
       const accLastName = get(row, "Acct. Last Name");
-      const accountStatus = get(row, "Account Status").toLowerCase();
+      const accountStatus = get(row, "Account Status");
       const membFirstName =
         "Memb. First Name" in col ? get(row, "Memb. First Name") : "";
       const membLastName =
@@ -169,12 +173,12 @@ export async function POST(request: NextRequest) {
         accFirstName,
         accLastName,
         email,
-        isAccountActive: accountStatus === "active",
+        isAccountActive: isActive(accountStatus),
         membFirstName,
         membLastName,
         dob,
         gender,
-        isMemberActive: memberStatus === "active",
+        isMemberActive: isActive(memberStatus),
         hasMember,
       });
     }
