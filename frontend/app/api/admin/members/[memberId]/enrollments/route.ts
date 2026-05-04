@@ -133,22 +133,29 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
         // Count this swimmer's evaluations per class so the UI can disable
         // the Remove button when there's history to protect.
+        // One submission writes 1 anchor + N skill-note rows sharing
+        // (class_id, evaluation_date, instructor_person_id) — dedupe by tuple
+        // so counts reflect submissions, not rows.
         const { data: evalRows, error: evalRowsError } = await supabase
             .from("evaluation")
-            .select("class_id")
+            .select("class_id, evaluation_date, instructor_person_id")
             .eq("member_id", params.memberId);
 
         if (evalRowsError) {
             throw new Error(`Failed to load evaluations: ${evalRowsError.message}`);
         }
 
-        const evaluationCountByClassId = new Map<string, number>();
+        const submissionKeysByClassId = new Map<string, Set<string>>();
         (evalRows || []).forEach((row: any) => {
             if (!row.class_id) return;
-            evaluationCountByClassId.set(
-                row.class_id,
-                (evaluationCountByClassId.get(row.class_id) ?? 0) + 1,
-            );
+            const key = `${row.evaluation_date ?? ""}|${row.instructor_person_id ?? ""}`;
+            const seen = submissionKeysByClassId.get(row.class_id) ?? new Set<string>();
+            seen.add(key);
+            submissionKeysByClassId.set(row.class_id, seen);
+        });
+        const evaluationCountByClassId = new Map<string, number>();
+        submissionKeysByClassId.forEach((set, classId) => {
+            evaluationCountByClassId.set(classId, set.size);
         });
 
         // Reject enrollments whose class isn't in this org (defensive — shouldn't

@@ -842,6 +842,12 @@ export async function GET(request: NextRequest) {
       >();
       const currentInstructorEvaluatedMemberIds = new Set<string>();
 
+      // One evaluation submission writes 1 anchor row + N skill-note rows,
+      // all sharing (class_id, evaluation_date, instructor_person_id).
+      // Dedupe by that tuple so counts reflect submissions, not rows.
+      const seenSubmissionsByMemberId = new Map<string, Set<string>>();
+      const seenSubmissionsByMemberClass = new Map<string, Set<string>>();
+
       if (!lightweight) {
         (evaluationRows ?? []).forEach((row) => {
           const existing =
@@ -852,7 +858,14 @@ export async function GET(request: NextRequest) {
               instructors: [],
             };
 
-          existing.evaluationCount += 1;
+          const submissionKey = `${row.class_id ?? ''}|${row.evaluation_date ?? ''}|${row.instructor_person_id ?? ''}`;
+          const memberSeen = seenSubmissionsByMemberId.get(row.member_id) ?? new Set<string>();
+          const isNewMemberSubmission = !memberSeen.has(submissionKey);
+          if (isNewMemberSubmission) {
+            memberSeen.add(submissionKey);
+            seenSubmissionsByMemberId.set(row.member_id, memberSeen);
+            existing.evaluationCount += 1;
+          }
 
           if (row.evaluation_date) {
             const currentLastDate = existing.lastEvaluationDate
@@ -909,7 +922,15 @@ export async function GET(request: NextRequest) {
               recentEntries: [],
             };
 
-            existingClassSummary.evaluationCount += 1;
+            // Per-class submission key: same submission shows up across rows
+            // (anchor + skill notes); count it only once per class.
+            const classSubmissionKey = `${row.member_id}|${row.class_id}|${row.evaluation_date ?? ''}|${row.instructor_person_id ?? ''}`;
+            const classSeen = seenSubmissionsByMemberClass.get(row.member_id) ?? new Set<string>();
+            if (!classSeen.has(classSubmissionKey)) {
+              classSeen.add(classSubmissionKey);
+              seenSubmissionsByMemberClass.set(row.member_id, classSeen);
+              existingClassSummary.evaluationCount += 1;
+            }
             if (row.skill_id) {
               existingClassSummary.skillNoteCount += 1;
             } else {

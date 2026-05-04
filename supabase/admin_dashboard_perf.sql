@@ -26,10 +26,19 @@ create index if not exists idx_class_entity_org_name
   on public.class_entity (organization_id, name);
 
 -- Materialized aggregates for read-heavy summary workloads
-create materialized view if not exists public.member_evaluation_summary_mv as
+-- One "evaluation submission" writes multiple rows to public.evaluation
+-- (1 anchor with skill_id IS NULL + N per-skill notes), all sharing
+-- (class_id, evaluation_date, instructor_person_id). Count distinct
+-- submissions, not rows.
+drop materialized view if exists public.member_evaluation_summary_mv cascade;
+create materialized view public.member_evaluation_summary_mv as
 select
   e.member_id,
-  count(*)::int as evaluation_count,
+  count(distinct concat(
+    coalesce(e.class_id::text, ''), '|',
+    e.evaluation_date::text, '|',
+    coalesce(e.instructor_person_id::text, '')
+  ))::int as evaluation_count,
   max(e.evaluation_date) as last_evaluation_date,
   array_remove(array_agg(distinct e.instructor_person_id), null) as instructor_person_ids
 from public.evaluation e
