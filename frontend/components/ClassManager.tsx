@@ -444,7 +444,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 <div className="fixed top-32 right-4 z-[101] w-[92vw] max-w-sm rounded-xl border border-gray-200 bg-white shadow-2xl p-4 sm:top-36">
                     <p className="text-sm font-semibold text-gray-900">Confirm Delete</p>
                     <p className="mt-1 text-xs sm:text-sm text-gray-600">
-                        Delete <span className="font-medium">{deleteDialog.className}</span>? This will remove all group assignments.
+                        Delete <span className="font-medium">{deleteDialog.className}</span>? This will remove all groups and enrollments.
                     </p>
                     <div className="mt-3 flex justify-end gap-2">
                         <button
