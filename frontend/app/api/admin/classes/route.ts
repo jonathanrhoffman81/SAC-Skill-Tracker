@@ -278,6 +278,96 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    // Get all groups for this class so we can clean up child records
+    const { data: groups } = await supabase
+      .from("class_group")
+      .select("group_id")
+      .eq("class_id", class_id);
+
+    const groupIds = (groups ?? []).map((g: { group_id: string }) => g.group_id);
+
+    if (groupIds.length > 0) {
+      const { error: enrollmentDeleteError } = await supabase
+        .from("enrollment")
+        .delete()
+        .in("group_id", groupIds);
+
+      if (enrollmentDeleteError) {
+        return NextResponse.json(
+          { error: "Failed to delete class enrollments: " + enrollmentDeleteError.message },
+          { status: 500 },
+        );
+      }
+
+      const { error: instructorDeleteError } = await supabase
+        .from("group_instructor")
+        .delete()
+        .in("group_id", groupIds);
+
+      if (instructorDeleteError) {
+        return NextResponse.json(
+          { error: "Failed to delete class instructor assignments: " + instructorDeleteError.message },
+          { status: 500 },
+        );
+      }
+
+      const { error: groupDeleteError } = await supabase
+        .from("class_group")
+        .delete()
+        .in("group_id", groupIds);
+
+      if (groupDeleteError) {
+        return NextResponse.json(
+          { error: "Failed to delete class groups: " + groupDeleteError.message },
+          { status: 500 },
+        );
+      }
+    }
+
+    // Cascade delete evaluations tied to this class (FK blocks class delete otherwise).
+    // member_skill rows reference evaluation_id, so unlink those first.
+    const { data: classEvaluations, error: classEvaluationsError } = await supabase
+      .from("evaluation")
+      .select("evaluation_id")
+      .eq("class_id", class_id);
+
+    if (classEvaluationsError) {
+      return NextResponse.json(
+        { error: "Failed to load class evaluations: " + classEvaluationsError.message },
+        { status: 500 },
+      );
+    }
+
+    const evaluationIds = (classEvaluations ?? []).map(
+      (e: { evaluation_id: string }) => e.evaluation_id,
+    );
+
+    if (evaluationIds.length > 0) {
+      const { error: memberSkillUnlinkError } = await supabase
+        .from("member_skill")
+        .update({ evaluation_id: null })
+        .in("evaluation_id", evaluationIds);
+
+      if (memberSkillUnlinkError) {
+        return NextResponse.json(
+          { error: "Failed to unlink skill history: " + memberSkillUnlinkError.message },
+          { status: 500 },
+        );
+      }
+
+      const { error: evaluationDeleteError } = await supabase
+        .from("evaluation")
+        .delete()
+        .in("evaluation_id", evaluationIds);
+
+      if (evaluationDeleteError) {
+        return NextResponse.json(
+          { error: "Failed to delete class evaluations: " + evaluationDeleteError.message },
+          { status: 500 },
+        );
+      }
+    }
+
     const { error: deleteError } = await supabase
       .from("class_entity")
       .delete()
