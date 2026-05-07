@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import EvaluationForm from "@/components/EvaluationForm";
 import DropdownButton from "@/components/DropdownButton";
-import { authFetch } from "@/lib/clientAuth";
+import { authFetch, getAuthenticatedSessionIdentity } from "@/lib/clientAuth";
 import { getClassTagColors } from "@/lib/classColors";
 
 interface DashboardClass {
@@ -170,22 +170,26 @@ interface PersistedData {
 
 const CLASS_FILTER_RECENT_DAYS = 7;
 
-function readPersistedState(): PersistedState | null {
+function buildScopedStorageKey(baseKey: string, scopeKey: string) {
+    return `${baseKey}:${scopeKey}`;
+}
+
+function readPersistedState(storageKey: string): PersistedState | null {
     if (typeof window === "undefined") return null;
 
     try {
-        const raw = window.sessionStorage.getItem(PERSISTED_STATE_KEY);
+        const raw = window.sessionStorage.getItem(storageKey);
         if (!raw) return null;
 
         const parsed = JSON.parse(raw) as PersistedState;
         if (!parsed?.savedAt) return null;
         if (parsed.version !== PERSISTED_STATE_VERSION) {
-            window.sessionStorage.removeItem(PERSISTED_STATE_KEY);
+            window.sessionStorage.removeItem(storageKey);
             return null;
         }
 
         if (Date.now() - parsed.savedAt > PERSISTED_STATE_TTL_MS) {
-            window.sessionStorage.removeItem(PERSISTED_STATE_KEY);
+            window.sessionStorage.removeItem(storageKey);
             return null;
         }
 
@@ -195,22 +199,22 @@ function readPersistedState(): PersistedState | null {
     }
 }
 
-function readPersistedData(): PersistedData | null {
+function readPersistedData(storageKey: string): PersistedData | null {
     if (typeof window === "undefined") return null;
 
     try {
-        const raw = window.sessionStorage.getItem(PERSISTED_DATA_KEY);
+        const raw = window.sessionStorage.getItem(storageKey);
         if (!raw) return null;
 
         const parsed = JSON.parse(raw) as PersistedData;
         if (!parsed?.savedAt) return null;
         if (parsed.version !== PERSISTED_STATE_VERSION) {
-            window.sessionStorage.removeItem(PERSISTED_DATA_KEY);
+            window.sessionStorage.removeItem(storageKey);
             return null;
         }
 
         if (Date.now() - parsed.savedAt > PERSISTED_STATE_TTL_MS) {
-            window.sessionStorage.removeItem(PERSISTED_DATA_KEY);
+            window.sessionStorage.removeItem(storageKey);
             return null;
         }
 
@@ -555,6 +559,7 @@ export default function AdminInstructorEvaluations({
             ]),
         ) as Record<string, Set<string>>,
     );
+    const [storageScopeKey, setStorageScopeKey] = useState<string | null>(null);
     const [hasRestoredState, setHasRestoredState] = useState(false);
     const cacheRef = useRef<Map<string, { swimmers: DashboardSwimmer[]; pagination: PaginationState }>>(new Map());
     const allSearchCacheRef = useRef<Map<string, DashboardSwimmer[]>>(new Map());
@@ -622,6 +627,7 @@ export default function AdminInstructorEvaluations({
 
     function persistDataCache(searchKey: string) {
         if (typeof window === "undefined") return;
+        if (!storageScopeKey) return;
 
         try {
             const serializedMemberIdsByGroupId = Object.fromEntries(
@@ -649,14 +655,20 @@ export default function AdminInstructorEvaluations({
                 memberIdsByInstructorId: serializedMemberIdsByInstructorId,
             };
 
-            window.sessionStorage.setItem(PERSISTED_DATA_KEY, JSON.stringify(payload));
+            window.sessionStorage.setItem(
+                buildScopedStorageKey(PERSISTED_DATA_KEY, storageScopeKey),
+                JSON.stringify(payload),
+            );
         } catch {
-            window.sessionStorage.removeItem(PERSISTED_DATA_KEY);
+            window.sessionStorage.removeItem(
+                buildScopedStorageKey(PERSISTED_DATA_KEY, storageScopeKey),
+            );
         }
     }
 
     function persistState(scrollYOverride?: number) {
         if (typeof window === "undefined") return;
+        if (!storageScopeKey) return;
 
         try {
             const stateToPersist: PersistedState = {
@@ -674,9 +686,14 @@ export default function AdminInstructorEvaluations({
                 currentPage,
             };
 
-            window.sessionStorage.setItem(PERSISTED_STATE_KEY, JSON.stringify(stateToPersist));
+            window.sessionStorage.setItem(
+                buildScopedStorageKey(PERSISTED_STATE_KEY, storageScopeKey),
+                JSON.stringify(stateToPersist),
+            );
         } catch {
-            window.sessionStorage.removeItem(PERSISTED_STATE_KEY);
+            window.sessionStorage.removeItem(
+                buildScopedStorageKey(PERSISTED_STATE_KEY, storageScopeKey),
+            );
         }
     }
 
@@ -872,8 +889,10 @@ export default function AdminInstructorEvaluations({
         if (options?.forceRefresh) {
             cacheRef.current.delete(cacheKey);
             allSearchCacheRef.current.delete(searchCacheKey);
-            if (typeof window !== "undefined") {
-                window.sessionStorage.removeItem(PERSISTED_DATA_KEY);
+            if (typeof window !== "undefined" && storageScopeKey) {
+                window.sessionStorage.removeItem(
+                    buildScopedStorageKey(PERSISTED_DATA_KEY, storageScopeKey),
+                );
             }
         }
 
@@ -921,8 +940,37 @@ export default function AdminInstructorEvaluations({
     }
 
     useEffect(() => {
-        const restoredState = readPersistedState();
-        const restoredData = readPersistedData();
+        let isMounted = true;
+
+        async function resolveStorageScopeKey() {
+            if (typeof window === "undefined") return;
+
+            const pathScope = window.location.pathname;
+
+            try {
+                const identity = await getAuthenticatedSessionIdentity();
+                if (!isMounted) return;
+                setStorageScopeKey(`${identity.authUserId}:${pathScope}`);
+            } catch {
+                if (!isMounted) return;
+                setStorageScopeKey(`anonymous:${pathScope}`);
+            }
+        }
+
+        void resolveStorageScopeKey();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!storageScopeKey) return;
+
+        const persistedStateKey = buildScopedStorageKey(PERSISTED_STATE_KEY, storageScopeKey);
+        const persistedDataKey = buildScopedStorageKey(PERSISTED_DATA_KEY, storageScopeKey);
+        const restoredState = readPersistedState(persistedStateKey);
+        const restoredData = readPersistedData(persistedDataKey);
 
         if (restoredState) {
             setOpenSwimmerId(restoreOpenSwimmerId ? restoredState.openSwimmerId : null);
@@ -971,7 +1019,7 @@ export default function AdminInstructorEvaluations({
         }
 
         setHasRestoredState(true);
-    }, [initialInstructorFilter, initialListView, initialStatusFilter, lockInitialListView, lockInitialStatusFilter, restoreOpenSwimmerId]);
+    }, [initialInstructorFilter, initialListView, initialStatusFilter, lockInitialListView, lockInitialStatusFilter, restoreOpenSwimmerId, storageScopeKey]);
 
     useEffect(() => {
         if (!openSwimmerId) return;
