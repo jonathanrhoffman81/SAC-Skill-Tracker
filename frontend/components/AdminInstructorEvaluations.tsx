@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import EvaluationForm from "@/components/EvaluationForm";
@@ -1340,12 +1340,11 @@ export default function AdminInstructorEvaluations({
         return endDate < now;
     };
 
-    const swimmerNeedsEvaluation = (
+    const getClassesNeedingEvaluation = useCallback((
         swimmer: DashboardSwimmer,
         options?: { requireMySwimmer?: boolean },
     ) => {
-        if (options?.requireMySwimmer && !swimmer.isMySwimmer) return false;
-        if (swimmer.hasCurrentInstructorEvaluation) return false;
+        if (options?.requireMySwimmer && !swimmer.isMySwimmer) return [];
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -1356,12 +1355,31 @@ export default function AdminInstructorEvaluations({
         const recentPastCutoff = new Date(today);
         recentPastCutoff.setDate(recentPastCutoff.getDate() - 14);
 
-        return swimmer.classes.some((classItem) => {
+        const evaluationCountsByClassId = new Map(
+            (swimmer.classEvaluations ?? []).map((classSummary) => [
+                classSummary.classId,
+                classSummary.evaluationCount,
+            ]),
+        );
+
+        return swimmer.classes.filter((classItem) => {
             const endDate = toDateAtMidnight(classItem.endDate);
-            if (!endDate) return false;
-            return endDate >= recentPastCutoff && endDate <= upcomingCutoff;
+            if (!endDate) {
+                return false;
+            }
+
+            if (endDate < recentPastCutoff || endDate > upcomingCutoff) {
+                return false;
+            }
+
+            return (evaluationCountsByClassId.get(classItem.id) ?? 0) === 0;
         });
-    };
+    }, []);
+
+    const swimmerNeedsEvaluation = useCallback((
+        swimmer: DashboardSwimmer,
+        options?: { requireMySwimmer?: boolean },
+    ) => getClassesNeedingEvaluation(swimmer, options).length > 0, [getClassesNeedingEvaluation]);
 
     const mySwimmersNeedingEvaluation = useMemo(() => (
         swimmers.filter((swimmer) =>
@@ -1736,8 +1754,7 @@ export default function AdminInstructorEvaluations({
                     {needsEvaluationSwimmers.length > 0 ? (
                         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
                             {needsEvaluationSwimmers.map((swimmer) => {
-                                const closestClass = [...swimmer.classes]
-                                    .filter((classItem) => toDateAtMidnight(classItem.endDate))
+                                const closestClass = [...getClassesNeedingEvaluation(swimmer, { requireMySwimmer: true })]
                                     .sort((a, b) => {
                                         const aTime = toDateAtMidnight(a.endDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
                                         const bTime = toDateAtMidnight(b.endDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
