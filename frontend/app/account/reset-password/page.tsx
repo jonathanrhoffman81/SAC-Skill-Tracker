@@ -22,21 +22,21 @@ export default function ResetPassword() {
   // FIX: guard the page — redirect to /login if there's no active session.
   // Without this, anyone navigating directly to /account/reset-password would
   // either get a confusing error or accidentally update their current password.
-  useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
-      setCheckingSession(false);
-      return;
-    }
+  //useEffect(() => {
+  //  if (!isSupabaseConfigured || !supabase) {
+  //    setCheckingSession(false);
+  //    return;
+  //  }
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.push("/login");
-      } else {
-        setSessionReady(true);
-      }
-      setCheckingSession(false);
-    });
-  }, [router]);
+  //  supabase.auth.getSession().then(({ data }) => {
+  //    if (!data.session) {
+  //      router.push("/login");
+  //    } else {
+  //      setSessionReady(true);
+  //    }
+  //    setCheckingSession(false);
+  //  });
+  //}, [router]);
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
