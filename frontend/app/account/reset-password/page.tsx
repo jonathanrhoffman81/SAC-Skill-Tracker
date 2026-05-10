@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-//import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
@@ -17,7 +17,7 @@ export default function ResetPassword() {
   // FIX: track whether a valid reset session is present
   //const [sessionReady, setSessionReady] = useState(false);
   //const [checkingSession, setCheckingSession] = useState(true);
-  //const router = useRouter();
+  const router = useRouter();
 
   // FIX: guard the page — redirect to /login if there's no active session.
   // Without this, anyone navigating directly to /account/reset-password would
