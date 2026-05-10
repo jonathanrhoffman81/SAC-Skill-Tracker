@@ -15,8 +15,8 @@ export default function ResetPassword() {
     type: "error",
   });
   // FIX: track whether a valid reset session is present
-  const [sessionReady, setSessionReady] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(true);
+  //const [sessionReady, setSessionReady] = useState(false);
+  //const [checkingSession, setCheckingSession] = useState(true);
   const router = useRouter();
 
   // FIX: guard the page — redirect to /login if there's no active session.
@@ -81,17 +81,17 @@ export default function ResetPassword() {
     }
   };
 
-  if (checkingSession) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-        <p className="text-gray-500 text-sm">Verifying session...</p>
-      </div>
-    );
-  }
+  //if (checkingSession) {
+  //  return (
+  //    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+  //      <p className="text-gray-500 text-sm">Verifying session...</p>
+  //    </div>
+  //  );
+  //}
 
-  if (!sessionReady) {
-    return null; // redirect in progress
-  }
+  //if (!sessionReady) {
+  //  return null; // redirect in progress
+  //}
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
