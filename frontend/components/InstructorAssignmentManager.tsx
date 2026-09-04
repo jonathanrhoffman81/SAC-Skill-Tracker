@@ -1489,7 +1489,7 @@ export default function InstructorAssignmentManager({
                                                                     options={[
                                                                         { value: '', label: 'Add instructor…', disabled: true },
                                                                         ...sortedInstructors
-                                                                            .filter((instructor) => !groupInstructors.some((item) => item.id === instructor.person_id) && instructor.is_active == 'true')
+                                                                            .filter((instructor) => (!groupInstructors.some((item) => item.id === instructor.person_id) && instructor.is_active == 'true'))
                                                                             .map((instructor) => ({
                                                                                 value: instructor.person_id,
                                                                                 label: formatName(instructor.first_name, instructor.last_name),
