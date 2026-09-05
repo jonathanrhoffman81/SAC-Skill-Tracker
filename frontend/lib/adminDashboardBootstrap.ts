@@ -243,15 +243,12 @@ export async function loadAdminDashboardBootstrap(
         .eq("role_id", instructorRoleId),
     );
 
-    console.info('Instructor Roles 1')
-
     if (!instructorRolesResult.error) {
       const instructorPersonIds = mapPersonIdsForPersonOrgRole(
         activePersonOrgs,
         (instructorRolesResult.data as Array<{ person_organization_id: string }> | null) ?? [],
       );
 
-      console.info('Instructor Roles 2')
       if (instructorPersonIds.length > 0) {
         const instructorsResult = await timedQuery<any>("instructor-names", () =>
           supabase
@@ -260,13 +257,10 @@ export async function loadAdminDashboardBootstrap(
             .eq("is_active", true)
             .in("person_id", instructorPersonIds),
         );
-        
-        console.info('Instructor Roles 3')
-        console.info('${instructorsResult}');
 
         if (!instructorsResult.error) {
 
-          totalInstructors = instructorsResult.length;
+          totalInstructors = instructorsResult.data.length;
 
           instructorNameOptions = ((instructorsResult.data as Array<{
             person_id: string;
