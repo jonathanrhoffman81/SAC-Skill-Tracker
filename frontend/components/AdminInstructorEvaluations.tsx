@@ -1496,8 +1496,8 @@ export default function AdminInstructorEvaluations({
                 value,
                 label: data.label,
                 endDate: data.endDate,
-            }))
-            .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+            }));
+            //.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
 
         fallbackClassOptions.forEach((option) => {
             if (!classMap.has(option.value)) {
@@ -1518,10 +1518,12 @@ export default function AdminInstructorEvaluations({
         });
 
         options.sort(
-            (a, b) =>
-                new Date(a.endDate).getTime() -
-                new Date(b.endDate).getTime()
-        );
+            (a, b) =>{
+                if (!a.endDate) return 1;
+                if (!b.endDate) return -1;
+
+                return new Date(b.endDate).getTime() - new Date(a.endDate).getTime();
+            });
 
         if (options.length === 0) {
             return [
