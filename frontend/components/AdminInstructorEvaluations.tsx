@@ -369,6 +369,7 @@ function isClassCurrentOrRecent(startDate?: string, endDate?: string) {
     return isActive || endedRecently;
 }
 
+//status filter should apply to member status only 
 function matchesClassStatusFilter(
     classItem: DashboardClass,
     statusFilter: "all" | "active" | "inactive",
@@ -376,7 +377,9 @@ function matchesClassStatusFilter(
     if (statusFilter === "all") return true;
 
     const isCurrentOrRecent = isClassCurrentOrRecent(classItem.startDate, classItem.endDate);
-    return statusFilter === "active" ? isCurrentOrRecent : !isCurrentOrRecent;
+
+    //return statusFilter === "active" ? isCurrentOrRecent : !isCurrentOrRecent;
+    return isCurrentOrRecent;
 }
 
 function buildCacheKey(page: number, search: string) {
@@ -1588,12 +1591,11 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
-            console.info(`${swimmer.isActive} - ${swimmer.name}`);
             if (statusFilter === "active" && swimmer.isActive === false) {
                 return false;
             }
 
-            if (statusFilter === "inactive" && swimmer.isActive !== false) {
+            if (statusFilter === "inactive" && swimmer.isActive === true) {
                 return false;
             }
 
@@ -1602,9 +1604,9 @@ export default function AdminInstructorEvaluations({
                 if (!hasSelectedClass) return false;
             }
 
-            if (classFilter === "all" && statusFilter !== "all" && statusMatchedClasses.length === 0) {
-                return false;
-            }
+            //if (classFilter === "all" && statusFilter !== "all" && statusMatchedClasses.length === 0) {
+            //    return false;
+            //}
 
             if (instructorFilter !== "all") {
                 const memberIdsForInstructor = memberIdsByInstructorId[instructorFilter];
