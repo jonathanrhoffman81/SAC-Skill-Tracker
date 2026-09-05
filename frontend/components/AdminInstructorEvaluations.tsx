@@ -1485,7 +1485,7 @@ export default function AdminInstructorEvaluations({
                 if (!classMap.has(classItem.id)) {
                     classMap.set(classItem.id, {
                         label: classItem.name,
-                        startDate: classItem.endDate,
+                        endDate: classItem.endDate,
                     });
                 }
             });
