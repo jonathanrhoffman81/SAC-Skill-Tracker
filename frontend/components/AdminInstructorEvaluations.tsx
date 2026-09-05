@@ -1588,8 +1588,8 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
+            console.info(`${swimmer.isActive} - ${swimmer.name}`);
             if (statusFilter === "active" && swimmer.isActive === false) {
-                console.info(`${swimmer.isActive} - ${swimmer.name}`);
                 return false;
             }
 
