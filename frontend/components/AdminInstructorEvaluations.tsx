@@ -1430,7 +1430,7 @@ export default function AdminInstructorEvaluations({
     }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView, statusFilter]);
 
     const classFilterOptions = useMemo(() => {
-        const classMap = new Map<string, string>();
+        const classMap = new Map<string, string, date>();
 
         swimmers.forEach((swimmer) => {
             swimmer.classes.forEach((classItem) => {
@@ -1439,27 +1439,28 @@ export default function AdminInstructorEvaluations({
                 }
 
                 if (!classMap.has(classItem.id)) {
-                    classMap.set(classItem.id, classItem.name);
+                    classMap.set(classItem.id, classItem.name, classItem.endDate);
                 }
             });
         });
 
         const options = Array.from(classMap.entries())
-            .map(([value, label]) => ({ value, label }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+            .map(([value, label, endDate]) => ({ value, label, endDate }));
+        //    .sort((a, b) => a.label.localeCompare(b.label));
 
         fallbackClassOptions.forEach((option) => {
             if (!classMap.has(option.value)) {
                 if (!isClassCurrentOrRecent(option.startDate, option.endDate)) {
                     return;
                 }
-
-                classMap.set(option.value, option.label);
+how
+                classMap.set(option.value, option.label, option.endDate);
                 options.push(option);
             }
         });
 
-        options.sort((a, b) => a.label.localeCompare(b.label));
+        //options.sort((a, b) => a.label.localeCompare(b.label));
+        options.sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
 
         if (options.length === 0) {
             return [
