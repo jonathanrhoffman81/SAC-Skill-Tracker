@@ -258,7 +258,9 @@ export async function loadAdminDashboardBootstrap(
             .in("person_id", instructorPersonIds),
         );
 
-        alert('test');
+        
+        console.info(`${instructorsResult}`);
+
         if (!instructorsResult.error) {
 
           totalInstructors = instructorsResult.length;
