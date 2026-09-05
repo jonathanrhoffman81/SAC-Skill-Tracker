@@ -246,17 +246,18 @@ export async function loadAdminDashboardBootstrap(
         (instructorRolesResult.data as Array<{ person_organization_id: string }> | null) ?? [],
       );
 
-      totalInstructors = instructorPersonIds.length;
-
       if (instructorPersonIds.length > 0) {
         const instructorsResult = await timedQuery<any>("instructor-names", () =>
           supabase
             .from("person")
             .select("person_id, first_name, last_name, email")
+            .eq("is_active", true)
             .in("person_id", instructorPersonIds),
         );
 
         if (!instructorsResult.error) {
+          totalInstructors = instructorsResult.length;
+
           instructorNameOptions = ((instructorsResult.data as Array<{
             person_id: string;
             first_name?: string | null;
