@@ -1429,8 +1429,9 @@ export default function AdminInstructorEvaluations({
         return "No swimmers found.";
     }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView, statusFilter]);
 
+/*
     const classFilterOptions = useMemo(() => {
-        const classMap = new Map<string, string, date>();
+        const classMap = new Map<string, string>();
 
         swimmers.forEach((swimmer) => {
             swimmer.classes.forEach((classItem) => {
@@ -1439,28 +1440,27 @@ export default function AdminInstructorEvaluations({
                 }
 
                 if (!classMap.has(classItem.id)) {
-                    classMap.set(classItem.id, classItem.name, classItem.endDate);
+                    classMap.set(classItem.id, classItem.name);
                 }
             });
         });
 
         const options = Array.from(classMap.entries())
-            .map(([value, label, endDate]) => ({ value, label, endDate }));
-        //    .sort((a, b) => a.label.localeCompare(b.label));
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label));
 
         fallbackClassOptions.forEach((option) => {
             if (!classMap.has(option.value)) {
                 if (!isClassCurrentOrRecent(option.startDate, option.endDate)) {
                     return;
                 }
-how
-                classMap.set(option.value, option.label, option.endDate);
+
+                classMap.set(option.value, option.label);
                 options.push(option);
             }
         });
 
-        //options.sort((a, b) => a.label.localeCompare(b.label));
-        options.sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
+        options.sort((a, b) => a.label.localeCompare(b.label));
 
         if (options.length === 0) {
             return [
@@ -1471,6 +1471,73 @@ how
 
         return [{ value: "all", label: "All classes" }, ...options];
     }, [swimmers, fallbackClassOptions]);
+*/
+
+    const classFilterOptions = useMemo(() => {
+        const classMap = new Map<string, { label: string; endDate: string }>();
+
+        swimmers.forEach((swimmer) => {
+            swimmer.classes.forEach((classItem) => {
+                if (!isClassCurrentOrRecent(classItem.startDate, classItem.endDate)) {
+                    return;
+                }
+
+                if (!classMap.has(classItem.id)) {
+                    classMap.set(classItem.id, {
+                        label: classItem.name,
+                        startDate: classItem.endDate,
+                    });
+                }
+            });
+        });
+
+        const options = Array.from(classMap.entries())
+            .map(([value, data]) => ({
+                value,
+                label: data.label,
+                endDate: data.endDate,
+            }))
+            .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+
+        fallbackClassOptions.forEach((option) => {
+            if (!classMap.has(option.value)) {
+                if (!isClassCurrentOrRecent(option.startDate, option.endDate)) {
+                    return;
+                }
+
+                classMap.set(option.value, {
+                    label: option.label,
+                    endDate: option.endDate,
+                });
+
+                options.push({
+                    ...option,
+                    endDate: option.endDate,
+                });
+            }
+        });
+
+        options.sort(
+            (a, b) =>
+                new Date(a.endDate).getTime() -
+                new Date(b.endDate).getTime()
+        );
+
+        if (options.length === 0) {
+            return [
+                { value: "all", label: "All classes" },
+                {
+                    value: "__empty_classes",
+                    label: "No classes available",
+                    disabled: true,
+                },
+            ];
+        }
+
+        return [{ value: "all", label: "All classes" }, ...options];
+    }, [swimmers, fallbackClassOptions]);
+
+    
 
     const instructorFilterOptions = useMemo(() => {
         const optionMap = new Map<string, string>();
