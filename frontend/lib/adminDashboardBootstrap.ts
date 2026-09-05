@@ -62,8 +62,11 @@ function isActiveClassByDateWindow(startDate?: string | null, endDate?: string |
   const start = parseDate(startDate);
   const end = parseDate(endDate);
 
-  if (start && end) return start <= today && today <= end;
-  if (start) return start <= today;
+  //Active classes are all classes either ongoing or in the future
+  //Class should show as active if the end date is in the future, regardless of the start date
+
+  //if (start && end) return start <= today && today <= end;
+  //if (start) return start <= today;
   if (end) return end >= today;
   return true;
 }
