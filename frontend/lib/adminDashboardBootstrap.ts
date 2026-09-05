@@ -88,6 +88,7 @@ export async function loadAdminDashboardBootstrap(
         supabase
           .from("member")
           .select("member_id", { count: "exact", head: true })
+          .eq("is_active", true)
           .eq("organization_id", organizationId),
       ),
       timedQuery("members", () =>
