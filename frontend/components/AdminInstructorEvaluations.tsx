@@ -1474,7 +1474,7 @@ export default function AdminInstructorEvaluations({
 */
 
     const classFilterOptions = useMemo(() => {
-        const classMap = new Map<string, { label: string; endDate: string }>();
+        const classMap = new Map<string, { label: string; endDate?: string }>();
 
         swimmers.forEach((swimmer) => {
             swimmer.classes.forEach((classItem) => {
