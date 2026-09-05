@@ -1429,50 +1429,7 @@ export default function AdminInstructorEvaluations({
         return "No swimmers found.";
     }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView, statusFilter]);
 
-/*
-    const classFilterOptions = useMemo(() => {
-        const classMap = new Map<string, string>();
-
-        swimmers.forEach((swimmer) => {
-            swimmer.classes.forEach((classItem) => {
-                if (!isClassCurrentOrRecent(classItem.startDate, classItem.endDate)) {
-                    return;
-                }
-
-                if (!classMap.has(classItem.id)) {
-                    classMap.set(classItem.id, classItem.name);
-                }
-            });
-        });
-
-        const options = Array.from(classMap.entries())
-            .map(([value, label]) => ({ value, label }))
-            .sort((a, b) => a.label.localeCompare(b.label));
-
-        fallbackClassOptions.forEach((option) => {
-            if (!classMap.has(option.value)) {
-                if (!isClassCurrentOrRecent(option.startDate, option.endDate)) {
-                    return;
-                }
-
-                classMap.set(option.value, option.label);
-                options.push(option);
-            }
-        });
-
-        options.sort((a, b) => a.label.localeCompare(b.label));
-
-        if (options.length === 0) {
-            return [
-                { value: "all", label: "All classes" },
-                { value: "__empty_classes", label: "No classes available", disabled: true },
-            ];
-        }
-
-        return [{ value: "all", label: "All classes" }, ...options];
-    }, [swimmers, fallbackClassOptions]);
-*/
-
+    //class filter
     const classFilterOptions = useMemo(() => {
         const classMap = new Map<string, { label: string; endDate?: string }>();
 
@@ -1497,7 +1454,6 @@ export default function AdminInstructorEvaluations({
                 label: data.label,
                 endDate: data.endDate,
             }));
-            //.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
 
         fallbackClassOptions.forEach((option) => {
             if (!classMap.has(option.value)) {
