@@ -360,7 +360,10 @@ function isClassCurrentOrRecent(startDate?: string, endDate?: string) {
     const start = toDateAtMidnight(startDate);
     const end = toDateAtMidnight(endDate);
 
-    const isActive = (!start || start <= today) && (!end || end >= today);
+    //const isActive = (!start || start <= today) && (!end || end >= today);
+    //include all future classes
+    const isActive = (!end || end >= today);
+    
     const endedRecently = Boolean(end && end < today && end >= recentCutoff);
 
     return isActive || endedRecently;
