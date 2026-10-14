@@ -360,12 +360,16 @@ function isClassCurrentOrRecent(startDate?: string, endDate?: string) {
     const start = toDateAtMidnight(startDate);
     const end = toDateAtMidnight(endDate);
 
-    const isActive = (!start || start <= today) && (!end || end >= today);
+    //const isActive = (!start || start <= today) && (!end || end >= today);
+    //include all future classes
+    const isActive = (!end || end >= today);
+    
     const endedRecently = Boolean(end && end < today && end >= recentCutoff);
 
     return isActive || endedRecently;
 }
 
+//status filter should apply to member status only 
 function matchesClassStatusFilter(
     classItem: DashboardClass,
     statusFilter: "all" | "active" | "inactive",
@@ -373,7 +377,9 @@ function matchesClassStatusFilter(
     if (statusFilter === "all") return true;
 
     const isCurrentOrRecent = isClassCurrentOrRecent(classItem.startDate, classItem.endDate);
-    return statusFilter === "active" ? isCurrentOrRecent : !isCurrentOrRecent;
+
+    //return statusFilter === "active" ? isCurrentOrRecent : !isCurrentOrRecent;
+    return isCurrentOrRecent;
 }
 
 function buildCacheKey(page: number, search: string) {
@@ -1423,8 +1429,9 @@ export default function AdminInstructorEvaluations({
         return "No swimmers found.";
     }, [debouncedSearchQuery, classFilter, instructorFilter, groupFilter, listView, statusFilter]);
 
+    //class filter
     const classFilterOptions = useMemo(() => {
-        const classMap = new Map<string, string>();
+        const classMap = new Map<string, { label: string; endDate?: string }>();
 
         swimmers.forEach((swimmer) => {
             swimmer.classes.forEach((classItem) => {
@@ -1433,14 +1440,20 @@ export default function AdminInstructorEvaluations({
                 }
 
                 if (!classMap.has(classItem.id)) {
-                    classMap.set(classItem.id, classItem.name);
+                    classMap.set(classItem.id, {
+                        label: classItem.name,
+                        endDate: classItem.endDate,
+                    });
                 }
             });
         });
 
         const options = Array.from(classMap.entries())
-            .map(([value, label]) => ({ value, label }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+            .map(([value, data]) => ({
+                value,
+                label: data.label,
+                endDate: data.endDate,
+            }));
 
         fallbackClassOptions.forEach((option) => {
             if (!classMap.has(option.value)) {
@@ -1448,22 +1461,41 @@ export default function AdminInstructorEvaluations({
                     return;
                 }
 
-                classMap.set(option.value, option.label);
-                options.push(option);
+                classMap.set(option.value, {
+                    label: option.label,
+                    endDate: option.endDate,
+                });
+
+                options.push({
+                    ...option,
+                    endDate: option.endDate,
+                });
             }
         });
 
-        options.sort((a, b) => a.label.localeCompare(b.label));
+        options.sort(
+            (a, b) =>{
+                if (!a.endDate) return 1;
+                if (!b.endDate) return -1;
+
+                return new Date(b.endDate).getTime() - new Date(a.endDate).getTime();
+            });
 
         if (options.length === 0) {
             return [
                 { value: "all", label: "All classes" },
-                { value: "__empty_classes", label: "No classes available", disabled: true },
+                {
+                    value: "__empty_classes",
+                    label: "No classes available",
+                    disabled: true,
+                },
             ];
         }
 
         return [{ value: "all", label: "All classes" }, ...options];
     }, [swimmers, fallbackClassOptions]);
+
+    
 
     const instructorFilterOptions = useMemo(() => {
         const optionMap = new Map<string, string>();
@@ -1589,7 +1621,7 @@ export default function AdminInstructorEvaluations({
                 return false;
             }
 
-            if (statusFilter === "inactive" && swimmer.isActive !== false) {
+            if (statusFilter === "inactive" && swimmer.isActive === true) {
                 return false;
             }
 
@@ -1598,9 +1630,9 @@ export default function AdminInstructorEvaluations({
                 if (!hasSelectedClass) return false;
             }
 
-            if (classFilter === "all" && statusFilter !== "all" && statusMatchedClasses.length === 0) {
-                return false;
-            }
+            //if (classFilter === "all" && statusFilter !== "all" && statusMatchedClasses.length === 0) {
+            //    return false;
+            //}
 
             if (instructorFilter !== "all") {
                 const memberIdsForInstructor = memberIdsByInstructorId[instructorFilter];

@@ -19,7 +19,9 @@ interface Class {
     created_at: string;
 }
 
-type ClassFilter = 'active' | 'past' | 'future';
+//type ClassFilter = 'active' | 'past' | 'future';
+type ClassFilter = 'active' | 'past' ;
+
 
 interface ClassManagerProps {
     onRefresh: () => void;
@@ -81,7 +83,7 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
         const start = parseDate(classItem.start_date);
         const end = parseDate(classItem.end_date);
         if (end && end < now) return 'past';
-        if (start && start > now) return 'future';
+        //if (start && start > now) return 'future';
         return 'active';
     };
 
@@ -236,7 +238,6 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
             <div className="mb-3 flex flex-wrap gap-2">
                 {([
                     { value: 'active', label: 'Active' },
-                    { value: 'future', label: 'Future' },
                     { value: 'past', label: 'Past' },
                 ] as Array<{ value: ClassFilter; label: string }>).map((option) => (
                     <button
@@ -262,8 +263,8 @@ export default function ClassManager({ onRefresh }: ClassManagerProps) {
                 <p className="text-xs sm:text-sm text-gray-500 text-center py-3 sm:py-4">
                     {classFilter === 'active'
                         ? 'No active classes found.'
-                        : classFilter === 'future'
-                        ? 'No future classes found.'
+                        //: classFilter === 'future'
+                        //? 'No future classes found.'
                         : 'No past classes found.'}
                 </p>
             ) : (

@@ -240,7 +240,7 @@ export async function GET(request: NextRequest) {
               const { data: instructorsData, error: instructorsError } =
                 await supabase
                   .from("person")
-                  .select("person_id, first_name, last_name, email")
+                  .select("person_id, first_name, last_name, email, is_active")
                   .in("person_id", personIdChunk);
 
               if (instructorsError) {

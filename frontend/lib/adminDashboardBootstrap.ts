@@ -62,8 +62,11 @@ function isActiveClassByDateWindow(startDate?: string | null, endDate?: string |
   const start = parseDate(startDate);
   const end = parseDate(endDate);
 
-  if (start && end) return start <= today && today <= end;
-  if (start) return start <= today;
+  //Active classes are all classes either ongoing or in the future
+  //Class should show as active if the end date is in the future, regardless of the start date
+
+  //if (start && end) return start <= today && today <= end;
+  //if (start) return start <= today;
   if (end) return end >= today;
   return true;
 }
@@ -88,6 +91,7 @@ export async function loadAdminDashboardBootstrap(
         supabase
           .from("member")
           .select("member_id", { count: "exact", head: true })
+          .eq("is_active", true)
           .eq("organization_id", organizationId),
       ),
       timedQuery("members", () =>
@@ -245,17 +249,19 @@ export async function loadAdminDashboardBootstrap(
         (instructorRolesResult.data as Array<{ person_organization_id: string }> | null) ?? [],
       );
 
-      totalInstructors = instructorPersonIds.length;
-
       if (instructorPersonIds.length > 0) {
         const instructorsResult = await timedQuery<any>("instructor-names", () =>
           supabase
             .from("person")
             .select("person_id, first_name, last_name, email")
+            .eq("is_active", true)
             .in("person_id", instructorPersonIds),
         );
 
         if (!instructorsResult.error) {
+
+          totalInstructors = instructorsResult.data.length;
+
           instructorNameOptions = ((instructorsResult.data as Array<{
             person_id: string;
             first_name?: string | null;
