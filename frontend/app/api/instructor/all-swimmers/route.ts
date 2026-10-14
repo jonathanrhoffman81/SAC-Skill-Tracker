@@ -373,7 +373,7 @@ export async function GET(request: NextRequest) {
     let mySwimmerIds = new Set<string>();
     try {
       const { data: groupInstructorRows } = await supabaseAdmin
-        .from("active_class_group as")
+        .from("active_class_group")
         .select("group_id")
         .eq("instructor_person_id", person.person_id);
 
